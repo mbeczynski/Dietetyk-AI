@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polityka Prywatności - Dietetyk AI</title>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --text-color: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --accent: #a78bfa;
+      --border-color: rgba(255, 255, 255, 0.05);
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      line-height: 1.6;
+      margin: 0;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+    }
+    h1 {
+      color: var(--primary);
+      font-size: 2rem;
+      margin-top: 0;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 16px;
+    }
+    h2 {
+      color: var(--accent);
+      font-size: 1.4rem;
+      margin-top: 30px;
+    }
+    p, li {
+      color: var(--text-muted);
+      font-size: 1rem;
+    }
+    ul {
+      padding-left: 20px;
+    }
+    li {
+      margin-bottom: 8px;
+    }
+    .footer {
+      margin-top: 40px;
+      border-top: 1px solid var(--border-color);
+      padding-top: 20px;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Polityka Prywatności aplikacji Dietetyk AI</h1>
+    <p>Ostatnia aktualizacja: 16 czerwca 2026 r.</p>
+    
+    <p>Aplikacja <strong>Dietetyk AI</strong> szanuje prywatność swoich użytkowników. Niniejsza Polityka Prywatności wyjaśnia, w jaki sposób zbieramy, przetwarzamy, przechowujemy i chronimy dane osobowe oraz informacje o zdrowiu zintegrowane z zewnętrznych sensorów (Oura Ring i Withings).</p>
+
+    <h2>1. Administrator Danych</h2>
+    <p>Administratorem danych osobowych przetwarzanych w ramach aplikacji jest właściciel serwisu Dietetyk AI. W sprawach związanych z ochroną danych kontaktować się można za pośrednictwem poczty elektronicznej.</p>
+
+    <h2>2. Rodzaje Przetwarzanych Danych</h2>
+    <p>W celu zapewnienia pełnej funkcjonalności serwisu zbieramy i przetwarzamy następujące kategorie danych:</p>
+    <ul>
+      <li><strong>Dane profilowe:</strong> Nazwa użytkownika, adres e-mail oraz (opcjonalnie) zdjęcie profilowe (avatar).</li>
+      <li><strong>Dane żywieniowe:</strong> Informacje o wprowadzanych posiłkach, godzinach ich spożywania oraz ich analizy dietetyczne (kalorie, makroskładniki).</li>
+      <li><strong>Integracja Oura Ring:</strong> Za Twoją zgodą aplikacja pobiera dane o aktywności (kroki, aktywne kalorie), parametry snu (wynik snu, czas trwania, fazy głębokie i REM) oraz wskaźniki regeneracji (wynik gotowości, zmienność tętna HRV, tętno spoczynkowe RHR).</li>
+      <li><strong>Integracja Withings:</strong> Za Twoją zgodą aplikacja pobiera dane o składzie ciała, w tym wagi (kg), procentowej zawartości tkanki tłuszczowej oraz masy mięśniowej (kg).</li>
+    </ul>
+
+    <h2>3. Cel i Podstawa Prawna Przetwarzania</h2>
+    <p>Dane są przetwarzane wyłącznie w celu:</p>
+    <ul>
+      <li>Umożliwienia korzystania z funkcji analizy dietetyczno-treningowej aplikacji.</li>
+      <li>Generowania spersonalizowanych wskazówek dietetycznych za pomocą sztucznej inteligencji Gemini AI.</li>
+      <li>Wysyłania codziennych i tygodniowych raportów podsumowujących na adres e-mail (po włączeniu odpowiedniej opcji).</li>
+    </ul>
+
+    <h2>4. Bezpieczeństwo i Przechowywanie Danych</h2>
+    <p>Wszystkie dane są przechowywane w zabezpieczonej bazie danych na dedykowanym serwerze produkcyjnym VPS w Unii Europejskiej. Połączenie z aplikacją jest szyfrowane przy użyciu certyfikatu SSL (HTTPS). Poświadczenia API (klucze dostępowe, tokeny OAuth) są przechowywane w postaci zaszyfrowanej/zabezpieczonej.</p>
+
+    <h2>5. Udostępnianie Danych</h2>
+    <p>Aplikacja nie udostępnia Twoich danych osobowych ani wskaźników zdrowotnych żadnym podmiotom trzecim, z wyjątkiem:</p>
+    <ul>
+      <li>Bezpośredniego przekazywania danych do API Google Gemini (wyłącznie w celu analizy i generowania porad, bez przechowywania danych po stronie Google).</li>
+      <li>Wysyłki powiadomień e-mail za pośrednictwem zaufanej usługi wysyłkowej Mailgun.</li>
+    </ul>
+
+    <h2>6. Twoje Prawa</h2>
+    <p>Masz prawo w dowolnej chwili uzyskać wgląd w swoje dane, sprostować je, żądać ich usunięcia (prawo do bycia zapomnianym) lub odłączyć integracje (Oura i Withings) bezpośrednio w panelu Ustawień profilu, co spowoduje natychmiastowe usunięcie tokenów dostępowych z naszej bazy.</p>
+
+    <div class="footer">
+      Dietetyk AI &copy; 2026. Wszelkie prawa zastrzeżone.
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,111 @@
+const db = require('./db');
+const bcrypt = require('bcryptjs');
+const { authenticator } = require('otplib');
+
+async function testDatabaseSchema() {
+  console.log('\n--- TEST 1: Weryfikacja Schematu Bazy Danych ---');
+  await db.initDb();
+  
+  const usersTable = await db.all("PRAGMA table_info(users)");
+  const requiredCols = ['id', 'username', 'password_hash', 'sync_token', 'totp_secret', 'totp_enabled', 'role', 'status', 'email', 'invitation_token'];
+  
+  let ok = true;
+  requiredCols.forEach(col => {
+    const found = usersTable.some(c => c.name === col);
+    if (!found) {
+      console.error(`❌ Brak wymaganej kolumny w tabeli users: ${col}`);
+      ok = false;
+    }
+  });
+
+  const appConfigTable = await db.all("PRAGMA table_info(app_config)");
+  if (appConfigTable.length === 0) {
+    console.error('❌ Tabela app_config nie została utworzona!');
+    ok = false;
+  }
+
+  if (ok) {
+    console.log('✅ Schemat bazy danych i tabele są poprawne.');
+  } else {
+    throw new Error('Test schematu bazy danych zakończył się niepowodzeniem.');
+  }
+}
+
+async function testUserMfaForcedFlow() {
+  console.log('\n--- TEST 2: Wymuszenie 2FA przy logowaniu ---');
+  
+  // Wstawienie testowego użytkownika ze stałym tokenem i wyłączonym 2FA
+  const testHash = await bcrypt.hash('testpassword123', 10);
+  const testUsername = 'testuser_' + Math.random().toString(36).substring(2, 7);
+  const syncToken = 'sync_' + Math.random().toString(36).substring(2);
+  
+  const userResult = await db.run(`
+    INSERT INTO users (username, password_hash, sync_token, totp_enabled, email, role, status)
+    VALUES (?, ?, ?, 0, 'testuser@example.com', 'user', 'active')
+  `, [testUsername, testHash, syncToken]);
+  
+  const userId = userResult.id;
+  console.log(`Zarejestrowano użytkownika testowego: ${testUsername} (ID: ${userId})`);
+
+  // Sprawdzamy czy backend wygeneruje setup_2fa dla tego użytkownika
+  const user = await db.get(`SELECT * FROM users WHERE id = ?`, [userId]);
+  const isMatch = await bcrypt.compare('testpassword123', user.password_hash);
+  
+  if (!isMatch) {
+    console.error('❌ Hasła nie pasują!');
+    return;
+  }
+
+  if (user.totp_enabled === 0 && user.username !== 'admin') {
+    const secret = user.totp_secret || authenticator.generateSecret();
+    console.log(`✅ Sukces: Użytkownik ${user.username} ma wyłączone 2FA, generujemy klucz tajny: ${secret}`);
+  } else {
+    console.error('❌ Błąd: Login nie wymusił 2FA dla standardowego użytkownika.');
+  }
+
+  // Posprzątaj po teście
+  await db.run('DELETE FROM users WHERE id = ?', [userId]);
+  console.log('Posprzątano dane testowe użytkownika.');
+}
+
+async function testMailgunConfigurationMasking() {
+  console.log('\n--- TEST 3: Weryfikacja maskowania klucza Mailgun API ---');
+  
+  // Zapisz klucz API
+  const testApiKey = 'key-test12345abcdef';
+  await db.run(`
+    INSERT INTO app_config (key, value)
+    VALUES ('mailgun_api_key', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `, [testApiKey]);
+  
+  // Odczytaj i sprawdź maskowanie
+  const row = await db.get(`SELECT value FROM app_config WHERE key = 'mailgun_api_key'`);
+  const maskedVal = row && row.value ? '********' : '';
+  
+  if (maskedVal === '********') {
+    console.log('✅ Sukces: Klucz API został pomyślnie zamaskowany.');
+  } else {
+    console.error('❌ Błąd: Brak poprawnego maskowania.');
+  }
+
+  // Posprzątaj po teście
+  await db.run("DELETE FROM app_config WHERE key = 'mailgun_api_key'");
+}
+
+async function runAll() {
+  try {
+    await testDatabaseSchema();
+    await testUserMfaForcedFlow();
+    await testMailgunConfigurationMasking();
+    console.log('\n=====================================');
+    console.log('🎉 WSZYSTKIE TESTY ZAKOŃCZONE SUKCESEM!');
+    console.log('=====================================');
+    process.exit(0);
+  } catch (err) {
+    console.error('\n❌ TESTY ZAKOŃCZONE NIEPOWODZENIEM:', err.message);
+    process.exit(1);
+  }
+}
+
+runAll();

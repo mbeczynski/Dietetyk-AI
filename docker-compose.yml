@@ -1,0 +1,70 @@
+services:
+  dietetyk-backend:
+    build:
+      context: .
+      dockerfile: ./docker/backend.Dockerfile
+    container_name: dietetyk-backend
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./backend/.env:/app/.env
+    environment:
+      - DATABASE_DIR=/app/data
+      - PORT=3000
+      - TZ=Europe/Warsaw
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  dietetyk-frontend:
+    build:
+      context: .
+      dockerfile: ./docker/frontend.Dockerfile
+    container_name: dietetyk-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - dietetyk-backend
+      - renacode-landing
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  renacode-landing:
+    build:
+      context: ./../renacode.com
+      dockerfile: Dockerfile
+    container_name: renacode-landing
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  dietetyk-db:
+    image: coleifer/sqlite-web
+    container_name: dietetyk-db
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      - SQLITE_DATABASE=dietetyk.db
+    depends_on:
+      - dietetyk-backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+

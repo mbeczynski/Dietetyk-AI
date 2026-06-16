@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/*.db
+**/*.db-journal
+backend/public
+.git
+.github
+.idea
+.vscode
+backend/.env
+backend/dietetyk.db

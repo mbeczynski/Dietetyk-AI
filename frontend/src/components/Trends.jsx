@@ -1,0 +1,381 @@
+import React, { useState, useEffect } from 'react';
+
+export default function Trends({ selectedDate, sessionToken }) {
+  const [historyData, setHistoryData] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      if (!sessionToken) return;
+      setIsLoading(true);
+      try {
+        const res = await fetch('/api/health/history', {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setHistoryData(data);
+        }
+      } catch (err) {
+        console.error('Błąd pobierania historii zdrowotnej:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchHistory();
+  }, [sessionToken, selectedDate]);
+
+  // Generowanie dni dla aktualnego tygodnia (ostatnie 7 dni kończące się na selectedDate)
+  const currentWeekDays = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() - i);
+    currentWeekDays.push(d.toISOString().slice(0, 10));
+  }
+
+  // Generowanie dni dla poprzedniego tygodnia (7 dni przed aktualnym tygodniem)
+  const prevWeekDays = [];
+  for (let i = 13; i >= 7; i--) {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() - i);
+    prevWeekDays.push(d.toISOString().slice(0, 10));
+  }
+
+  const getDayLabel = (dateStr) => {
+    const d = new Date(dateStr);
+    const day = d.getDay(); // 0: niedziela, 1: poniedziałek...
+    const labels = ['n', 'p', 'w', 'ś', 'c', 'p', 's'];
+    return labels[day];
+  };
+
+  const getMetricData = (days, key) => {
+    return days.map(day => {
+      const row = historyData.find(r => r.date === day);
+      return row ? row[key] : null;
+    });
+  };
+
+  // Obliczenie statystyk dla danej metryki
+  const calculateStats = (key, isTime = false) => {
+    const currValues = getMetricData(currentWeekDays, key).filter(v => v !== null && v !== undefined);
+    const prevValues = getMetricData(prevWeekDays, key).filter(v => v !== null && v !== undefined);
+
+    const currValueRaw = historyData.find(r => r.date === selectedDate)?.[key];
+    const currValue = currValueRaw !== undefined && currValueRaw !== null ? currValueRaw : (currValues.length > 0 ? currValues[currValues.length - 1] : null);
+
+    const currAvg = currValues.length > 0 ? currValues.reduce((a, b) => a + b, 0) / currValues.length : 0;
+    const prevAvg = prevValues.length > 0 ? prevValues.reduce((a, b) => a + b, 0) / prevValues.length : 0;
+
+    let pctChange = 0;
+    if (prevAvg > 0) {
+      pctChange = Math.round(((currAvg - prevAvg) / prevAvg) * 100);
+    }
+
+    return {
+      current: currValue,
+      avg: currAvg,
+      pctChange
+    };
+  };
+
+  const formatDuration = (hoursDecimal) => {
+    if (hoursDecimal === null || hoursDecimal === undefined || hoursDecimal === 0) return '0h 0m';
+    const hours = Math.floor(hoursDecimal);
+    const mins = Math.round((hoursDecimal - hours) * 60);
+    return `${hours}h ${mins}m`;
+  };
+
+  // Renderowanie wykresu słupkowego (Kroki, Kalorie, Czas Snu)
+  const renderBarChart = (title, key, unit, ticks, formatFn = (v) => v, fallbackVal = 0) => {
+    const stats = calculateStats(key);
+    const currentWeekVals = getMetricData(currentWeekDays, key);
+
+    // Max do skalowania wysokości słupków
+    const maxVal = Math.max(...currentWeekVals.filter(v => v !== null), ...ticks, 1);
+
+    const svgWidth = 240;
+    const svgHeight = 90;
+    const barWidth = 14;
+    const gap = 16;
+    const leftMargin = 15;
+    const topMargin = 10;
+
+    return (
+      <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '600' }}>{title}</span>
+          {stats.current !== null && renderComparisonPill(stats.pctChange)}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
+          <div>
+            <span style={{ fontSize: '1.8rem', fontWeight: '800', color: '#fff' }}>
+              {stats.current !== null ? formatFn(stats.current) : '--'}
+            </span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginLeft: '4px' }}>{unit}</span>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+              {stats.current !== null ? `Śr. ${formatFn(stats.avg)} ${unit}` : 'Brak danych'}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px' }}>
+          {/* Wykres SVG */}
+          <svg width="100%" height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={{ overflow: 'visible' }}>
+            {/* Tło siatki - poziome linie pomocnicze */}
+            {ticks.map((t, idx) => {
+              const y = svgHeight - topMargin - ((t / maxVal) * (svgHeight - topMargin - 15));
+              return (
+                <g key={idx}>
+                  <line x1="0" y1={y} x2={svgWidth - 30} y2={y} stroke="rgba(255,255,255,0.04)" strokeDasharray="3,3" />
+                  <text x={svgWidth - 25} y={y + 3} fill="rgba(255,255,255,0.25)" fontSize="7px" textAnchor="start">
+                    {t >= 1000 ? `${(t / 1000).toFixed(0)}K` : t}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Słupki */}
+            {currentWeekDays.map((day, idx) => {
+              const val = currentWeekVals[idx] || 0;
+              const h = (val / maxVal) * (svgHeight - topMargin - 15);
+              const x = leftMargin + idx * (barWidth + gap);
+              const y = svgHeight - topMargin - h;
+
+              return (
+                <g key={idx}>
+                  {/* Słupek z zaokrąglonymi rogami na górze */}
+                  <rect
+                    x={x}
+                    y={y}
+                    width={barWidth}
+                    height={Math.max(h, 2)}
+                    rx="2"
+                    ry="2"
+                    fill={val > 0 ? '#ffffff' : 'rgba(255,255,255,0.08)'}
+                  />
+                  {/* Etykieta dnia tygodnia */}
+                  <text
+                    x={x + barWidth / 2}
+                    y={svgHeight - 1}
+                    fill={day === selectedDate ? '#ffffff' : 'rgba(255,255,255,0.35)'}
+                    fontSize="9px"
+                    fontWeight={day === selectedDate ? 'bold' : 'normal'}
+                    textAnchor="middle"
+                  >
+                    {getDayLabel(day)}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      </div>
+    );
+  };
+
+  // Renderowanie wykresu liniowego/obszarowego (Wynik Snu, Regeneracja, HRV, RHR, Waga)
+  const renderLineChart = (title, key, unit, ticks, isWeight = false, formatFn = (v) => v, fallbackVal = 0) => {
+    const stats = calculateStats(key);
+    const currentWeekVals = getMetricData(currentWeekDays, key);
+
+    // Filter nulls for drawing line, use fallback if all null
+    const validVals = currentWeekVals.filter(v => v !== null && v !== undefined);
+    const hasData = validVals.length > 0;
+
+    // Zakresy y-skalowania
+    const minVal = Math.min(...currentWeekVals.map(v => v || 9999), ...ticks, 1);
+    const maxVal = Math.max(...currentWeekVals.map(v => v || 0), ...ticks, 1);
+    const range = maxVal - minVal || 1;
+
+    const svgWidth = 240;
+    const svgHeight = 90;
+    const leftMargin = 15;
+    const rightMargin = 30;
+    const topMargin = 10;
+    const chartWidth = svgWidth - leftMargin - rightMargin;
+    const chartHeight = svgHeight - topMargin - 15;
+
+    // Budowanie punktów dla linii
+    const points = currentWeekDays.map((day, idx) => {
+      const val = currentWeekVals[idx];
+      if (val === null || val === undefined) return null;
+      const x = leftMargin + (idx / 6) * chartWidth;
+      const y = svgHeight - topMargin - ((val - minVal) / range) * chartHeight;
+      return { x, y, val, day };
+    });
+
+    const activePoints = points.filter(p => p !== null);
+
+    // Budowanie ścieżki SVG dla linii
+    let linePath = '';
+    let areaPath = '';
+    if (activePoints.length > 0) {
+      linePath = `M ${activePoints[0].x} ${activePoints[0].y} ` + activePoints.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ');
+      areaPath = `${linePath} L ${activePoints[activePoints.length - 1].x} ${svgHeight - topMargin} L ${activePoints[0].x} ${svgHeight - topMargin} Z`;
+    }
+
+    // Średnia wartość rzutowana na oś Y
+    const avgY = svgHeight - topMargin - ((stats.avg - minVal) / range) * chartHeight;
+
+    // Znajdowanie ostatniego punktu do postawienia kropki
+    const lastPoint = activePoints[activePoints.length - 1];
+
+    return (
+      <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '600' }}>{title}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {isWeight && stats.current !== null && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Śr. {formatFn(stats.avg)} {unit}</span>}
+            {stats.current !== null && renderComparisonPill(stats.pctChange)}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
+          <div>
+            <span style={{ fontSize: '1.8rem', fontWeight: '800', color: '#fff' }}>
+              {stats.current !== null ? formatFn(stats.current) : '--'}
+            </span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginLeft: '4px' }}>{unit}</span>
+            {!isWeight && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                {stats.current !== null ? `Śr. ${formatFn(stats.avg)} ${unit}` : 'Brak danych'}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px' }}>
+          <svg width="100%" height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={{ overflow: 'visible' }}>
+            <defs>
+              <linearGradient id={`gradient-${key}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#ffffff" stopOpacity="0.12" />
+                <stop offset="100%" stopColor="#ffffff" stopOpacity="0.00" />
+              </linearGradient>
+            </defs>
+
+            {/* Poziome linie pomocnicze */}
+            {ticks.map((t, idx) => {
+              const y = svgHeight - topMargin - ((t - minVal) / range) * chartHeight;
+              return (
+                <g key={idx}>
+                  <line x1="0" y1={y} x2={svgWidth - 30} y2={y} stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
+                  <text x={svgWidth - 25} y={y + 3} fill="rgba(255,255,255,0.25)" fontSize="7px" textAnchor="start">
+                    {formatFn(t)}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Pozioma linia średniej tygodniowej (dashed) */}
+            {hasData && (
+              <line
+                x1={leftMargin}
+                y1={avgY}
+                x2={svgWidth - rightMargin}
+                y2={avgY}
+                stroke="rgba(255,255,255,0.2)"
+                strokeDasharray="3,3"
+                strokeWidth="1"
+              />
+            )}
+
+            {/* Obszar pod wykresem z gradientem */}
+            {hasData && areaPath && (
+              <path d={areaPath} fill={`url(#gradient-${key})`} />
+            )}
+
+            {/* Linia wykresu */}
+            {hasData && linePath && (
+              <path d={linePath} stroke="#ffffff" strokeWidth="2" fill="none" strokeLinecap="round" />
+            )}
+
+            {/* Kropka na ostatnim wpisie */}
+            {hasData && lastPoint && (
+              <circle
+                cx={lastPoint.x}
+                cy={lastPoint.y}
+                r="3.5"
+                fill="#ffffff"
+                stroke="#121314"
+                strokeWidth="1.5"
+              />
+            )}
+
+            {/* Dni tygodnia */}
+            {currentWeekDays.map((day, idx) => {
+              const x = leftMargin + (idx / 6) * chartWidth;
+              return (
+                <text
+                  key={idx}
+                  x={x}
+                  y={svgHeight - 1}
+                  fill={day === selectedDate ? '#ffffff' : 'rgba(255,255,255,0.35)'}
+                  fontSize="9px"
+                  fontWeight={day === selectedDate ? 'bold' : 'normal'}
+                  textAnchor="middle"
+                >
+                  {getDayLabel(day)}
+                </text>
+              );
+            })}
+          </svg>
+        </div>
+      </div>
+    );
+  };
+
+  const renderComparisonPill = (pctChange) => {
+    if (pctChange === 0) {
+      return (
+        <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)', fontWeight: '600', display: 'inline-flex', alignItems: 'center' }}>
+          0% vs poprzedni tydzień
+        </span>
+      );
+    }
+
+    const isPositive = pctChange > 0;
+    const color = isPositive ? '#34d399' : '#f87171';
+    const bg = isPositive ? 'rgba(52, 211, 153, 0.12)' : 'rgba(239, 68, 68, 0.12)';
+    const arrow = isPositive ? '↑' : '↓';
+
+    return (
+      <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', background: bg, color: color, fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+        {arrow} {Math.abs(pctChange)}% vs poprzedni tydzień
+      </span>
+    );
+  };
+
+  if (isLoading && historyData.length === 0) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px', color: 'var(--text-dim)' }}>
+        Ładowanie trendów zdrowotnych...
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      
+      <div className="premium-title-row" style={{ padding: '0 4px' }}>
+        <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#fff' }}>Twoje wykresy</h2>
+        <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)', cursor: 'pointer' }}>Edytuj</span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+        {/* Wykresy słupkowe */}
+        {renderBarChart("Kroki", "steps", "steps", [0, 10000, 20000], (v) => Math.round(v).toLocaleString('pl-PL'), 2551)}
+        {renderBarChart("Całkowita liczba kalorii", "total_calories_burned", "cals", [0, 3500, 7000], (v) => Math.round(v).toLocaleString('pl-PL'), 2851)}
+        {renderBarChart("Czas snu", "sleep_duration", "h", [0, 4, 8], (v) => formatDuration(v), 7.3)}
+
+        {/* Wykresy liniowe */}
+        {renderLineChart("Wynik snu", "sleep_score", "%", [0, 50, 100], false, (v) => Math.round(v), 85)}
+        {renderLineChart("Wskaźnik regeneracji", "readiness_score", "%", [0, 50, 100], false, (v) => Math.round(v), 79)}
+        {renderLineChart("Spoczynkowe tętno", "rhr", "bpm", [40, 60, 80], false, (v) => Math.round(v), 56)}
+        {renderLineChart("Zmienność rytmu zatokowego", "hrv", "ms", [20, 50, 80], false, (v) => Math.round(v), 50)}
+        {renderLineChart("Masa ciała", "weight", "kg", [80, 95, 110], true, (v) => (Math.round(v * 10) / 10).toLocaleString('pl-PL'), 93.8)}
+      </div>
+
+    </div>
+  );
+}

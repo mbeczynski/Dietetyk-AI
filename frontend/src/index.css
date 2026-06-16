@@ -1,0 +1,1407 @@
+:root {
+  /* Kolory i paleta */
+  --bg-dark: #070913;
+  --bg-card: rgba(18, 22, 41, 0.7);
+  --bg-card-hover: rgba(26, 32, 58, 0.85);
+  --border-glass: rgba(255, 255, 255, 0.07);
+  --border-glass-glow: rgba(124, 58, 237, 0.3);
+  
+  --color-primary: #7c3aed; /* Fiolet AI */
+  --color-secondary: #10b981; /* Szmaragd Zdrowia */
+  --color-orange: #f59e0b; /* Pomarańcz */
+  --color-blue: #06b6d4; /* Cyjan aktywności */
+  
+  --gradient-ai: linear-gradient(135deg, #7c3aed 0%, #c084fc 100%);
+  --gradient-health: linear-gradient(135deg, #059669 0%, #34d399 100%);
+  --gradient-dark: linear-gradient(180deg, #070913 0%, #0d1127 100%);
+  --gradient-orange: linear-gradient(135deg, #d97706 0%, #fbbf24 100%);
+
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  
+  --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --shadow-glow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  --shadow-purple: 0 0 20px 0 rgba(124, 58, 237, 0.15);
+  
+  --radius-lg: 18px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  
+  --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--bg-dark);
+  background-image: var(--gradient-dark);
+  color: var(--text-main);
+  font-family: var(--font-main);
+  min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Dekoracyjne tła - świetliste kule */
+body::before, body::after {
+  content: '';
+  position: absolute;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  filter: blur(100px);
+  z-index: -1;
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+body::before {
+  top: 10%;
+  left: 10%;
+  background: var(--color-primary);
+}
+
+body::after {
+  bottom: 15%;
+  right: 10%;
+  background: var(--color-secondary);
+}
+
+a, button, input, textarea {
+  font-family: inherit;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* Layout i kontenery */
+.app-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px 80px 16px;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-glass);
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  font-size: 2.2rem;
+}
+
+.logo-text {
+  font-size: 1.8rem;
+  background: linear-gradient(135deg, #ffffff 0%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-family: var(--font-display);
+  font-weight: 800;
+}
+
+.logo-badge {
+  background: var(--gradient-ai);
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 20px;
+  color: #fff;
+  font-weight: 600;
+  margin-left: 6px;
+  vertical-align: middle;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.nav-tabs {
+  display: flex;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-glass);
+}
+
+.nav-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: var(--transition-smooth);
+}
+
+.nav-tab:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.nav-tab.active {
+  background: var(--gradient-ai);
+  color: white;
+  box-shadow: var(--shadow-purple);
+}
+
+/* Szklane karty (Glassmorphism) */
+.glass-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-glow);
+  transition: var(--transition-smooth);
+}
+
+.glass-card:hover {
+  background: var(--bg-card-hover);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Layout Dashboardu */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+
+@media (min-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: 2fr 1fr;
+  }
+  
+  .full-width-column {
+    grid-column: span 2;
+  }
+}
+
+.summary-cards-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stats-ring-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Kaloryczny ring (Circle SVG) */
+.progress-ring-container {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  margin: 16px 0;
+}
+
+.progress-ring-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.progress-ring-val {
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: white;
+  line-height: 1;
+}
+
+.progress-ring-lbl {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.progress-ring-circle {
+  transition: stroke-dashoffset 0.8s ease-in-out;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+/* Makroskładniki */
+.macros-container {
+  width: 100%;
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.macro-bar-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.macro-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.macro-name {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.macro-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.macro-dot.protein { background-color: var(--color-primary); }
+.macro-dot.carbs { background-color: var(--color-secondary); }
+.macro-dot.fat { background-color: var(--color-orange); }
+
+.macro-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.macro-bar-fill {
+  height: 100%;
+  border-radius: 10px;
+  transition: width 0.6s ease-in-out;
+}
+
+.macro-bar-fill.protein { background: var(--gradient-ai); }
+.macro-bar-fill.carbs { background: var(--gradient-health); }
+.macro-bar-fill.fat { background: var(--gradient-orange); }
+
+/* Wprowadzanie posiłków (Logger) */
+.logger-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card-title {
+  font-size: 1.35rem;
+  font-family: var(--font-display);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.textarea-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.meal-input {
+  width: 100%;
+  min-height: 100px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  color: white;
+  font-size: 1rem;
+  resize: vertical;
+  transition: var(--transition-smooth);
+}
+
+.meal-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 15px 0 rgba(124, 58, 237, 0.1);
+}
+
+.btn-primary {
+  background: var(--gradient-ai);
+  border: none;
+  color: white;
+  padding: 14px 24px;
+  border-radius: var(--radius-md);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: var(--shadow-purple);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px 0 rgba(124, 58, 237, 0.3);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Animacja ładowania analizy */
+.loading-pulse {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  background-color: white;
+  border-radius: 50%;
+  animation: pulse 1.2s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(0.6); opacity: 0.5; }
+  50% { transform: scale(1.2); opacity: 1; }
+}
+
+/* Karta Porad Dietetyka AI */
+.advice-card {
+  background: linear-gradient(135deg, rgba(88, 28, 135, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  position: relative;
+  overflow: hidden;
+}
+
+.advice-card::before {
+  content: '✨';
+  position: absolute;
+  right: 15px;
+  top: 15px;
+  font-size: 2rem;
+  opacity: 0.2;
+}
+
+.advice-text {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--text-main);
+  font-style: italic;
+}
+
+/* Lista posiłków */
+.meals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.meal-item {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: var(--transition-smooth);
+}
+
+.meal-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.meal-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.meal-time {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.meal-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.btn-delete {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: var(--transition-smooth);
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.btn-delete:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.meal-nutrition-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.nutrition-chip {
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-glass);
+}
+
+.nutrition-chip.calories {
+  background: rgba(124, 58, 237, 0.1);
+  color: #c084fc;
+  border-color: rgba(124, 58, 237, 0.2);
+}
+
+.nutrition-chip.protein {
+  background: rgba(16, 185, 129, 0.1);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.nutrition-chip.carbs {
+  background: rgba(6, 182, 212, 0.1);
+  color: #22d3ee;
+  border-color: rgba(6, 182, 212, 0.2);
+}
+
+.nutrition-chip.fat {
+  background: rgba(245, 158, 11, 0.1);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
+.meal-comment {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+  border-left: 2px solid var(--color-primary);
+  padding-left: 10px;
+  margin-top: 4px;
+}
+
+.meal-score {
+  align-self: flex-start;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 600;
+}
+
+.meal-score.high { color: var(--color-secondary); }
+.meal-score.med { color: var(--color-orange); }
+.meal-score.low { color: #ef4444; }
+
+/* Sekcja Apple Health i Aktywności */
+.activity-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.activity-stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+}
+
+.activity-stat-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.activity-stat-icon {
+  font-size: 1.5rem;
+}
+
+.activity-stat-label {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.activity-stat-value {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.workouts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.workout-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(6, 182, 212, 0.05);
+  border: 1px solid rgba(6, 182, 212, 0.15);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+
+.workout-name {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workout-details {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.workout-calories {
+  font-weight: 700;
+  color: var(--color-blue);
+}
+
+.sync-status {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-align: right;
+  margin-top: 4px;
+}
+
+/* Konfiguracja skrótu (Setup) */
+.setup-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.setup-step {
+  display: flex;
+  gap: 16px;
+}
+
+.setup-step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--gradient-ai);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.setup-step-text {
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.setup-step-text strong {
+  color: var(--text-main);
+}
+
+.code-block {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: #e2e8f0;
+  word-break: break-all;
+  margin-top: 8px;
+  user-select: all;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-copy {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-glass);
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: var(--transition-smooth);
+}
+
+.btn-copy:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+/* Panel Ustawień (Settings Form) */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.input-field {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: white;
+  font-size: 1rem;
+  transition: var(--transition-smooth);
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* Komunikaty o błędach/powodzeniu */
+.alert {
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.alert-success {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.alert-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--text-dim);
+  padding: 32px 0;
+  font-style: italic;
+}
+
+/* Mini statsy */
+.mini-stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+}
+
+.mini-stat-lbl {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mini-stat-val {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+
+.mini-stat-val.eaten { color: var(--color-primary); }
+.mini-stat-val.burned { color: var(--color-secondary); }
+.mini-stat-val.net { color: white; }
+
+/* Kalendarz dla Dashboardu */
+.date-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+}
+
+.date-input {
+  background: transparent;
+  border: none;
+  color: white;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.date-input:focus {
+  outline: none;
+}
+
+/* --- PREMIUM DASHBOARD STYLES (Oura / WHOOP / Athlytic style) --- */
+
+.premium-dashboard-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 16px 8px;
+  background-color: #0b0c0c;
+  color: #fff;
+  border-radius: 28px;
+  box-sizing: border-box;
+}
+
+.dashboard-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+}
+
+@media (min-width: 992px) {
+  .premium-dashboard-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-auto-flow: row;
+    gap: 24px;
+    padding: 24px;
+    align-items: start;
+  }
+
+  .dietetyk-ai-banner {
+    grid-column: span 2;
+  }
+}
+
+.premium-card {
+  background: #141515;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 20px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.premium-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.premium-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: -0.01em;
+}
+
+.premium-title-info {
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+/* Ring indicators next to each other */
+.ring-row {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.ring-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.ring-item-label {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Cel Obciążenia Slider */
+.load-goal-card {
+  background: #141515;
+}
+
+.load-goal-range-container {
+  margin: 8px 0;
+  position: relative;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.load-goal-track-bg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  z-index: 1;
+}
+
+.load-goal-highlight-range {
+  position: absolute;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  z-index: 2;
+}
+
+.load-goal-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  border: 2px solid #141515;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+  transform: translateX(-50%);
+  z-index: 3;
+}
+
+.load-goal-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 2px;
+}
+
+/* Energia i stres */
+.energy-battery-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.energy-battery-container {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  flex-grow: 1;
+}
+
+.energy-battery-segment {
+  width: 3px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 1px;
+}
+
+.energy-battery-segment.filled {
+  background: #34d399; /* Green energy segment */
+}
+
+.energy-battery-pct {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #fff;
+  font-family: var(--font-display);
+}
+
+.energy-stres-box {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.energy-stres-score {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #fff;
+  font-family: var(--font-display);
+  line-height: 1;
+}
+
+.energy-stres-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.energy-stres-substats {
+  display: flex;
+  gap: 8px;
+  font-size: 0.75rem;
+  margin-top: 4px;
+}
+
+.energy-stres-substat-green { color: #34d399; }
+.energy-stres-substat-blue { color: #38bdf8; }
+.energy-stres-substat-cyan { color: #22d3ee; }
+
+/* Sleep Stage Breakdown */
+.sleep-breakdown-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.sleep-stage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sleep-stage-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.sleep-stage-bar-container {
+  display: flex;
+  align-items: center;
+  position: relative;
+  height: 14px;
+}
+
+.sleep-stage-bar-bg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+  z-index: 1;
+}
+
+.sleep-stage-bar-fill {
+  position: absolute;
+  height: 4px;
+  border-radius: 2px;
+  z-index: 3;
+}
+
+/* Sleep stage colors */
+.sleep-stage-bar-fill.deep { background: #7c3aed; }
+.sleep-stage-bar-fill.rem { background: #3b82f6; }
+.sleep-stage-bar-fill.light { background: #06b6d4; }
+.sleep-stage-bar-fill.awake { background: #64748b; }
+
+.sleep-stage-typical-bracket {
+  position: absolute;
+  height: 10px;
+  border-left: 2px solid rgba(255, 255, 255, 0.3);
+  border-right: 2px solid rgba(255, 255, 255, 0.3);
+  z-index: 2;
+  transform: translateY(-3px);
+}
+
+/* Cardio Load Gradient slider */
+.cardio-load-gradient-bar {
+  height: 8px;
+  background: linear-gradient(to right, #06b6d4 0%, #10b981 25%, #f59e0b 50%, #ef4444 75%, #a855f7 100%);
+  border-radius: 4px;
+  position: relative;
+  margin: 12px 0 6px 0;
+}
+
+.cardio-load-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  border: 2px solid #141515;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+  transform: translate(-50%, -3px);
+}
+
+/* Workout Cards */
+.premium-workout-card {
+  background: #1c1d1d;
+  border-radius: 16px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  margin-bottom: 8px;
+  transition: all 0.2s ease;
+}
+
+.premium-workout-card:hover {
+  background: #232424;
+}
+
+.premium-workout-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.premium-workout-icon-box {
+  width: 40px;
+  height: 40px;
+  background: #252626;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+.premium-workout-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.premium-workout-duration {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.premium-workout-right {
+  text-align: right;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.premium-workout-calories {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* AI Dietetyk Banner */
+.dietetyk-ai-banner {
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.12) 0%, rgba(6, 182, 212, 0.03) 100%);
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  border-radius: 20px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dietetyk-ai-advice-text {
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.btn-dietetyk-ask {
+  background: linear-gradient(90deg, #7c3aed, #a855f7);
+  border: none;
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  transition: all 0.2s ease;
+}
+
+.btn-dietetyk-ask:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+}
+
+.dietetyk-greeting {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+
+/* --- CELE DZIENNE & TRENDY ZDROWOTNE (Athlytic/WHOOP/Apple Health Style) --- */
+
+.premium-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+}
+
+.daily-goal-card {
+  background: #141515;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.daily-goal-title {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+}
+
+.daily-goal-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.daily-goal-value {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #fff;
+  font-family: var(--font-display);
+}
+
+.daily-goal-unit {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.daily-goal-progress-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.daily-goal-progress-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  flex-grow: 1;
+  overflow: hidden;
+}
+
+.daily-goal-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.daily-goal-progress-fill.red {
+  background: #ef4444;
+}
+
+.daily-goal-progress-fill.gradient {
+  background: linear-gradient(to right, #eab308, #22c55e);
+}
+
+.daily-goal-progress-fill.grey {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.daily-goal-pct {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 600;
+  width: 30px;
+  text-align: right;
+}
+
+/* Trend Health Cards */
+.trend-health-card {
+  background: #141515;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trend-health-title {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trend-health-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.trend-health-value {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #fff;
+  font-family: var(--font-display);
+}
+
+.trend-health-unit {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.trend-range-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.trend-range-segment {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  position: relative;
+}
+
+.trend-range-segment.active-blue {
+  background: #0284c7;
+}
+
+.trend-range-segment.active-green {
+  background: #22c55e;
+}
+
+.trend-range-segment.active-orange {
+  background: #ea580c;
+}
+
+.trend-range-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  border: 3px solid #141515;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+}
+
+.trend-health-footer {
+  display: flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.trend-health-footer.success {
+  color: #10b981;
+}
+
+.trend-health-footer.warning {
+  color: #fbbf24;
+}
+
+/* Responsywność na telefonach */
+@media (max-width: 768px) {
+  header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+  }
+
+  .nav-tabs {
+    width: 100%;
+    display: flex;
+    overflow-x: auto;
+    white-space: nowrap;
+    padding: 6px;
+    gap: 6px;
+    -webkit-overflow-scrolling: touch;
+    -ms-overflow-style: none; /* IE/Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+
+  .nav-tabs::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+  }
+
+  .nav-tab {
+    flex-shrink: 0;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+}

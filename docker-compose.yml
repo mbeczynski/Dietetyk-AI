@@ -1,8 +1,6 @@
 services:
   dietetyk-backend:
-    build:
-      context: .
-      dockerfile: ./docker/backend.Dockerfile
+    image: ghcr.io/mbeczynski/dietetyk-ai-backend:latest
     container_name: dietetyk-backend
     restart: unless-stopped
     volumes:
@@ -19,9 +17,7 @@ services:
         max-file: "3"
 
   dietetyk-frontend:
-    build:
-      context: .
-      dockerfile: ./docker/frontend.Dockerfile
+    image: ghcr.io/mbeczynski/dietetyk-ai-frontend:latest
     container_name: dietetyk-frontend
     restart: unless-stopped
     ports:

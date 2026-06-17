@@ -201,26 +201,19 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
       (d.muscle_mass !== null && d.muscle_mass !== undefined)
     );
 
-    let isMock = false;
     if (validData.length === 0) {
-      isMock = true;
-      const baseW = weight || 79.5;
-      const baseF = fatRatio || 15.2;
-      const baseM = muscleMass || 64.3;
-      validData = Array.from({ length: 7 }, (_, i) => {
-        const d = new Date();
-        d.setDate(d.getDate() - (6 - i));
-        // Subtle oscillations to simulate progress
-        const wOffset = Math.sin(i * 0.8) * 0.6 - (i * 0.1);
-        const fOffset = Math.cos(i * 0.8) * 0.3 - (i * 0.05);
-        const mOffset = Math.sin(i * 0.8 + 1) * 0.2 + (i * 0.05);
-        return {
-          date: d.toISOString().split('T')[0],
-          weight: Math.round((baseW + wOffset) * 10) / 10,
-          fat_ratio: Math.round((baseF + fOffset) * 10) / 10,
-          muscle_mass: Math.round((baseM + mOffset) * 10) / 10
-        };
-      });
+      // Brak rzeczywistych danych wagi/składu ciała w bazie - pokazujemy
+      // szczery komunikat o braku danych, bez generowania fałszywego wykresu.
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '10px', marginTop: '10px' }}>
+          <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>
+            📈 Trend składu ciała
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.35)', padding: '12px 0', textAlign: 'center' }}>
+            Brak danych - zsynchronizuj wagę z Withings, aby zobaczyć trend
+          </div>
+        </div>
+      );
     } else if (validData.length === 1) {
       const single = validData[0];
       const prevDate = new Date(single.date);
@@ -286,7 +279,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '10px', marginTop: '10px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>
-          <span>📈 Trend składu ciała {isMock ? '(Dane demonstracyjne)' : '(30 dni)'}</span>
+          <span>📈 Trend składu ciała (30 dni)</span>
           <div style={{ display: 'flex', gap: '8px' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
               <span style={{ width: '6px', height: '6px', background: '#38bdf8', borderRadius: '50%' }}></span> Waga
@@ -320,29 +313,28 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     );
   };
 
-  // 1. DANE RZECZYWISTE LUB REALISTYCZNE FALLBACKI (zgodne ze zrzutami ekranu)
-  const isDemo = !summary.sleep_score && !summary.readiness_score;
-  
-  const sleepScore = summary.sleep_score !== null && summary.sleep_score !== undefined ? summary.sleep_score : (isDemo ? 85 : 0);
-  const readinessScore = summary.readiness_score !== null && summary.readiness_score !== undefined ? summary.readiness_score : (isDemo ? 79 : 0);
-  
-  const steps = isDemo ? (summary.steps || 1347) : (summary.steps || 0);
-  const activeCalories = isDemo ? (summary.calories_burned_active || 539) : (summary.calories_burned_active || 0);
-  const effortScore = activeCalories > 0 ? Math.round(Math.min((activeCalories / 800) * 100, 100)) : (isDemo ? 67 : 0);
-  const activeMinutes = isDemo ? (summary.active_minutes || 45) : (summary.active_minutes || 0);
-  
-  const sleepDurationHours = summary.sleep_duration !== null && summary.sleep_duration !== undefined ? summary.sleep_duration : (isDemo ? 7.91 : 0);
-  const sleepDeepHours = summary.sleep_deep !== null && summary.sleep_deep !== undefined ? summary.sleep_deep : (isDemo ? 1.35 : 0);
-  const sleepRemHours = summary.sleep_rem !== null && summary.sleep_rem !== undefined ? summary.sleep_rem : (isDemo ? 1.98 : 0);
-  const sleepAwakeMins = isDemo ? 37 : 0;
-  const sleepLightHours = Math.max(sleepDurationHours - sleepDeepHours - sleepRemHours - (sleepAwakeMins / 60), 0) || (isDemo ? 3.96 : 0);
-  
-  const rhr = summary.rhr || (isDemo ? 54 : 0);
-  const hrv = summary.hrv || (isDemo ? 48 : 0);
-  
-  const weight = summary.weight !== null && summary.weight !== undefined ? summary.weight : (isDemo ? 79.5 : 0);
-  const fatRatio = summary.fat_ratio !== null && summary.fat_ratio !== undefined ? summary.fat_ratio : (isDemo ? 15.2 : 0);
-  const muscleMass = summary.muscle_mass !== null && summary.muscle_mass !== undefined ? summary.muscle_mass : (isDemo ? 64.3 : 0);
+  // Dane wyłącznie z bazy (backend) - bez sztucznych wartości demo.
+  // Gdy w bazie nie ma jeszcze wartości za dany dzień, pokazujemy 0 / brak danych.
+  const sleepScore = summary.sleep_score ?? 0;
+  const readinessScore = summary.readiness_score ?? 0;
+
+  const steps = summary.steps || 0;
+  const activeCalories = summary.calories_burned_active || 0;
+  const effortScore = activeCalories > 0 ? Math.round(Math.min((activeCalories / 800) * 100, 100)) : 0;
+  const activeMinutes = summary.active_minutes || 0;
+
+  const sleepDurationHours = summary.sleep_duration ?? 0;
+  const sleepDeepHours = summary.sleep_deep ?? 0;
+  const sleepRemHours = summary.sleep_rem ?? 0;
+  const sleepAwakeMins = 0;
+  const sleepLightHours = Math.max(sleepDurationHours - sleepDeepHours - sleepRemHours - (sleepAwakeMins / 60), 0);
+
+  const rhr = summary.rhr || 0;
+  const hrv = summary.hrv || 0;
+
+  const weight = summary.weight ?? 0;
+  const fatRatio = summary.fat_ratio ?? 0;
+  const muscleMass = summary.muscle_mass ?? 0;
 
   // Kalkulacja stref tętna (Karvonen) na bazie RHR z Oura
   const userMaxHr = 190; // Domyślny Max HR (odpowiednik wieku ~30 lat)
@@ -377,21 +369,16 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   // Bateria body battery
   const batteryPct = Math.round(Math.min(Math.max(readinessScore + 18, 50), 99));
   
-  // Lista ostatnich aktywności (zrzuty ekranu)
-  const demoActivities = [
-    { type: 'Chodzenie na zewnątrz', dateLabel: 'niedziela', duration: '15 min', calories: 63 },
-    { type: 'inne', dateLabel: 'niedziela', duration: '2godz 0min', calories: 2999 },
-    { type: 'Chodzenie na zewnątrz', dateLabel: 'piątek', duration: '12 min', calories: 54 }
-  ];
-  
-  const activities = (summary.workouts && summary.workouts.length > 0) 
+  // Lista ostatnich aktywności - tylko rzeczywiste treningi z bazy.
+  // Gdy brak treningów, lista jest pusta (patrz pusty stan w renderze).
+  const activities = (summary.workouts && summary.workouts.length > 0)
     ? summary.workouts.map(w => ({
         type: w.type,
         dateLabel: 'dzisiaj',
         duration: `${w.duration_mins} min`,
         calories: w.calories
       }))
-    : demoActivities;
+    : [];
 
   // Stany dla wbudowanego czatu z asystentem Dietetyk AI
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -463,7 +450,6 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               : "Dzisiaj wyglądasz na gotowego do lżejszej pracy"
             }
           </span>
-          {isDemo && <span style={{ fontSize: '0.65rem', background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: '4px', color: 'rgba(255,255,255,0.5)' }}>DEMO DATA</span>}
         </div>
         <p className="dietetyk-ai-advice-text">
           {aiAdvice && aiAdvice.length > 30 
@@ -630,7 +616,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           <div className="premium-title-row">
             <span className="premium-title">⚖️ Waga i Skład Ciała</span>
             <span style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.4)' }}>
-              {summary.weight !== null && summary.weight !== undefined ? 'Zsynchronizowano' : 'Demo data'}
+              {summary.weight !== null && summary.weight !== undefined ? 'Zsynchronizowano' : 'Brak danych'}
             </span>
           </div>
           
@@ -866,7 +852,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {activities.map((act, idx) => (
+              {activities.length > 0 ? activities.map((act, idx) => (
                 <div key={idx} className="premium-workout-card">
                   <div className="premium-workout-left">
                     <div className="premium-workout-icon-box">
@@ -882,7 +868,11 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                     <span className="premium-workout-calories">{act.calories} kcal</span>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.35)', textAlign: 'center', padding: '8px 0' }}>
+                  Brak zarejestrowanych aktywności
+                </div>
+              )}
             </div>
           </div>
         </div>

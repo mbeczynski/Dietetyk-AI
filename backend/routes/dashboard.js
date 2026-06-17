@@ -149,14 +149,24 @@ router.get('/api/dashboard', async (req, res) => {
     }
 
     if (!hasValidCache) {
+      // WAŻNE: dashboard ma być generowany WYŁĄCZNIE na podstawie danych już
+      // zapisanych w bazie - to samo zgłoszenie, które kazało nam usunąć dane
+      // demo z frontendu, dotyczy też tego miejsca. Wcześniej ten blok robił
+      // "await generateContentWithFallback(...)" w trakcie obsługi żądania
+      // GET /api/dashboard, czyli CAŁA odpowiedź (w tym kroki, kalorie, sen -
+      // dane, które już były gotowe w bazie) czekała na żywe zapytanie sieciowe
+      // do Gemini. Stąd wrażenie "dashboard się dociąga" przy otwarciu strony.
+      // Teraz: jeśli cache porady wygasł, zwracamy to, co już mamy w bazie
+      // (starą poradę lub domyślny placeholder) natychmiast, a nową poradę
+      // generujemy w tle (fire-and-forget) - trafi do bazy i pojawi się przy
+      // kolejnym odświeżeniu/synchronizacji, bez blokowania tej odpowiedzi.
       const apiKeyRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'gemini_api_key'", [req.user.id]);
       const userApiKey = apiKeyRow ? apiKeyRow.value : null;
       const forceCustomKeyOnly = req.user.role !== 'admin';
       const canUseAI = userApiKey || (!forceCustomKeyOnly && (genAI || process.env.GEMINI_API_KEY));
 
       if (canUseAI && (meals.length > 0 || activeCalories > 0 || health.sleep_score !== null)) {
-        try {
-          const advicePrompt = `
+        const advicePrompt = `
 Jesteś profesjonalnym, przyjaznym dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
 Przeanalizuj dzisiejszy bilans użytkownika ${req.user.username} dla dnia ${date}:
 Cele użytkownika:
@@ -187,23 +197,22 @@ Napisz krótką, spersonalizowaną poradę dietetyczno-treningową (maksymalnie 
 Pisz bezpośrednio do użytkownika w języku polskim. Bądź konkretny, motywujący i merytoryczny.
 `;
 
-          aiAdvice = await generateContentWithFallback(advicePrompt, false, null, userApiKey, forceCustomKeyOnly);
-          aiAdvice = aiAdvice.trim();
-
-          const nowStr = new Date().toISOString();
-          await db.run(`
-            INSERT INTO health_metrics (user_id, date, ai_advice, ai_advice_generated_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(user_id, date) DO UPDATE SET
-              ai_advice = excluded.ai_advice,
-              ai_advice_generated_at = excluded.ai_advice_generated_at
-          `, [req.user.id, date, aiAdvice, nowStr]);
-        } catch (aiErr) {
-          console.error('[API ERROR] Błąd generowania porady AI:', aiErr);
-          if (!health || !health.ai_advice) {
-            aiAdvice = 'Błąd generowania analizy AI. Spróbuj odświeżyć stronę za chwilę.';
-          }
-        }
+        // Fire-and-forget: NIE czekamy na wynik w tym żądaniu (patrz komentarz wyżej).
+        generateContentWithFallback(advicePrompt, false, null, userApiKey, forceCustomKeyOnly)
+          .then(async (text) => {
+            const trimmed = text.trim();
+            const nowStr = new Date().toISOString();
+            await db.run(`
+              INSERT INTO health_metrics (user_id, date, ai_advice, ai_advice_generated_at)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(user_id, date) DO UPDATE SET
+                ai_advice = excluded.ai_advice,
+                ai_advice_generated_at = excluded.ai_advice_generated_at
+            `, [req.user.id, date, trimmed, nowStr]);
+          })
+          .catch((aiErr) => {
+            console.error('[API ERROR] Błąd generowania porady AI (w tle):', aiErr);
+          });
       }
     }
 

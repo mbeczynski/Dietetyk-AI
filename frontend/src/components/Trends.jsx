@@ -23,6 +23,11 @@ export default function Trends({ selectedDate, sessionToken }) {
       }
     };
     fetchHistory();
+
+    // Odśwież dane co godzinę, zgodnie z godzinową synchronizacją po stronie backendu,
+    // żeby otwarte wykresy też pokazywały najnowsze dane z bazy bez przeładowania strony.
+    const intervalId = setInterval(fetchHistory, 60 * 60 * 1000);
+    return () => clearInterval(intervalId);
   }, [sessionToken, selectedDate]);
 
   // Generowanie dni dla aktualnego tygodnia (ostatnie 7 dni kończące się na selectedDate)
@@ -55,13 +60,19 @@ export default function Trends({ selectedDate, sessionToken }) {
     });
   };
 
-  // Obliczenie statystyk dla danej metryki
-  const calculateStats = (key, isTime = false) => {
+  // Obliczenie statystyk dla danej metryki.
+  // noFallbackToday: dla liczników dziennych (kroki, kalorie, sen), które mają zerować się
+  // każdego dnia, NIE podstawiamy wartości z poprzednich dni, gdy dzisiejszy wpis jeszcze
+  // nie istnieje w bazie (czyli zanim nadejdzie pierwsza dzisiejsza synchronizacja) - inaczej
+  // wykres pokazywałby wczorajsze kroki/kalorie jako dzisiejsze.
+  const calculateStats = (key, noFallbackToday = false) => {
     const currValues = getMetricData(currentWeekDays, key).filter(v => v !== null && v !== undefined);
     const prevValues = getMetricData(prevWeekDays, key).filter(v => v !== null && v !== undefined);
 
     const currValueRaw = historyData.find(r => r.date === selectedDate)?.[key];
-    const currValue = currValueRaw !== undefined && currValueRaw !== null ? currValueRaw : (currValues.length > 0 ? currValues[currValues.length - 1] : null);
+    const currValue = currValueRaw !== undefined && currValueRaw !== null
+      ? currValueRaw
+      : (noFallbackToday ? 0 : (currValues.length > 0 ? currValues[currValues.length - 1] : null));
 
     const currAvg = currValues.length > 0 ? currValues.reduce((a, b) => a + b, 0) / currValues.length : 0;
     const prevAvg = prevValues.length > 0 ? prevValues.reduce((a, b) => a + b, 0) / prevValues.length : 0;
@@ -87,7 +98,7 @@ export default function Trends({ selectedDate, sessionToken }) {
 
   // Renderowanie wykresu słupkowego (Kroki, Kalorie, Czas Snu)
   const renderBarChart = (title, key, unit, ticks, formatFn = (v) => v, fallbackVal = 0) => {
-    const stats = calculateStats(key);
+    const stats = calculateStats(key, true);
     const currentWeekVals = getMetricData(currentWeekDays, key);
 
     // Max do skalowania wysokości słupków

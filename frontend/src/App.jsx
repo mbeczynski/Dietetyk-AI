@@ -133,6 +133,17 @@ export default function App() {
     }
   }, [selectedDate, sessionToken]);
 
+  // Automatyczne odświeżanie danych z bazy co godzinę (zgodnie z godzinową
+  // synchronizacją Oura/Withings po stronie backendu), żeby otwarty dashboard
+  // pokazywał najnowsze dane bez potrzeby ręcznego przeładowania strony.
+  useEffect(() => {
+    if (!sessionToken) return;
+    const intervalId = setInterval(() => {
+      fetchDashboardData();
+    }, 60 * 60 * 1000);
+    return () => clearInterval(intervalId);
+  }, [sessionToken, selectedDate]);
+
   useEffect(() => {
     if (sessionToken) {
       const params = new URLSearchParams(window.location.search);

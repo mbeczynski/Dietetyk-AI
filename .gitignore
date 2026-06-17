@@ -35,5 +35,9 @@ Thumbs.db
 # Runtime database & SSL certs directory
 data/
 
+# Pliki tymczasowe / backupy z refaktoryzacji (nie wdrażać)
+backend/server.js.monolith.bak
+backend/**/*.tmp
+
 # Track package-lock.json regardless of global gitignore settings
 !package-lock.json

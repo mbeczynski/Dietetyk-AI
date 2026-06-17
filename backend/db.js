@@ -2,6 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 // Konfiguracja katalogu i ścieżki do bazy danych (trwałość danych w Dockerze)
 const dbDir = process.env.DATABASE_DIR || __dirname;
@@ -116,13 +117,29 @@ const initDb = async () => {
     )
   `);
 
-  // Wstawienie domyślnego konta admina
-  const marcinHash = await bcrypt.hash('3bda877d518c8cf7a80b32bb', 10);
+  // Wstawienie domyślnego konta admina.
+  // Hasło NIE jest zapisane na sztywno w kodzie źródłowym. Przy pierwszym starcie
+  // (gdy konto admina jeszcze nie istnieje w bazie) generujemy losowe, bezpieczne
+  // hasło, wymuszamy jego zmianę przy pierwszym logowaniu (force_password_change = 1)
+  // i wypisujemy je JEDNORAZOWO w logach serwera. Można je też nadpisać zmienną
+  // środowiskową ADMIN_INITIAL_PASSWORD przy pierwszym uruchomieniu.
+  const existingAdmin = await get(`SELECT id FROM users WHERE id = 1`);
+  if (!existingAdmin) {
+    const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || crypto.randomBytes(12).toString('base64url');
+    const adminHash = await bcrypt.hash(initialPassword, 10);
+    const adminSyncToken = crypto.randomBytes(16).toString('hex');
 
-  await run(`
-    INSERT OR IGNORE INTO users (id, username, password_hash, sync_token, totp_enabled, email, role, status)
-    VALUES (1, 'admin', ?, 'a76963d1b237ba656a301d06e23cc66e', 0, 'mbeczynski@gmail.com', 'admin', 'active')
-  `, [marcinHash]);
+    await run(`
+      INSERT INTO users (id, username, password_hash, sync_token, totp_enabled, email, role, status, force_password_change)
+      VALUES (1, 'admin', ?, ?, 0, 'mbeczynski@gmail.com', 'admin', 'active', 1)
+    `, [adminHash, adminSyncToken]);
+
+    console.log('========================================================');
+    console.log('[DB INIT] Utworzono konto admina. Tymczasowe hasło logowania:');
+    console.log(`[DB INIT]   ${initialPassword}`);
+    console.log('[DB INIT] Zostaniesz poproszony o zmianę hasła przy pierwszym logowaniu.');
+    console.log('========================================================');
+  }
 
   // Dla istniejących instalacji: zaktualizuj nazwę na admin, ustaw email oraz rolę 'admin'
   try {
@@ -213,16 +230,14 @@ const initDb = async () => {
     await run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (1, ?, ?)`, [s.key, s.value]);
   }
 
-  const defaultPaulinaSettings = [
-    { key: 'target_calories', value: '2000' },
-    { key: 'target_protein', value: '120' },
-    { key: 'target_carbs', value: '200' },
-    { key: 'target_fat', value: '65' },
-    { key: 'bmr', value: '1400' }
-  ];
-  for (const s of defaultPaulinaSettings) {
-    await run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (2, ?, ?)`, [s.key, s.value]);
-  }
+  // UWAGA: Usunięto wstawianie domyślnych ustawień na sztywno dla user_id = 2 ("Paulina").
+  // Konto Paulina jest usuwane przy każdym starcie (patrz wyżej) i nowi użytkownicy
+  // dołączają wyłącznie przez system zaproszeń/rejestracji (routes/auth.js), który sam
+  // wstawia własne wartości domyślne dla nowo utworzonego user_id. Pozostawienie tego
+  // hardkodowanego wstawienia dla user_id = 2 powodowało realny błąd: pierwszy nowy
+  // użytkownik zarejestrowany w świeżej instalacji dostawał id = 2 (AUTOINCREMENT) i przez
+  // "INSERT OR IGNORE" w register-public dziedziczył błędnie te martwe, nieaktualne wartości
+  // (2000 kcal / 120g białka) zamiast swoich właściwych domyślnych ustawień (2500/150g).
 
   // 5. Tabela Sesji (Sessions) z terminem ważności
   await run(`

@@ -122,7 +122,6 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
               <input
                 type="file"
                 accept="image/*"
-                capture="environment"
                 ref={fileInputRef}
                 onChange={handleImageChange}
                 style={{ display: 'none' }}

@@ -1,0 +1,313 @@
+const express = require('express');
+const router = express.Router();
+const db = require('../db');
+const { requireAuth } = require('../middleware/auth');
+const { getAppConfig, getUserSetting, generateOAuthState, verifyOAuthState } = require('../services/oauthHelpers');
+const { syncOura, syncWithings } = require('../services/sync');
+
+router.get('/api/auth/oura', async (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(401).send('Brak tokenu autoryzacji.');
+
+  try {
+    const session = await db.get(`SELECT user_id, expires_at FROM sessions WHERE token = ?`, [token]);
+    if (!session || new Date(session.expires_at) < new Date()) {
+      return res.status(401).send('Sesja wygasła.');
+    }
+
+    const clientId = await getUserSetting(session.user_id, 'oura_client_id');
+    if (!clientId) {
+      return res.status(400).send('Integracja z Oura nie jest skonfigurowana. Wpisz Client ID w Ustawieniach.');
+    }
+
+    const state = generateOAuthState(session.user_id);
+    const appUrl = await getAppConfig('app_url');
+    const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+    const redirectUri = `${base}/api/auth/oura/callback`;
+
+    const authUrl = `https://cloud.ouraring.com/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=daily%20heartrate%20personal`;
+    res.redirect(authUrl);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Błąd serwera.');
+  }
+});
+
+// Trasa OAuth: Callback Oura
+router.get('/api/auth/oura/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (!code && !state) {
+    return res.status(200).send('Callback URL verification OK');
+  }
+  if (error) {
+    console.error('[OAUTH CALLBACK ERROR]', error);
+    return res.redirect('/?tab=setup&error=auth_failed');
+  }
+
+  const verified = verifyOAuthState(state);
+  if (!verified) {
+    return res.status(400).send('Nieprawidłowy parametr state (zabezpieczenie CSRF).');
+  }
+
+  const { userId, service } = verified;
+
+  if (service === 'withings') {
+    try {
+      const clientId = await getUserSetting(userId, 'withings_client_id');
+      const clientSecret = await getUserSetting(userId, 'withings_client_secret');
+      const appUrl = await getAppConfig('app_url');
+      const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+      const redirectUri = `${base}${req.path}`; // dynamiczny matching: /api/auth/oura/callback
+
+      const response = await fetch('https://wbsapi.withings.net/v2/oauth2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          action: 'requesttoken',
+          grant_type: 'authorization_code',
+          client_id: clientId,
+          client_secret: clientSecret,
+          code: code,
+          redirect_uri: redirectUri
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Wymiana kodu Withings nieudana: ${errText}`);
+      }
+
+      const resJson = await response.json();
+      if (resJson.status !== 0) {
+        throw new Error(`Withings API błąd: ${resJson.error || resJson.status}`);
+      }
+
+      const data = resJson.body;
+      const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
+
+      await db.run(`
+        INSERT INTO oauth_tokens (user_id, service, access_token, refresh_token, expires_at)
+        VALUES (?, 'withings', ?, ?, ?)
+        ON CONFLICT(user_id, service) DO UPDATE SET
+          access_token = excluded.access_token,
+          refresh_token = excluded.refresh_token,
+          expires_at = excluded.expires_at
+      `, [userId, data.access_token, data.refresh_token, expiresAt]);
+
+      await syncWithings(userId);
+      return res.redirect('/?tab=setup&success=withings');
+    } catch (err) {
+      console.error('[OAUTH WITHINGS CALLBACK VIA OURA ERROR]', err.message);
+      return res.redirect('/?tab=setup&error=withings_exchange_failed');
+    }
+  }
+
+  try {
+    const clientId = await getUserSetting(userId, 'oura_client_id');
+    const clientSecret = await getUserSetting(userId, 'oura_client_secret');
+    const appUrl = await getAppConfig('app_url');
+    const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+    const redirectUri = `${base}/api/auth/oura/callback`;
+
+    const response = await fetch('https://api.ouraring.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Wymiana kodu Oura nieudana: ${errText}`);
+    }
+
+    const data = await response.json();
+    console.log('[OAUTH OURA CALLBACK SUCCESS] Zwrócone dane tokenu:', {
+      access_token_masked: data.access_token ? data.access_token.substring(0, 10) + '...' : null,
+      refresh_token_masked: data.refresh_token ? data.refresh_token.substring(0, 10) + '...' : null,
+      scopes: data.scope || data.scopes || 'brak pola scope w response'
+    });
+    const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
+
+    await db.run(`
+      INSERT INTO oauth_tokens (user_id, service, access_token, refresh_token, expires_at)
+      VALUES (?, 'oura', ?, ?, ?)
+      ON CONFLICT(user_id, service) DO UPDATE SET
+        access_token = excluded.access_token,
+        refresh_token = excluded.refresh_token,
+        expires_at = excluded.expires_at
+    `, [userId, data.access_token, data.refresh_token, expiresAt]);
+
+    await syncOura(userId);
+    res.redirect('/?tab=setup&success=oura');
+  } catch (err) {
+    console.error('[OAUTH OURA CALLBACK ERROR]', err.message);
+    res.redirect('/?tab=setup&error=oura_exchange_failed');
+  }
+});
+
+// Trasa OAuth: Odłączenie Oura
+router.post('/api/auth/oura/disconnect', requireAuth, async (req, res) => {
+  try {
+    await db.run(`DELETE FROM oauth_tokens WHERE user_id = ? AND service = 'oura'`, [req.user.id]);
+    res.json({ success: true, message: 'Rozłączono z Oura Ring.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd rozłączania Oura.' });
+  }
+});
+
+// Trasy OAuth: Inicjalizacja Withings
+router.get('/api/auth/withings', async (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(401).send('Brak tokenu autoryzacji.');
+
+  try {
+    const session = await db.get(`SELECT user_id, expires_at FROM sessions WHERE token = ?`, [token]);
+    if (!session || new Date(session.expires_at) < new Date()) {
+      return res.status(401).send('Sesja wygasła.');
+    }
+
+    const clientId = await getUserSetting(session.user_id, 'withings_client_id');
+    if (!clientId) {
+      return res.status(400).send('Integracja z Withings nie jest skonfigurowana. Wpisz Client ID w Ustawieniach.');
+    }
+
+    const state = generateOAuthState(session.user_id, 'withings');
+    const appUrl = await getAppConfig('app_url');
+    const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+    const dbRedirectUri = await getUserSetting(session.user_id, 'withings_redirect_uri');
+    const redirectUri = dbRedirectUri || process.env.WITHINGS_REDIRECT_URI || `${base}/api/auth/withings/callback`;
+
+    const authUrl = `https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=user.metrics,user.activity`;
+    res.redirect(authUrl);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Błąd serwera.');
+  }
+});
+
+// Trasa OAuth: Callback Withings
+router.get('/api/auth/withings/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (!code && !state) {
+    return res.status(200).send('Callback URL verification OK');
+  }
+  if (error) {
+    console.error('[OAUTH WITHINGS CALLBACK ERROR]', error);
+    return res.redirect('/?tab=setup&error=withings_auth_failed');
+  }
+
+  const verified = verifyOAuthState(state);
+  if (!verified) {
+    return res.status(400).send('Nieprawidłowy parametr state (zabezpieczenie CSRF).');
+  }
+  const { userId } = verified;
+
+  try {
+    const clientId = await getUserSetting(userId, 'withings_client_id');
+    const clientSecret = await getUserSetting(userId, 'withings_client_secret');
+    const appUrl = await getAppConfig('app_url');
+    const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+    const redirectUri = `${base}${req.path}`;
+
+    const response = await fetch('https://wbsapi.withings.net/v2/oauth2', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        action: 'requesttoken',
+        grant_type: 'authorization_code',
+        client_id: clientId,
+        client_secret: clientSecret,
+        code: code,
+        redirect_uri: redirectUri
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Wymiana kodu Withings nieudana: ${errText}`);
+    }
+
+    const resJson = await response.json();
+    if (resJson.status !== 0) {
+      throw new Error(`Withings API błąd: ${resJson.error || resJson.status}`);
+    }
+
+    const data = resJson.body;
+    const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
+
+    await db.run(`
+      INSERT INTO oauth_tokens (user_id, service, access_token, refresh_token, expires_at)
+      VALUES (?, 'withings', ?, ?, ?)
+      ON CONFLICT(user_id, service) DO UPDATE SET
+        access_token = excluded.access_token,
+        refresh_token = excluded.refresh_token,
+        expires_at = excluded.expires_at
+    `, [userId, data.access_token, data.refresh_token, expiresAt]);
+
+    await syncWithings(userId);
+    res.redirect('/?tab=setup&success=withings');
+  } catch (err) {
+    console.error('[OAUTH WITHINGS CALLBACK ERROR]', err.message);
+    res.redirect('/?tab=setup&error=withings_exchange_failed');
+  }
+});
+
+// Trasa OAuth: Odłączenie Withings
+router.post('/api/auth/withings/disconnect', requireAuth, async (req, res) => {
+  try {
+    await db.run(`DELETE FROM oauth_tokens WHERE user_id = ? AND service = 'withings'`, [req.user.id]);
+    res.json({ success: true, message: 'Rozłączono z Withings.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd rozłączania Withings.' });
+  }
+});
+
+// Ręczna synchronizacja danych Oura i Withings dla zalogowanego użytkownika
+router.post('/api/sync/manual', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  let ouraSuccess = false;
+  let withingsSuccess = false;
+  let ouraError = null;
+  let withingsError = null;
+
+  // Sprawdzamy czy ma tokeny Oura
+  const hasOura = await db.get(`SELECT 1 FROM oauth_tokens WHERE user_id = ? AND service = 'oura'`, [userId]);
+  if (hasOura) {
+    try {
+      const result = await syncOura(userId);
+      ouraSuccess = result.success;
+      ouraError = result.success ? null : result.error;
+    } catch (err) {
+      ouraError = err.message;
+    }
+  }
+
+  // Sprawdzamy czy ma tokeny Withings
+  const hasWithings = await db.get(`SELECT 1 FROM oauth_tokens WHERE user_id = ? AND service = 'withings'`, [userId]);
+  if (hasWithings) {
+    try {
+      const result = await syncWithings(userId);
+      withingsSuccess = result.success;
+      withingsError = result.success ? null : result.error;
+    } catch (err) {
+      withingsError = err.message;
+    }
+  }
+
+  res.json({
+    success: true,
+    oura: hasOura ? { success: ouraSuccess, error: ouraError } : null,
+    withings: hasWithings ? { success: withingsSuccess, error: withingsError } : null,
+    message: 'Zakończono proces manualnej synchronizacji.'
+  });
+});
+
+module.exports = router;

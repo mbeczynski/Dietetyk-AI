@@ -4,7 +4,7 @@ const db = require('../db');
 const bcrypt = require('bcryptjs');
 const { authenticator } = require('otplib');
 const QRCode = require('qrcode');
-const { sendWeeklySummaryForUser, sendDailySummaryForUser } = require('../services/summaries');
+const { sendWeeklySummaryForUser, sendDailySummaryForUser, sendMonthlySummaryForUser } = require('../services/summaries');
 
 router.get('/api/settings', async (req, res) => {
   try {
@@ -86,6 +86,10 @@ router.get('/api/user/profile', async (req, res) => {
     const summaryDayRow = await db.get(`SELECT value FROM settings WHERE user_id = ? AND key = 'weekly_summary_day'`, [req.user.id]);
     const summaryTimeRow = await db.get(`SELECT value FROM settings WHERE user_id = ? AND key = 'weekly_summary_time'`, [req.user.id]);
 
+    const monthlyEnabledRow = await db.get(`SELECT value FROM settings WHERE user_id = ? AND key = 'monthly_summary_enabled'`, [req.user.id]);
+    const monthlyDayRow = await db.get(`SELECT value FROM settings WHERE user_id = ? AND key = 'monthly_summary_day'`, [req.user.id]);
+    const monthlyTimeRow = await db.get(`SELECT value FROM settings WHERE user_id = ? AND key = 'monthly_summary_time'`, [req.user.id]);
+
     const hasOuraRow = await db.get(`SELECT 1 FROM oauth_tokens WHERE user_id = ? AND service = 'oura'`, [req.user.id]);
     const hasWithingsRow = await db.get(`SELECT 1 FROM oauth_tokens WHERE user_id = ? AND service = 'withings'`, [req.user.id]);
 
@@ -98,6 +102,9 @@ router.get('/api/user/profile', async (req, res) => {
       weekly_summary_enabled: summaryEnabledRow ? summaryEnabledRow.value === '1' : false,
       weekly_summary_day: summaryDayRow ? Number(summaryDayRow.value) : 1,
       weekly_summary_time: summaryTimeRow ? summaryTimeRow.value : '18:00',
+      monthly_summary_enabled: monthlyEnabledRow ? monthlyEnabledRow.value === '1' : false,
+      monthly_summary_day: monthlyDayRow ? Number(monthlyDayRow.value) : 1,
+      monthly_summary_time: monthlyTimeRow ? monthlyTimeRow.value : '09:00',
       has_oura: !!hasOuraRow,
       has_withings: !!hasWithingsRow
     });
@@ -109,7 +116,7 @@ router.get('/api/user/profile', async (req, res) => {
 
 // 6b. Aktualizacja profilu użytkownika (avatar, email, syncToken)
 router.post('/api/user/profile', async (req, res) => {
-  const { avatar, email, syncToken, weekly_summary_enabled, weekly_summary_day, weekly_summary_time } = req.body;
+  const { avatar, email, syncToken, weekly_summary_enabled, weekly_summary_day, weekly_summary_time, monthly_summary_enabled, monthly_summary_day, monthly_summary_time } = req.body;
   try {
     if (syncToken !== undefined) {
       const trimmedToken = syncToken.trim();
@@ -151,6 +158,28 @@ router.post('/api/user/profile', async (req, res) => {
         VALUES (?, 'weekly_summary_time', ?)
         ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
       `, [req.user.id, weekly_summary_time]);
+    }
+
+    if (monthly_summary_enabled !== undefined) {
+      await db.run(`
+        INSERT INTO settings (user_id, key, value)
+        VALUES (?, 'monthly_summary_enabled', ?)
+        ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
+      `, [req.user.id, monthly_summary_enabled]);
+    }
+    if (monthly_summary_day !== undefined) {
+      await db.run(`
+        INSERT INTO settings (user_id, key, value)
+        VALUES (?, 'monthly_summary_day', ?)
+        ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
+      `, [req.user.id, monthly_summary_day]);
+    }
+    if (monthly_summary_time !== undefined) {
+      await db.run(`
+        INSERT INTO settings (user_id, key, value)
+        VALUES (?, 'monthly_summary_time', ?)
+        ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
+      `, [req.user.id, monthly_summary_time]);
     }
 
     res.json({ success: true, message: 'Profil został zaktualizowany.' });
@@ -295,6 +324,21 @@ router.post('/api/user/send-daily-summary', async (req, res) => {
     });
   } catch (err) {
     console.error('[API ERROR] Błąd wysyłania podsumowania codziennego:', err);
+    res.status(500).json({ error: 'Błąd serwera podczas wysyłania e-maila: ' + err.message });
+  }
+});
+
+// 6iii. Wysyłanie podsumowania miesięcznego na e-mail (Mailgun)
+router.post('/api/user/send-monthly-summary', async (req, res) => {
+  try {
+    const customEmail = req.body.email;
+    await sendMonthlySummaryForUser(req.user.id, customEmail);
+    res.json({
+      success: true,
+      message: 'Miesięczne podsumowanie zostało pomyślnie wysłane.'
+    });
+  } catch (err) {
+    console.error('[API ERROR] Błąd wysyłania podsumowania miesięcznego:', err);
     res.status(500).json({ error: 'Błąd serwera podczas wysyłania e-maila: ' + err.message });
   }
 });

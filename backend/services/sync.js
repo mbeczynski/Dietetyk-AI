@@ -90,7 +90,8 @@ async function syncOura(userId) {
         readiness_score: null,
         hrv: null,
         rhr: null,
-        temperature_deviation: null
+        temperature_deviation: null,
+        active_minutes: null
       };
     }
 
@@ -167,7 +168,16 @@ async function syncOura(userId) {
           metrics.steps, metrics.active_calories, metrics.total_calories,
           metrics.sleep_score, metrics.sleep_duration, metrics.sleep_deep, metrics.sleep_rem,
           metrics.readiness_score, metrics.hrv, metrics.rhr, metrics.temperature_deviation,
-          metrics.active_minutes || 0,
+          // BŁĄD (naprawione): było `metrics.active_minutes || 0`. Jeśli dane
+          // aktywności Oura nie trafiały dla danej daty, metrics.active_minutes
+          // było null/undefined, a `|| 0` zamieniało to na liczbę 0 - w
+          // przeciwieństwie do wszystkich innych pól powyżej, które poprawnie
+          // przechodzą jako null. Ponieważ UPDATE używa
+          // COALESCE(excluded.active_minutes, active_minutes), a COALESCE
+          // traktuje 0 jako realną wartość (nie NULL), KAŻDA synchronizacja bez
+          // dopasowanych danych aktywności na tę datę zerowała już zapisaną,
+          // prawdziwą wartość minut aktywności z poprzedniej synchronizacji.
+          metrics.active_minutes,
           lastSyncTime
         ]);
       }

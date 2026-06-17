@@ -6,6 +6,162 @@ const { authenticator } = require('otplib');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const loginAttempts = require('../services/loginAttempts');
+const { getAppConfig } = require('../services/oauthHelpers');
+
+// Pomocnicza funkcja do tworzenia stałego tokenu sesji (7 dni) - używana też przez logowanie Google
+async function createPermanentSession(userId) {
+  const permanentToken = 'sess_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  await db.run(`
+    INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
+    VALUES (?, ?, ?, 0)
+  `, [permanentToken, userId, expiresAt]);
+  return permanentToken;
+}
+
+// ===== Logowanie przez Google =====
+// Krok 1: przekierowanie do ekranu zgody Google. Client ID/Secret konfigurowane
+// globalnie przez admina (Panel Admina), bo logowanie dotyczy całej aplikacji,
+// a nie integracji per-użytkownik (jak Oura/Withings).
+router.get('/api/auth/google', async (req, res) => {
+  try {
+    const clientId = await getAppConfig('google_client_id');
+    if (!clientId) {
+      return res.status(400).send('Logowanie przez Google nie jest skonfigurowane. Administrator musi wpisać Client ID/Secret w Panelu Admina.');
+    }
+
+    const appUrl = await getAppConfig('app_url');
+    const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+    const redirectUri = `${base}/api/auth/google/callback`;
+
+    const state = crypto.randomBytes(16).toString('hex');
+
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent('openid email profile')}&state=${state}&prompt=select_account`;
+    res.redirect(authUrl);
+  } catch (err) {
+    console.error('[GOOGLE LOGIN ERROR]', err);
+    res.status(500).send('Błąd serwera.');
+  }
+});
+
+// Krok 2: callback - wymiana kodu na token, pobranie profilu, znalezienie/utworzenie konta
+router.get('/api/auth/google/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error) {
+    console.error('[GOOGLE LOGIN CALLBACK ERROR]', error);
+    return res.redirect('/?google_error=auth_failed');
+  }
+  if (!code) {
+    return res.redirect('/?google_error=auth_failed');
+  }
+
+  try {
+    const clientId = await getAppConfig('google_client_id');
+    const clientSecret = await getAppConfig('google_client_secret');
+    const appUrl = await getAppConfig('app_url');
+    const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+    const redirectUri = `${base}/api/auth/google/callback`;
+
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code'
+      })
+    });
+
+    if (!tokenRes.ok) {
+      const errText = await tokenRes.text();
+      throw new Error(`Wymiana kodu Google nieudana: ${errText}`);
+    }
+    const tokenData = await tokenRes.json();
+
+    const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { 'Authorization': `Bearer ${tokenData.access_token}` }
+    });
+    if (!userInfoRes.ok) {
+      throw new Error('Nie udało się pobrać profilu użytkownika Google.');
+    }
+    const profile = await userInfoRes.json(); // { sub, email, name, picture, email_verified, ... }
+
+    if (!profile.sub) {
+      throw new Error('Odpowiedź Google nie zawiera identyfikatora użytkownika (sub).');
+    }
+
+    // 1. Szukamy użytkownika już powiązanego z tym kontem Google
+    let user = await db.get(`SELECT * FROM users WHERE google_id = ?`, [profile.sub]);
+
+    if (!user && profile.email) {
+      // 2. Jeśli nie znaleziono, ale e-mail się zgadza z istniejącym kontem (logowanie hasłem) - łączymy konta
+      const existingByEmail = await db.get(`SELECT * FROM users WHERE email = ?`, [profile.email]);
+      if (existingByEmail) {
+        await db.run(`UPDATE users SET google_id = ? WHERE id = ?`, [profile.sub, existingByEmail.id]);
+        user = existingByEmail;
+      }
+    }
+
+    if (!user) {
+      // 3. Brak konta - tworzymy nowe. Konto Google nie ma znanego hasła, więc
+      // generujemy losowy, niewykorzystywany hash (NOT NULL w schemacie), żeby
+      // logowanie hasłem dla tego konta było faktycznie niemożliwe, dopóki
+      // użytkownik sam nie ustawi hasła w Ustawieniach.
+      const randomPassword = crypto.randomBytes(24).toString('hex');
+      const passwordHash = await bcrypt.hash(randomPassword, 10);
+      const syncToken = 'sync_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+
+      let baseUsername = (profile.email ? profile.email.split('@')[0] : profile.name || 'user').replace(/[^a-zA-Z0-9_.-]/g, '') || 'user';
+      let username = baseUsername;
+      let suffix = 0;
+      while (await db.get(`SELECT id FROM users WHERE username = ?`, [username])) {
+        suffix += 1;
+        username = `${baseUsername}${suffix}`;
+      }
+
+      const result = await db.run(`
+        INSERT INTO users (username, password_hash, sync_token, totp_enabled, email, role, status, google_id)
+        VALUES (?, ?, ?, 0, ?, 'user', 'active', ?)
+      `, [username, passwordHash, syncToken, profile.email || null, profile.sub]);
+
+      const defaultSettings = [
+        { key: 'target_calories', value: '2500' },
+        { key: 'target_protein', value: '150' },
+        { key: 'target_carbs', value: '250' },
+        { key: 'target_fat', value: '80' },
+        { key: 'bmr', value: '1800' }
+      ];
+      for (const s of defaultSettings) {
+        await db.run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (?, ?, ?)`, [result.id, s.key, s.value]);
+      }
+
+      user = await db.get(`SELECT * FROM users WHERE id = ?`, [result.id]);
+    }
+
+    if (user.status !== 'active') {
+      return res.redirect('/?google_error=account_inactive');
+    }
+
+    // Respektujemy 2FA, jeśli użytkownik je wcześniej włączył (logowanie Google nie omija 2FA)
+    if (user.totp_enabled === 1) {
+      const tempToken = 'temp_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+      await db.run(`
+        INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
+        VALUES (?, ?, ?, 0)
+      `, [tempToken, user.id, expiresAt]);
+      return res.redirect(`/?google_temp_token=${tempToken}`);
+    }
+
+    const permanentToken = await createPermanentSession(user.id);
+    res.redirect(`/?google_token=${permanentToken}`);
+  } catch (err) {
+    console.error('[GOOGLE LOGIN CALLBACK ERROR]', err.message);
+    res.redirect('/?google_error=exchange_failed');
+  }
+});
 
 router.post('/api/login', async (req, res) => {
   const { username, password } = req.body;

@@ -75,4 +75,44 @@ router.delete('/api/body-measurements/:id', requireAuth, async (req, res) => {
   }
 });
 
+// Dodanie wypitej wody (licznik dzienny, addytywny - wielokrotne kliknięcia w ciągu dnia się sumują)
+router.post('/api/water/add', requireAuth, async (req, res) => {
+  const { date, amount_ml } = req.body;
+  const amount = Number(amount_ml);
+  if (!date) return res.status(400).json({ error: 'Data jest wymagana.' });
+  if (!amount || isNaN(amount) || amount <= 0) {
+    return res.status(400).json({ error: 'Ilość wody (amount_ml) musi być liczbą większą od zera.' });
+  }
+  try {
+    await db.run(`
+      INSERT INTO health_metrics (user_id, date, water_ml)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id, date) DO UPDATE SET water_ml = COALESCE(water_ml, 0) + excluded.water_ml
+    `, [req.user.id, date, Math.round(amount)]);
+
+    const row = await db.get(`SELECT water_ml FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, date]);
+    res.json({ success: true, water_ml: row ? row.water_ml : amount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd zapisu licznika wody.' });
+  }
+});
+
+// Zresetowanie licznika wody dla danego dnia (np. cofnięcie błędnego wpisu)
+router.post('/api/water/reset', requireAuth, async (req, res) => {
+  const { date } = req.body;
+  if (!date) return res.status(400).json({ error: 'Data jest wymagana.' });
+  try {
+    await db.run(`
+      INSERT INTO health_metrics (user_id, date, water_ml)
+      VALUES (?, ?, 0)
+      ON CONFLICT(user_id, date) DO UPDATE SET water_ml = 0
+    `, [req.user.id, date]);
+    res.json({ success: true, water_ml: 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd resetowania licznika wody.' });
+  }
+});
+
 module.exports = router;

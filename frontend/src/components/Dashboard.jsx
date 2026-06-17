@@ -169,9 +169,12 @@ const TrendCard = ({ title, valueText, unitText, activeSegment, color, footerTex
   );
 };
 
-export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDate, onNavigate }) {
+export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDate, onNavigate, onRefresh }) {
   const [historyData, setHistoryData] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isAddingWater, setIsAddingWater] = useState(false);
+  const [customWaterAmount, setCustomWaterAmount] = useState('');
+  const [waterMessage, setWaterMessage] = useState('');
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -359,6 +362,11 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const eatenCarbs = summary.eaten_carbs || 0;
   const eatenFat = summary.eaten_fat || 0;
 
+  // Licznik wody
+  const waterMl = summary.water_ml || 0;
+  const targetWaterMl = summary.target_water_ml || 2500;
+  const waterPct = Math.min(Math.round((waterMl / targetWaterMl) * 100), 100);
+
   // Cel obciążenia (Athlytic/WHOOP style)
   // Wyznacza przedział docelowy w oparciu o readiness
   const loadGoalMin = Math.round(readinessScore * 0.4);
@@ -425,6 +433,61 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
       setChatMessages(prev => [...prev, { sender: 'ai', text: 'Błąd sieciowy. Nie można połączyć się z asystentem Dietetyk AI.' }]);
     } finally {
       setIsSendingChat(false);
+    }
+  };
+
+  // Dodanie wypitej wody (przyciski szybkiego dodawania + własna ilość)
+  const handleAddWater = async (amountMl) => {
+    const amount = Number(amountMl);
+    if (!amount || isNaN(amount) || amount <= 0 || isAddingWater) return;
+    setIsAddingWater(true);
+    setWaterMessage('');
+    try {
+      const res = await fetch('/api/water/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`
+        },
+        body: JSON.stringify({ date: selectedDate, amount_ml: amount })
+      });
+      if (res.ok) {
+        setCustomWaterAmount('');
+        if (onRefresh) onRefresh();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setWaterMessage(data.error || 'Nie udało się zapisać wody.');
+      }
+    } catch (err) {
+      setWaterMessage('Błąd sieciowy. Nie udało się zapisać wody.');
+    } finally {
+      setIsAddingWater(false);
+    }
+  };
+
+  const handleResetWater = async () => {
+    if (isAddingWater) return;
+    setIsAddingWater(true);
+    setWaterMessage('');
+    try {
+      const res = await fetch('/api/water/reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`
+        },
+        body: JSON.stringify({ date: selectedDate })
+      });
+      if (res.ok) {
+        if (onRefresh) onRefresh();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setWaterMessage(data.error || 'Nie udało się zresetować licznika wody.');
+      }
+    } catch (err) {
+      setWaterMessage('Błąd sieciowy. Nie udało się zresetować licznika wody.');
+    } finally {
+      setIsAddingWater(false);
     }
   };
 
@@ -542,14 +605,110 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               percentage={Math.min(Math.round((sleepDurationHours / (summary?.target_sleep_duration || 7.2)) * 100), 100)} 
               barType="gradient" 
             />
-            <DailyGoalCard 
-              title="Minuty ćwiczeń" 
-              val1={String(activeMinutes)} 
-              unit1="min" 
-              percentage={Math.min(Math.round((activeMinutes / (summary?.target_active_minutes || 30)) * 100), 100)} 
-              barType={activeMinutes > 0 ? "gradient" : "grey"} 
+            <DailyGoalCard
+              title="Minuty ćwiczeń"
+              val1={String(activeMinutes)}
+              unit1="min"
+              percentage={Math.min(Math.round((activeMinutes / (summary?.target_active_minutes || 30)) * 100), 100)}
+              barType={activeMinutes > 0 ? "gradient" : "grey"}
+            />
+            <DailyGoalCard
+              title="Woda"
+              val1={waterMl.toLocaleString('pl-PL')}
+              unit1="ml"
+              percentage={waterPct}
+              barType={waterPct < 30 ? "red" : "gradient"}
             />
           </div>
+        </div>
+
+        {/* LICZNIK WODY - szybkie dodawanie */}
+        <div className="premium-card">
+          <div className="premium-title-row">
+            <span className="premium-title">💧 Nawodnienie</span>
+            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
+              {waterMl.toLocaleString('pl-PL')} / {targetWaterMl.toLocaleString('pl-PL')} ml
+            </span>
+          </div>
+
+          <div className="daily-goal-progress-container" style={{ margin: '8px 0 14px' }}>
+            <div className="daily-goal-progress-track">
+              <div
+                className={`daily-goal-progress-fill ${waterPct < 30 ? 'red' : 'gradient'}`}
+                style={{ width: `${waterPct}%` }}
+              ></div>
+            </div>
+            <div className="daily-goal-pct">{waterPct}%</div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={isAddingWater}
+              onClick={() => handleAddWater(250)}
+              style={{ flex: '1 1 80px', padding: '10px 8px' }}
+            >
+              +250 ml
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={isAddingWater}
+              onClick={() => handleAddWater(500)}
+              style={{ flex: '1 1 80px', padding: '10px 8px' }}
+            >
+              +500 ml
+            </button>
+            <input
+              type="number"
+              min="1"
+              placeholder="Własna (ml)"
+              value={customWaterAmount}
+              onChange={(e) => setCustomWaterAmount(e.target.value)}
+              style={{
+                flex: '1 1 100px',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '10px',
+                color: '#fff',
+                padding: '0 10px',
+                fontSize: '0.85rem'
+              }}
+            />
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={isAddingWater || !customWaterAmount}
+              onClick={() => handleAddWater(Number(customWaterAmount))}
+              style={{ flex: '1 1 80px', padding: '10px 8px' }}
+            >
+              Dodaj
+            </button>
+            <button
+              type="button"
+              disabled={isAddingWater}
+              onClick={handleResetWater}
+              style={{
+                flex: '1 1 80px',
+                padding: '10px 8px',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '10px',
+                color: 'rgba(255,255,255,0.6)',
+                cursor: 'pointer',
+                fontSize: '0.85rem'
+              }}
+            >
+              Reset
+            </button>
+          </div>
+
+          {waterMessage && (
+            <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#ef4444' }}>
+              {waterMessage}
+            </div>
+          )}
         </div>
 
         {/* SEN DETAILS */}

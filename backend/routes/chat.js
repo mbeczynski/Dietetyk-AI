@@ -38,7 +38,8 @@ router.post('/api/chat', requireAuth, async (req, res) => {
       temperature_deviation: null,
       weight: null,
       fat_ratio: null,
-      muscle_mass: null
+      muscle_mass: null,
+      water_ml: 0
     };
 
     const mealRows = await db.all(`SELECT * FROM meals WHERE user_id = ? AND date = ?`, [req.user.id, queryDate]);
@@ -162,6 +163,7 @@ Aktualne statystyki użytkownika na dzień ${queryDate}:
 - Wynik Snu: ${health.sleep_score !== null ? health.sleep_score : 'brak danych'} (Czas: ${health.sleep_duration || 0}h, Głęboki: ${health.sleep_deep || 0}h, REM: ${health.sleep_rem || 0}h)
 - Wynik Gotowości (Readiness): ${health.readiness_score !== null ? health.readiness_score : 'brak danych'}
 - Tętno spoczynkowe: ${health.rhr || '-'} bpm, HRV: ${health.hrv || '-'} ms
+- Wypita woda: ${health.water_ml || 0}ml (cel: ${settings.target_water_ml || 2500}ml)
 ${weeklyTrendSummary}
 ${historyContext}
 Pytanie użytkownika: "${message}"

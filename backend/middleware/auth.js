@@ -11,7 +11,9 @@ async function requireAuth(req, res, next) {
     req.path === '/change-password-forced' ||
     req.path === '/register-public' ||
     req.path === '/auth/oura/callback' ||
-    req.path === '/auth/withings/callback'
+    req.path === '/auth/withings/callback' ||
+    req.path === '/auth/google' ||
+    req.path === '/auth/google/callback'
   ) {
     return next();
   }

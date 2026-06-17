@@ -1,7 +1,7 @@
 const db = require('./db');
 const { getLocalDateString } = require('./utils/dates');
 const { syncAllOura, syncAllWithings } = require('./services/sync');
-const { sendWeeklySummaryForUser, sendDailySummaryForUser } = require('./services/summaries');
+const { sendWeeklySummaryForUser, sendDailySummaryForUser, sendMonthlySummaryForUser } = require('./services/summaries');
 
 async function checkAndSendAutomatedSummaries() {
   try {
@@ -30,6 +30,45 @@ async function checkAndSendAutomatedSummaries() {
       
       const lastWeeklySent = settings.last_weekly_summary_sent || '';
       const lastDailySent = settings.last_daily_summary_sent || '';
+
+      // --- Podsumowanie Miesięczne (niezależna flaga włączenia od tygodniowej/dziennej) ---
+      const monthlyEnabled = settings.monthly_summary_enabled === '1';
+      const monthlyScheduledDayRaw = Number(settings.monthly_summary_day || 1); // domyślnie 1. dzień miesiąca
+      const monthlyScheduledTime = settings.monthly_summary_time || '09:00';
+      const lastMonthlySent = settings.last_monthly_summary_sent || ''; // klucz idempotencji: 'YYYY-MM' (nie pełna data!)
+      const currentYearMonthStr = todayStr.slice(0, 7); // 'YYYY-MM'
+
+      if (monthlyEnabled) {
+        // Dopasowanie do ostatniego dnia miesiąca, gdy skonfigurowany dzień (np. 31) nie istnieje
+        // w danym miesiącu (luty, kwiecień, itd.) - w takim przypadku wysyłka następuje
+        // w ostatnim dniu danego miesiąca.
+        const daysInCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const effectiveMonthlyDay = Math.min(monthlyScheduledDayRaw, daysInCurrentMonth);
+
+        if (now.getDate() === effectiveMonthlyDay) {
+          if (currentTimeStr >= monthlyScheduledTime) {
+            if (lastMonthlySent !== currentYearMonthStr) {
+              console.log(`[SCHEDULER] Uruchamianie wysyłki miesięcznej dla ${user.username} (${user.email || 'brak e-maila'})`);
+              if (user.email) {
+                try {
+                  await sendMonthlySummaryForUser(user.id);
+                  // Zapisz informacje o wysłaniu w settings (klucz 'YYYY-MM', żeby wysłać raz w miesiącu kalendarzowym)
+                  await db.run(`
+                    INSERT INTO settings (user_id, key, value)
+                    VALUES (?, 'last_monthly_summary_sent', ?)
+                    ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
+                  `, [user.id, currentYearMonthStr]);
+                  console.log(`[SCHEDULER] Z powodzeniem wysłano miesięczne podsumowanie dla ${user.username} i ustawiono last_monthly_summary_sent na ${currentYearMonthStr}`);
+                } catch (sendErr) {
+                  console.error(`[SCHEDULER ERROR] Błąd podczas wysyłania miesięcznego dla ${user.username}:`, sendErr.message);
+                }
+              } else {
+                console.warn(`[SCHEDULER WARNING] Nie można wysłać miesięcznego podsumowania dla ${user.username} - brak zdefiniowanego e-maila.`);
+              }
+            }
+          }
+        }
+      }
 
       if (enabled) {
         // --- 1. Podsumowanie Codzienne ---

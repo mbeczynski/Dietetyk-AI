@@ -7,7 +7,9 @@ export default function AdminPanel({ sessionToken }) {
     mailgun_region: 'us',
     mailgun_from: '',
     app_url: '',
-    force_2fa: '0'
+    force_2fa: '0',
+    google_client_id: '',
+    google_client_secret: ''
   });
   const [configMessage, setConfigMessage] = useState({ type: '', text: '' });
   const [isSavingConfig, setIsSavingConfig] = useState(false);
@@ -39,7 +41,9 @@ export default function AdminPanel({ sessionToken }) {
           mailgun_region: data.mailgun_region || 'us',
           mailgun_from: data.mailgun_from || '',
           app_url: data.app_url || '',
-          force_2fa: data.force_2fa || '0'
+          force_2fa: data.force_2fa || '0',
+          google_client_id: data.google_client_id || '',
+          google_client_secret: data.google_client_secret || ''
         });
       }
     } catch (err) {
@@ -264,6 +268,34 @@ export default function AdminPanel({ sessionToken }) {
             </div>
           </div>
 
+          <h4 style={{ color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', marginBottom: '16px' }}>🔑 Logowanie Google</h4>
+          <div className="settings-grid" style={{ marginBottom: '24px' }}>
+            <div className="input-group">
+              <label className="input-label">Google Client ID</label>
+              <input
+                type="text"
+                className="input-field"
+                value={config.google_client_id}
+                onChange={(e) => setConfig({ ...config, google_client_id: e.target.value })}
+                placeholder="xxxxxxxx.apps.googleusercontent.com"
+              />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Google Client Secret</label>
+              <input
+                type="password"
+                className="input-field"
+                value={config.google_client_secret}
+                onChange={(e) => setConfig({ ...config, google_client_secret: e.target.value })}
+                placeholder="••••••••"
+              />
+            </div>
+            <div className="input-group" style={{ gridColumn: 'span 2' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                Utwórz dane logowania OAuth 2.0 w Google Cloud Console (bezpłatne) i ustaw Authorized redirect URI na: <code>{(config.app_url || 'https://twoja-domena.pl')}/api/auth/google/callback</code>
+              </span>
+            </div>
+          </div>
 
           <button type="submit" className="btn-primary" disabled={isSavingConfig} style={{ marginTop: '10px' }}>
             {isSavingConfig ? 'Zapisywanie...' : 'Zapisz konfigurację'}

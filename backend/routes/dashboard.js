@@ -53,6 +53,7 @@ router.get('/api/dashboard', async (req, res) => {
       fat_ratio: null,
       muscle_mass: null,
       active_minutes: 0,
+      water_ml: 0,
       last_sync: null,
       ai_advice: null,
       ai_advice_generated_at: null
@@ -180,6 +181,7 @@ Aktualny bilans dzisiejszy:
 - Łącznie spalone kalorie (BMR + Aktywne): ${totalBurned} kcal
 - Bilans netto (zjedzone - spalone): ${netCalories} kcal
 - Wykonane kroki dzisiaj: ${displaySteps || 0}
+- Wypita woda dzisiaj: ${health.water_ml || 0}ml (cel: ${isNaN(settings.target_water_ml) || !settings.target_water_ml ? 2500 : settings.target_water_ml}ml)
 
 Dane gotowości, snu (Oura) i składu ciała (Withings):
 - Wynik Snu: ${displaySleepScore !== null ? displaySleepScore + '/100' : 'Brak danych'} (Czas trwania: ${displaySleepDuration || 0}h, Głęboki: ${displaySleepDeep || 0}h, REM: ${displaySleepRem || 0}h)
@@ -227,6 +229,7 @@ Pisz bezpośrednio do użytkownika w języku polskim. Bądź konkretny, motywuj�
         target_active_calories: isNaN(settings.target_active_calories) || !settings.target_active_calories ? 500 : settings.target_active_calories,
         target_sleep_duration: isNaN(settings.target_sleep_duration) || !settings.target_sleep_duration ? 7.2 : settings.target_sleep_duration,
         target_active_minutes: isNaN(settings.target_active_minutes) || !settings.target_active_minutes ? 30 : settings.target_active_minutes,
+        target_water_ml: isNaN(settings.target_water_ml) || !settings.target_water_ml ? 2500 : settings.target_water_ml,
         bmr,
         calories_eaten: totalEaten.calories,
         calories_burned_active: activeCalories,
@@ -250,6 +253,7 @@ Pisz bezpośrednio do użytkownika w języku polskim. Bądź konkretny, motywuj�
         fat_ratio: displayFatRatio,
         muscle_mass: displayMuscleMass,
         active_minutes: displayActiveMinutes || 0,
+        water_ml: health.water_ml || 0,
         has_oura: !!hasOuraRow,
         has_withings: !!hasWithingsRow
       },

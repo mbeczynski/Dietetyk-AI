@@ -7,6 +7,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     target_carbs: 250,
     target_fat: 80,
     bmr: 1800,
+    target_water_ml: 2500,
     oura_client_id: '',
     oura_client_secret: '',
     withings_client_id: '',
@@ -39,6 +40,9 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   const [weeklySummaryEnabled, setWeeklySummaryEnabled] = useState(userProfile.weekly_summary_enabled || false);
   const [weeklySummaryDay, setWeeklySummaryDay] = useState(userProfile.weekly_summary_day || 1);
   const [weeklySummaryTime, setWeeklySummaryTime] = useState(userProfile.weekly_summary_time || '18:00');
+  const [monthlySummaryEnabled, setMonthlySummaryEnabled] = useState(userProfile.monthly_summary_enabled || false);
+  const [monthlySummaryDay, setMonthlySummaryDay] = useState(userProfile.monthly_summary_day || 1);
+  const [monthlySummaryTime, setMonthlySummaryTime] = useState(userProfile.monthly_summary_time || '09:00');
 
   // Stan zarządzania 2FA
   const [isSettingUp2fa, setIsSettingUp2fa] = useState(false);
@@ -60,6 +64,15 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     }
     if (userProfile.weekly_summary_time !== undefined) {
       setWeeklySummaryTime(userProfile.weekly_summary_time);
+    }
+    if (userProfile.monthly_summary_enabled !== undefined) {
+      setMonthlySummaryEnabled(userProfile.monthly_summary_enabled);
+    }
+    if (userProfile.monthly_summary_day !== undefined) {
+      setMonthlySummaryDay(userProfile.monthly_summary_day);
+    }
+    if (userProfile.monthly_summary_time !== undefined) {
+      setMonthlySummaryTime(userProfile.monthly_summary_time);
     }
   }, [userProfile]);
 
@@ -123,7 +136,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    const numericFields = ['target_calories', 'target_protein', 'target_carbs', 'target_fat', 'bmr'];
+    const numericFields = ['target_calories', 'target_protein', 'target_carbs', 'target_fat', 'bmr', 'target_water_ml'];
     setSettings(prev => ({
       ...prev,
       [name]: numericFields.includes(name) ? Number(value) : value
@@ -286,7 +299,10 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           email: emailInput,
           weekly_summary_enabled: weeklySummaryEnabled ? '1' : '0',
           weekly_summary_day: String(weeklySummaryDay),
-          weekly_summary_time: weeklySummaryTime
+          weekly_summary_time: weeklySummaryTime,
+          monthly_summary_enabled: monthlySummaryEnabled ? '1' : '0',
+          monthly_summary_day: String(monthlySummaryDay),
+          monthly_summary_time: monthlySummaryTime
         })
       });
 
@@ -310,7 +326,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     setAvatarMessage({ type: '', text: '' });
 
     try {
-      const endpoint = type === 'daily' ? '/api/user/send-daily-summary' : '/api/user/send-weekly-summary';
+      const endpoint = type === 'daily' ? '/api/user/send-daily-summary' : (type === 'monthly' ? '/api/user/send-monthly-summary' : '/api/user/send-weekly-summary');
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -322,7 +338,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
       if (res.ok) {
         const data = await res.json();
-        let successText = `${type === 'daily' ? 'Codzienne' : 'Tygodniowe'} podsumowanie zostało wysłane na e-mail!`;
+        const typeLabel = type === 'daily' ? 'Codzienne' : (type === 'monthly' ? 'Miesięczne' : 'Tygodniowe');
+        let successText = `${typeLabel} podsumowanie zostało wysłane na e-mail!`;
         if (data.previewUrl) {
           successText += ` (Podgląd testowy Ethereal: ${data.previewUrl})`;
         }
@@ -551,6 +568,18 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 required
               />
             </div>
+
+            <div className="input-group">
+              <label className="input-label">Cel wody (ml)</label>
+              <input
+                type="number"
+                name="target_water_ml"
+                className="input-field"
+                value={settings.target_water_ml}
+                onChange={handleInputChange}
+                required
+              />
+            </div>
           </div>
           
           <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '16px' }}>
@@ -677,30 +706,84 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               )}
             </div>
 
+            <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <input
+                  type="checkbox"
+                  id="monthly_summary_enabled"
+                  checked={monthlySummaryEnabled}
+                  onChange={(e) => setMonthlySummaryEnabled(e.target.checked)}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--color-primary)' }}
+                />
+                <label htmlFor="monthly_summary_enabled" style={{ fontSize: '0.9rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                  Włącz raport miesięczny
+                </label>
+              </div>
 
-            
+              {monthlySummaryEnabled && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+                  <div className="input-group">
+                    <label className="input-label">Dzień miesiąca</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      className="input-field"
+                      value={monthlySummaryDay}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setMonthlySummaryDay(Math.min(31, Math.max(1, val || 1)));
+                      }}
+                      title="Jeśli dany miesiąc jest krótszy (np. luty), raport zostanie wysłany w ostatnim dniu tego miesiąca."
+                      required
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label">Godzina wysyłki</label>
+                    <input
+                      type="time"
+                      className="input-field"
+                      value={monthlySummaryTime}
+                      onChange={(e) => setMonthlySummaryTime(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '16px' }}>
               <button type="submit" className="btn-primary" disabled={isSavingProfile} style={{ width: '100%' }}>
                 {isSavingProfile ? 'Zapisywanie...' : 'Zapisz profil'}
               </button>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <button 
-                  type="button" 
-                  className="btn-secondary" 
-                  onClick={() => handleSendTestEmail('daily')} 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => handleSendTestEmail('daily')}
                   disabled={isSendingEmail || !emailInput}
                   style={{ border: '1px solid var(--border-glass)', padding: '12px', fontSize: '0.85rem' }}
                 >
                   {isSendingEmail ? 'Wysyłanie...' : 'Wyślij codzienne'}
                 </button>
-                <button 
-                  type="button" 
-                  className="btn-secondary" 
-                  onClick={() => handleSendTestEmail('weekly')} 
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => handleSendTestEmail('weekly')}
                   disabled={isSendingEmail || !emailInput}
                   style={{ border: '1px solid var(--border-glass)', padding: '12px', fontSize: '0.85rem' }}
                 >
                   {isSendingEmail ? 'Wysyłanie...' : 'Wyślij tygodniowe'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => handleSendTestEmail('monthly')}
+                  disabled={isSendingEmail || !emailInput}
+                  style={{ border: '1px solid var(--border-glass)', padding: '12px', fontSize: '0.85rem' }}
+                >
+                  {isSendingEmail ? 'Wysyłanie...' : 'Wyślij miesięczne'}
                 </button>
               </div>
             </div>

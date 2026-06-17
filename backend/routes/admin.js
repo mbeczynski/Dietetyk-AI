@@ -5,13 +5,17 @@ const bcrypt = require('bcryptjs');
 const { requireAdmin } = require('../middleware/auth');
 const { sendMailgunEmail } = require('../services/mailgun');
 
+// Klucze logowania Google - globalne dla całej aplikacji (w przeciwieństwie do Oura/Withings,
+// logowanie Google dotyczy uwierzytelnienia do samej aplikacji, więc konfiguruje je raz admin).
+const GOOGLE_CONFIG_KEYS = ['google_client_id', 'google_client_secret'];
+
 router.get('/api/admin/config', requireAdmin, async (req, res) => {
   try {
     const rows = await db.all(`SELECT * FROM app_config`);
     const config = {};
     rows.forEach(r => {
-      if (r.key.startsWith('mailgun_') || r.key === 'app_url' || r.key === 'force_2fa') {
-        if (r.key === 'mailgun_api_key' && r.value) {
+      if (r.key.startsWith('mailgun_') || r.key === 'app_url' || r.key === 'force_2fa' || GOOGLE_CONFIG_KEYS.includes(r.key)) {
+        if ((r.key === 'mailgun_api_key' || r.key === 'google_client_secret') && r.value) {
           config[r.key] = '********';
         } else {
           config[r.key] = r.value;
@@ -29,10 +33,10 @@ router.post('/api/admin/config', requireAdmin, async (req, res) => {
   const settings = req.body;
   try {
     for (const [key, val] of Object.entries(settings)) {
-      if (key === 'mailgun_api_key' && val === '********') {
+      if ((key === 'mailgun_api_key' || key === 'google_client_secret') && val === '********') {
         continue;
       }
-      if (!key.startsWith('mailgun_') && key !== 'app_url' && key !== 'force_2fa') {
+      if (!key.startsWith('mailgun_') && key !== 'app_url' && key !== 'force_2fa' && !GOOGLE_CONFIG_KEYS.includes(key)) {
         continue;
       }
       await db.run(`

@@ -108,6 +108,11 @@ const initDb = async () => {
     await run("ALTER TABLE users ADD COLUMN force_2fa INTEGER DEFAULT 0");
   } catch (e) {}
 
+  // Migracja: logowanie przez Google (krok w stronę docelowego usunięcia logowania hasłem)
+  try {
+    await run("ALTER TABLE users ADD COLUMN google_id TEXT");
+  } catch (e) {}
+
 
   // 1a. Tabela globalnej konfiguracji (np. ustawienia Mailgun)
   await run(`
@@ -306,6 +311,14 @@ const initDb = async () => {
   try {
     await run("ALTER TABLE health_metrics ADD COLUMN ai_advice_generated_at TEXT");
   } catch (e) {}
+
+  // Migracja: licznik wypitej wody (dzienny licznik, podobnie jak steps - zeruje się każdego dnia)
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN water_ml INTEGER DEFAULT 0");
+  } catch (e) {}
+
+  // Domyślny cel wody (ml) dla istniejącego konta admina/Marcina, jeśli jeszcze nie ustawiony
+  await run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (1, 'target_water_ml', '2500')`);
 
   // 8. Tabela Pomiarów Obwodów Ciała (body_measurements)
   await run(`

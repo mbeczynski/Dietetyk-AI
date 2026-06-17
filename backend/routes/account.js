@@ -16,6 +16,16 @@ router.get('/api/settings', async (req, res) => {
     rows.forEach(r => {
       if ((r.key === 'gemini_api_key' || r.key === 'oura_client_secret' || r.key === 'withings_client_secret') && r.value) {
         settings[r.key] = '********';
+      } else if (r.value === '') {
+        // UWAGA: Number('') === 0, a isNaN('') === false - więc bez tego wyjątku
+        // pusty string byłby tu zamieniany na liczbę 0. To był realny błąd:
+        // withings_client_id/oura_client_id zapisane jako '' (np. przez
+        // niezamierzony pusty zapis całego formularza ustawień) wracały z tego
+        // endpointu jako 0, a 0 w JS to liczba, więc kod budujący URL OAuth
+        // (sprawdzający tylko `if (!clientId)`) je odrzucał - ale string "0"
+        // (po zapisaniu z powrotem przez POST) już nie jest falsy i przechodził
+        // dalej, dając w efekcie client_id=0 w adresie autoryzacji Withings/Oura.
+        settings[r.key] = '';
       } else {
         settings[r.key] = isNaN(r.value) ? r.value : Number(r.value);
       }
@@ -32,6 +42,14 @@ router.get('/api/settings', async (req, res) => {
 });
 
 // 6. Zapisanie ustawień i celów dobowych
+// Pola poświadczeń integracji - nigdy nie wolno ich nadpisać puste/zerowe,
+// bo psuje to OAuth (patrz komentarz przy GET /api/settings powyżej). Każdy
+// zapis ustawień z frontendu wysyła CAŁY obiekt stanu formularza (nie tylko
+// zmienione pole), więc np. zapisanie samych celów kalorycznych mogłoby
+// przypadkowo "wyczyścić" Client ID/Secret, jeśli w danym momencie stan
+// formularza miał je puste/nieustawione.
+const CREDENTIAL_KEYS = ['oura_client_id', 'oura_client_secret', 'withings_client_id', 'withings_client_secret'];
+
 router.post('/api/settings', async (req, res) => {
   const settings = req.body; // Klucze i wartości
   try {
@@ -39,6 +57,9 @@ router.post('/api/settings', async (req, res) => {
       if (key === 'sync_token') continue; // Pole tylko do odczytu
       if ((key === 'gemini_api_key' || key === 'oura_client_secret' || key === 'withings_client_secret') && val === '********') {
         continue; // Pomijamy aktualizację sekretów, jeśli przesłano maskę
+      }
+      if (CREDENTIAL_KEYS.includes(key) && (val === '' || val === null || val === undefined || val === 0)) {
+        continue; // Nie zapisuj puste/zerowej wartości poświadczeń - patrz komentarz wyżej
       }
       await db.run(`
         INSERT INTO settings (user_id, key, value)

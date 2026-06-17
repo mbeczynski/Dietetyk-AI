@@ -451,7 +451,25 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     }
   };
 
-  const handleConnect = (service) => {
+  const handleConnect = async (service) => {
+    // WAŻNE: zapisujemy bieżący stan formularza (Client ID/Secret) PRZED przekierowaniem.
+    // Wcześniej przycisk "Połącz" od razu robił window.location.href, więc jeśli
+    // użytkownik wpisał dane i kliknął "Połącz" bez wcześniejszego kliknięcia
+    // odrębnego przycisku "Zapisz poświadczenia integracji" na dole formularza,
+    // backend przy budowaniu URL-a OAuth czytał z bazy starą/pustą wartość -
+    // stąd zgłoszony błąd z client_id=0 w adresie autoryzacji Withings.
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`
+        },
+        body: JSON.stringify(settings)
+      });
+    } catch (err) {
+      console.error('Błąd zapisu ustawień przed połączeniem:', err);
+    }
     window.location.href = `${window.location.origin}/api/auth/${service}?token=${sessionToken}`;
   };
 

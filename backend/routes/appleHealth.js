@@ -14,16 +14,18 @@ const { parseHealthAutoExportDate, dateObjToLocalDateString } = require('../util
 // `app.use('/api', requireAuth)` - tak samo jak routes/healthcheck.js.
 //
 // REKONCYLIACJA Z OURA: Oura Ring też dostarcza steps/active_calories/total_calories
-// (services/sync.js), ale z opóźnieniem (dane dobowe finalizują się zwykle następnego
-// ranka - patrz wcześniejsza diagnoza przez scripts/check-oura-api.sh). Apple Health
-// dostarcza te dane prawie od razu, ale traktujemy Oura jako źródło bardziej autorytatywne.
+// (services/sync.js). Wcześniej Oura była traktowana jako bardziej autorytatywne źródło,
+// ale w praktyce dane Oura (i Withings) i tak synchronizują się do Apple Health na
+// telefonie - więc Apple Health jest faktycznie najpełniejszym, najszybszym źródłem
+// (Oura potrafi dawać dane z opóźnieniem - dobowe dane finalizują się zwykle następnego
+// ranka, patrz wcześniejsza diagnoza przez scripts/check-oura-api.sh). Priorytet
+// odwrócony: Apple Health jest teraz źródłem AUTORYTATYWNYM dla aktywności.
 // Kolumna health_metrics.activity_source ('oura' | 'apple') pamięta, kto ostatnio
 // zapisał dane aktywności dla danej daty:
-//   - syncOura (services/sync.js) ZAWSZE nadpisuje i ustawia activity_source='oura',
-//     gdy faktycznie ma dane aktywności dla tej daty.
-//   - Ten webhook NIGDY nie nadpisuje wiersza, który już ma activity_source='oura'
-//     (patrz warunek CASE w zapytaniu UPDATE poniżej) - więc gdy Oura "dojedzie"
-//     z prawdziwymi danymi, Apple Health już nie nadpisze ich z powrotem.
+//   - Ten webhook ZAWSZE nadpisuje dane aktywności i ustawia activity_source='apple'.
+//   - syncOura (services/sync.js) NIE nadpisuje wiersza, który już ma
+//     activity_source='apple' (patrz warunek CASE w tamtym zapytaniu UPDATE) - więc
+//     gdy Apple Health już dostarczyło dane dla danej daty, Oura ich nie nadpisze.
 //
 // FORMAT PAYLOADU (Health Auto Export, "Automatyzacja typu REST API"):
 //   { "data": { "metrics": [ { "name": "step_count", "units": "steps",
@@ -208,16 +210,21 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
         : null;
       const activeMinutes = m.active_minutes !== null ? Math.round(m.active_minutes) : null;
 
+      // Apple Health jest teraz źródłem autorytatywnym dla aktywności - ZAWSZE
+      // nadpisujemy (bez CASE/warunku), w przeciwieństwie do poprzedniej logiki, która
+      // chroniła dane Oura. Zachowujemy COALESCE per-kolumna, żeby pole, którego ten
+      // konkretny payload nie dotyczy (np. steps z automatyzacji Treningi, która ich
+      // nie wysyła), nie zostało wyzerowane, a zachowało dotychczasową wartość.
       await db.run(`
         INSERT INTO health_metrics (user_id, date, steps, active_calories, total_calories_burned, active_minutes, activity_source, last_sync)
         VALUES (?, ?, ?, ?, ?, ?, 'apple', ?)
         ON CONFLICT(user_id, date) DO UPDATE SET
-          steps = CASE WHEN activity_source IS NULL OR activity_source = 'apple' THEN COALESCE(excluded.steps, steps) ELSE steps END,
-          active_calories = CASE WHEN activity_source IS NULL OR activity_source = 'apple' THEN COALESCE(excluded.active_calories, active_calories) ELSE active_calories END,
-          total_calories_burned = CASE WHEN activity_source IS NULL OR activity_source = 'apple' THEN COALESCE(excluded.total_calories_burned, total_calories_burned) ELSE total_calories_burned END,
-          active_minutes = CASE WHEN activity_source IS NULL OR activity_source = 'apple' THEN COALESCE(excluded.active_minutes, active_minutes) ELSE active_minutes END,
-          activity_source = CASE WHEN activity_source IS NULL OR activity_source = 'apple' THEN 'apple' ELSE activity_source END,
-          last_sync = CASE WHEN activity_source IS NULL OR activity_source = 'apple' THEN excluded.last_sync ELSE last_sync END
+          steps = COALESCE(excluded.steps, steps),
+          active_calories = COALESCE(excluded.active_calories, active_calories),
+          total_calories_burned = COALESCE(excluded.total_calories_burned, total_calories_burned),
+          active_minutes = COALESCE(excluded.active_minutes, active_minutes),
+          activity_source = 'apple',
+          last_sync = excluded.last_sync
       `, [user.id, dateStr, steps, activeCalories, totalCalories, activeMinutes, lastSyncTime]);
 
       savedDates.push(dateStr);

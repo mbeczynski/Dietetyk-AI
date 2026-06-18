@@ -142,12 +142,14 @@ async function syncOura(userId) {
     const lastSyncTime = new Date().toISOString();
     for (const [dateStr, metrics] of Object.entries(metricsByDate)) {
       if (metrics.steps !== null || metrics.sleep_score !== null || metrics.readiness_score !== null) {
-        // Oura jest traktowana jako bardziej autorytatywne źródło aktywności niż webhook
-        // Apple Health (routes/appleHealth.js) - gdy w tej rundzie synchronizacji Oura
-        // faktycznie zwróciła dane daily_activity dla tej daty (metrics.steps !== null),
-        // oznaczamy activity_source='oura', co NADPISZE wcześniejsze dane z Apple Health.
-        // Jeśli w tej rundzie nie ma danych aktywności (np. tylko sen/gotowość), activitySource
-        // jest null, a COALESCE poniżej zachowuje to, co było zapisane wcześniej.
+        // PRIORYTET ODWRÓCONY (patrz też komentarz w routes/appleHealth.js): Apple Health
+        // jest teraz źródłem autorytatywnym dla aktywności (steps/kalorie/minuty), bo
+        // Oura i Withings i tak synchronizują się do Apple Health na telefonie, a Apple
+        // Health dostarcza dane szybciej i pełniej. Dlatego kolumny aktywności NIE są tu
+        // nadpisywane (CASE poniżej), jeśli dla tej daty activity_source = 'apple' -
+        // Oura wciąż może zapisać sen/gotowość/HRV/RHR/temperaturę (to nie jest "aktywność"
+        // w tym sensie i nie ma odpowiednika w webhooku Apple Health), tylko nie nadpisuje
+        // steps/active_calories/total_calories_burned/active_minutes/activity_source.
         const activitySource = metrics.steps !== null ? 'oura' : null;
         await db.run(`
           INSERT INTO health_metrics (
@@ -157,9 +159,9 @@ async function syncOura(userId) {
           )
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(user_id, date) DO UPDATE SET
-            steps = COALESCE(excluded.steps, steps),
-            active_calories = COALESCE(excluded.active_calories, active_calories),
-            total_calories_burned = COALESCE(excluded.total_calories_burned, total_calories_burned),
+            steps = CASE WHEN activity_source = 'apple' THEN steps ELSE COALESCE(excluded.steps, steps) END,
+            active_calories = CASE WHEN activity_source = 'apple' THEN active_calories ELSE COALESCE(excluded.active_calories, active_calories) END,
+            total_calories_burned = CASE WHEN activity_source = 'apple' THEN total_calories_burned ELSE COALESCE(excluded.total_calories_burned, total_calories_burned) END,
             sleep_score = COALESCE(excluded.sleep_score, sleep_score),
             sleep_duration = COALESCE(excluded.sleep_duration, sleep_duration),
             sleep_deep = COALESCE(excluded.sleep_deep, sleep_deep),
@@ -168,8 +170,8 @@ async function syncOura(userId) {
             hrv = COALESCE(excluded.hrv, hrv),
             rhr = COALESCE(excluded.rhr, rhr),
             temperature_deviation = COALESCE(excluded.temperature_deviation, temperature_deviation),
-            active_minutes = COALESCE(excluded.active_minutes, active_minutes),
-            activity_source = COALESCE(excluded.activity_source, activity_source),
+            active_minutes = CASE WHEN activity_source = 'apple' THEN active_minutes ELSE COALESCE(excluded.active_minutes, active_minutes) END,
+            activity_source = CASE WHEN activity_source = 'apple' THEN activity_source ELSE COALESCE(excluded.activity_source, activity_source) END,
             last_sync = excluded.last_sync
         `, [
           userId, dateStr,

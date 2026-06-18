@@ -3,6 +3,16 @@ name: Build i publikacja obrazów Docker
 # Buduje obrazy backendu i frontendu przy każdym pushu na main i wypycha je do
 # GitHub Container Registry (ghcr.io). Serwer produkcyjny tylko je pobiera
 # (docker-compose pull) - nie trzyma już kodu źródłowego ani nie buduje lokalnie.
+#
+# Po zbudowaniu i wypchnięciu obrazów (CI), job "deploy" (CD) loguje się po SSH
+# na serwer produkcyjny i odświeża kontenery (docker compose pull + up -d).
+# Wymaga ustawienia w repo (Settings -> Secrets and variables -> Actions):
+#   VPS_HOST     - adres IP lub domena serwera (np. 185.201.112.104)
+#   VPS_USER     - użytkownik SSH (np. root)
+#   VPS_SSH_KEY  - prywatny klucz SSH (klucz dedykowany tylko do CI/CD, którego
+#                  publiczny odpowiednik trzeba dodać do ~/.ssh/authorized_keys
+#                  na serwerze)
+#   VPS_SSH_PORT - (opcjonalnie) port SSH, domyślnie 22
 
 on:
   push:
@@ -61,3 +71,22 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    name: Wdrożenie na serwer produkcyjny (CD)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH - docker compose pull && up -d
+        uses: appleboy/ssh-action@v1.2.4
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT || 22 }}
+          script: |
+            set -e
+            cd /root/Dietetyk-AI
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker image prune -f

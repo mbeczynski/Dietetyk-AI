@@ -142,13 +142,20 @@ async function syncOura(userId) {
     const lastSyncTime = new Date().toISOString();
     for (const [dateStr, metrics] of Object.entries(metricsByDate)) {
       if (metrics.steps !== null || metrics.sleep_score !== null || metrics.readiness_score !== null) {
+        // Oura jest traktowana jako bardziej autorytatywne źródło aktywności niż webhook
+        // Apple Health (routes/appleHealth.js) - gdy w tej rundzie synchronizacji Oura
+        // faktycznie zwróciła dane daily_activity dla tej daty (metrics.steps !== null),
+        // oznaczamy activity_source='oura', co NADPISZE wcześniejsze dane z Apple Health.
+        // Jeśli w tej rundzie nie ma danych aktywności (np. tylko sen/gotowość), activitySource
+        // jest null, a COALESCE poniżej zachowuje to, co było zapisane wcześniej.
+        const activitySource = metrics.steps !== null ? 'oura' : null;
         await db.run(`
           INSERT INTO health_metrics (
-            user_id, date, steps, active_calories, total_calories_burned, 
-            sleep_score, sleep_duration, sleep_deep, sleep_rem, 
-            readiness_score, hrv, rhr, temperature_deviation, active_minutes, last_sync
+            user_id, date, steps, active_calories, total_calories_burned,
+            sleep_score, sleep_duration, sleep_deep, sleep_rem,
+            readiness_score, hrv, rhr, temperature_deviation, active_minutes, activity_source, last_sync
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(user_id, date) DO UPDATE SET
             steps = COALESCE(excluded.steps, steps),
             active_calories = COALESCE(excluded.active_calories, active_calories),
@@ -162,9 +169,10 @@ async function syncOura(userId) {
             rhr = COALESCE(excluded.rhr, rhr),
             temperature_deviation = COALESCE(excluded.temperature_deviation, temperature_deviation),
             active_minutes = COALESCE(excluded.active_minutes, active_minutes),
+            activity_source = COALESCE(excluded.activity_source, activity_source),
             last_sync = excluded.last_sync
         `, [
-          userId, dateStr, 
+          userId, dateStr,
           metrics.steps, metrics.active_calories, metrics.total_calories,
           metrics.sleep_score, metrics.sleep_duration, metrics.sleep_deep, metrics.sleep_rem,
           metrics.readiness_score, metrics.hrv, metrics.rhr, metrics.temperature_deviation,
@@ -178,6 +186,7 @@ async function syncOura(userId) {
           // dopasowanych danych aktywności na tę datę zerowała już zapisaną,
           // prawdziwą wartość minut aktywności z poprzedniej synchronizacji.
           metrics.active_minutes,
+          activitySource,
           lastSyncTime
         ]);
       }

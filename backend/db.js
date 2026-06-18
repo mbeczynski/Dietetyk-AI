@@ -317,6 +317,16 @@ const initDb = async () => {
     await run("ALTER TABLE health_metrics ADD COLUMN water_ml INTEGER DEFAULT 0");
   } catch (e) {}
 
+  // Migracja: źródło danych aktywności (steps/active_calories/total_calories_burned/active_minutes)
+  // dla danej daty - 'oura' albo 'apple'. Potrzebne do reguły z synchronizacji Apple Health
+  // (webhook Health Auto Export, routes/appleHealth.js): Apple Health dociera szybciej, ale
+  // Oura jest traktowana jako bardziej autorytatywna - gdy Oura faktycznie zwróci dane
+  // aktywności dla danej daty, NADPISUJE wartości wcześniej zapisane z Apple Health. Webhook
+  // Apple Health z kolei NIGDY nie nadpisuje wiersza, który już ma activity_source = 'oura'.
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN activity_source TEXT DEFAULT NULL");
+  } catch (e) {}
+
   // Domyślny cel wody (ml) dla istniejącego konta admina/Marcina, jeśli jeszcze nie ustawiony
   await run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (1, 'target_water_ml', '2500')`);
 

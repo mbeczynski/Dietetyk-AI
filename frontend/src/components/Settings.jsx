@@ -134,6 +134,23 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     }
   };
 
+  // Adres webhooka Apple Health (apka Health Auto Export) - zbudowany z tokenu
+  // synchronizacji użytkownika (syncToken, prop z App.jsx). Backend: routes/appleHealth.js.
+  const appleHealthWebhookUrl = syncToken
+    ? `https://dietetyk.renacode.com/api/integrations/apple-health/${syncToken}`
+    : '';
+
+  const handleCopyWebhookUrl = async () => {
+    if (!appleHealthWebhookUrl) return;
+    try {
+      await navigator.clipboard.writeText(appleHealthWebhookUrl);
+      setMessage({ type: 'success', text: 'Skopiowano URL webhooka Apple Health do schowka!' });
+      setTimeout(() => setMessage({ type: '', text: '' }), 5000);
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Nie udało się skopiować URL do schowka.' });
+    }
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     const numericFields = ['target_calories', 'target_protein', 'target_carbs', 'target_fat', 'bmr', 'target_water_ml'];
@@ -1152,6 +1169,54 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                     Domyślnie używany jest: <code>https://dietetyk.renacode.com/api/auth/withings/callback</code>. Jeżeli w portalu Withings Developer masz zarejestrowany inny (np. <code>https://dietetyk.renacode.com/api/auth/oura/callback</code>), wpisz go powyżej.
                   </span>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Apple Health (poprzez Health Auto Export) */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '16px',
+            background: 'rgba(255, 255, 255, 0.02)',
+            border: '1px solid var(--border-glass)',
+            borderRadius: '12px',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '2rem' }}>🍏</span>
+              <div>
+                <strong style={{ display: 'block', color: '#fff' }}>Apple Health (Kroki, Kalorie, Minuty Aktywności)</strong>
+                <span style={{ fontSize: '0.8rem', color: '#34d399' }}>
+                  ✅ Webhook gotowy do skonfigurowania
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '12px' }}>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0, lineHeight: '1.5' }}>
+                Dane aktywności z Apple Health docierają od razu (w przeciwieństwie do Oura, która finalizuje dobowe podsumowanie zwykle następnego ranka). Gdy obie integracje są aktywne, dane z Oura są traktowane jako bardziej wiarygodne i nadpisują wartości wcześniej wpisane przez Apple Health dla tego samego dnia.
+              </p>
+
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label" style={{ fontSize: '0.8rem' }}>URL webhooka (wklej w apce Health Auto Export)</label>
+                <div className="code-block">
+                  <span>{appleHealthWebhookUrl}</span>
+                  <button type="button" className="btn-copy" onClick={handleCopyWebhookUrl}>
+                    Kopiuj
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', lineHeight: '1.6' }}>
+                <strong style={{ color: 'var(--text-muted)' }}>Konfiguracja w apce Health Auto Export (iOS):</strong>
+                <ol style={{ margin: '6px 0 0', paddingLeft: '20px' }}>
+                  <li>Zainstaluj apkę <strong>Health Auto Export</strong> z App Store.</li>
+                  <li>Przejdź do zakładki <strong>Automations</strong> i utwórz nową automatyzację typu <strong>REST API</strong>.</li>
+                  <li>Wklej powyższy URL jako adres docelowy, format danych: <strong>JSON</strong>.</li>
+                  <li>Wybierz metryki: <strong>Steps</strong>, <strong>Active Energy</strong>, <strong>Basal Energy Burned</strong>, <strong>Apple Exercise Time</strong>.</li>
+                  <li>Ustaw harmonogram automatycznego wysyłania (np. co godzinę) lub wysyłaj ręcznie.</li>
+                </ol>
               </div>
             </div>
           </div>

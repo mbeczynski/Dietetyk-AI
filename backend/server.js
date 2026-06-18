@@ -27,6 +27,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 // zamiast realnego statusu aplikacji.
 app.use(require('./routes/healthcheck'));
 
+// Webhook Apple Health (apka Health Auto Export) - również musi być zamontowany PRZED
+// requireAuth, ponieważ ma własną autoryzację per-żądanie (sync_token w adresie URL,
+// patrz routes/appleHealth.js), a nie sesję/ciasteczko jak resztę /api/.
+app.use(require('./routes/appleHealth'));
+
 // Zabezpieczenie wszystkich tras /api/ za pomocą middleware
 app.use('/api', requireAuth);
 

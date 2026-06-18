@@ -16,6 +16,7 @@ Aplikacja wspiera pełne szyfrowanie HTTPS (SSL Let's Encrypt) i jest przystosow
    - **Przyrost Mięśni**: Trend czystej masy mięśniowej w czasie.
 5. **Codzienna Analiza Gemini AI**: Model analizuje Twoje posiłki, parametry snu z Oura i skład ciała z Withings, dostarczając spersonalizowanych rekomendacji.
 6. **Panel Admina**: Pozwala na dynamiczną konfigurację poświadczeń API dla Oura i Withings bezpośrednio z poziomu interfejsu (bez restartowania kontenerów).
+7. **Synchronizacja z Apple Health**: kroki, kalorie i minuty aktywności można też zaciągać z Apple Health za pomocą webhooka - konfiguracja w zakładce Ustawienia.
 
 ---
 

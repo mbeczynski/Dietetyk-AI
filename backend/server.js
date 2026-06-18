@@ -22,6 +22,11 @@ app.use(morgan('dev'));
 // Serwowanie plików statycznych frontendu w trybie produkcyjnym
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Publiczny health-check (BEZ autoryzacji) - musi być zamontowany PRZED
+// `app.use('/api', requireAuth)` poniżej, inaczej Docker/CI dostałby 401
+// zamiast realnego statusu aplikacji.
+app.use(require('./routes/healthcheck'));
+
 // Zabezpieczenie wszystkich tras /api/ za pomocą middleware
 app.use('/api', requireAuth);
 

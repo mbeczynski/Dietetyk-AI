@@ -25,4 +25,10 @@ ENV PORT=3000
 
 EXPOSE 3000
 
+# Docker (i docker-compose) sprawdza co 30s, czy backend faktycznie odpowiada
+# i ma dostęp do bazy danych (GET /api/healthz - patrz backend/routes/healthcheck.js).
+# Kontener oznaczony jako "unhealthy" po 3 nieudanych próbach pod rząd.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:3000/api/healthz || exit 1
+
 CMD ["node", "server.js"]

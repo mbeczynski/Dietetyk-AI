@@ -10,6 +10,12 @@ services:
       - DATABASE_DIR=/app/data
       - PORT=3000
       - TZ=Europe/Warsaw
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     logging:
       driver: "json-file"
       options:
@@ -24,8 +30,10 @@ services:
       - "80:80"
       - "443:443"
     depends_on:
-      - dietetyk-backend
-      - renacode-landing
+      dietetyk-backend:
+        condition: service_healthy
+      renacode-landing:
+        condition: service_started
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
     logging:
@@ -57,7 +65,8 @@ services:
     environment:
       - SQLITE_DATABASE=dietetyk.db
     depends_on:
-      - dietetyk-backend
+      dietetyk-backend:
+        condition: service_healthy
     logging:
       driver: "json-file"
       options:

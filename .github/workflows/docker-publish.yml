@@ -149,7 +149,7 @@ jobs:
       (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
-      - name: SSH - docker compose pull && up -d
+      - name: SSH - docker compose pull && up -d + czekanie na healthcheck
         uses: appleboy/ssh-action@v1.2.4
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -162,3 +162,38 @@ jobs:
             docker compose pull
             docker compose up -d --remove-orphans
             docker image prune -f
+
+            echo "Czekam, aż dietetyk-backend zgłosi status 'healthy' (docker HEALTHCHECK -> GET /api/healthz)..."
+            for i in $(seq 1 20); do
+              status=$(docker inspect --format='{{.State.Health.Status}}' dietetyk-backend 2>/dev/null || echo "brak")
+              echo "  [$i/20] status: $status"
+              if [ "$status" = "healthy" ]; then
+                echo "Backend jest healthy."
+                exit 0
+              fi
+              if [ "$status" = "unhealthy" ]; then
+                echo "BŁĄD: backend zgłosił status 'unhealthy'. Logi:"
+                docker logs --tail 50 dietetyk-backend
+                exit 1
+              fi
+              sleep 3
+            done
+            echo "BŁĄD: backend nie osiągnął statusu 'healthy' w wyznaczonym czasie. Logi:"
+            docker logs --tail 50 dietetyk-backend
+            exit 1
+
+      - name: Weryfikacja health-checku end-to-end (przez domenę publiczną)
+        run: |
+          echo "Sprawdzam https://dietetyk.renacode.com/api/healthz z zewnątrz (przez nginx + SSL)..."
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /tmp/healthz.json -w '%{http_code}' https://dietetyk.renacode.com/api/healthz || echo "000")
+            echo "  [$i/10] HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "OK, odpowiedź:"
+              cat /tmp/healthz.json
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "BŁĄD: /api/healthz nie odpowiedziało 200 po wdrożeniu."
+          exit 1

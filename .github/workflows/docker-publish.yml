@@ -4,6 +4,13 @@ name: Build i publikacja obrazów Docker
 # GitHub Container Registry (ghcr.io). Serwer produkcyjny tylko je pobiera
 # (docker-compose pull) - nie trzyma już kodu źródłowego ani nie buduje lokalnie.
 #
+# Budowanie backendu i frontendu jest rozdzielone na dwa niezależne joby
+# (build-backend, build-frontend). Dzięki filtrowi ścieżek (dorny/paths-filter)
+# każdy z nich uruchamia się tylko wtedy, gdy zmieniły się pliki dotyczące
+# danego serwisu - zmiana tylko w backendzie nie wywoła już zbędnego
+# przebudowania i redeployu obrazu frontendu (i odwrotnie). Ręczne odpalenie
+# przez "workflow_dispatch" zawsze buduje oba obrazy.
+#
 # Po zbudowaniu i wypchnięciu obrazów (CI), job "deploy" (CD) loguje się po SSH
 # na serwer produkcyjny i odświeża kontenery (docker compose pull + up -d).
 # Wymaga ustawienia w repo (Settings -> Secrets and variables -> Actions):
@@ -28,16 +35,32 @@ permissions:
   packages: write
 
 jobs:
-  build-and-push:
+  # Wykrywa, które części repo się zmieniły, żeby joby budujące backend/frontend
+  # mogły się uruchamiać niezależnie od siebie tylko wtedy, gdy to konieczne.
+  changes:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - name: backend
-            dockerfile: ./docker/backend.Dockerfile
-          - name: frontend
-            dockerfile: ./docker/frontend.Dockerfile
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Wykrywanie zmienionych ścieżek
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'docker/backend.Dockerfile'
+            frontend:
+              - 'frontend/**'
+              - 'docker/frontend.Dockerfile'
 
+  build-backend:
+    name: Build i push obrazu (backend)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout kodu
         uses: actions/checkout@v5
@@ -56,25 +79,71 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/dietetyk-ai-${{ matrix.name }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/dietetyk-ai-backend
           tags: |
             type=raw,value=latest
             type=sha,format=short
 
-      - name: Build i push obrazu (${{ matrix.name }})
+      - name: Build i push obrazu backendu
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: ./docker/backend.Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+  build-frontend:
+    name: Build i push obrazu (frontend)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kodu
+        uses: actions/checkout@v5
+
+      - name: Logowanie do GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ustawienie Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Metadane obrazu (tagi)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/dietetyk-ai-frontend
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build i push obrazu frontendu
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./docker/frontend.Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
 
   deploy:
     name: Wdrożenie na serwer produkcyjny (CD)
-    needs: build-and-push
+    needs: [build-backend, build-frontend]
+    # "always()" + sprawdzenie wyników: deploy ma się odbyć, jeśli żaden z jobów
+    # budujących nie zakończył się błędem (skipped jest OK - to znaczy, że dany
+    # serwis się nie zmienił, więc nie trzeba było go przebudowywać).
+    if: |
+      always() &&
+      (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
+      (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: SSH - docker compose pull && up -d

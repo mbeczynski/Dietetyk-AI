@@ -73,9 +73,29 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       return res.status(404).json({ error: 'Nieznany token synchronizacji.' });
     }
 
-    const metrics = req.body && req.body.data && req.body.data.metrics;
-    if (!Array.isArray(metrics)) {
-      return res.status(400).json({ error: 'Nieprawidłowy format danych - oczekiwano pola data.metrics[].' });
+    // Automatyzacja z "Typ danych: Treningi" (Workouts) wysyła payload w INNYM formacie
+    // niż automatyzacja ogólnych metryk zdrowia - dane są w polu data.workouts[], a nie
+    // data.metrics[] (potwierdzone na podstawie ręcznego eksportu CSV "Workouts-*.csv":
+    // kolumny Workout Type/Start/End/Aktywna Energia (kJ)/Energia Spoczynkowa (kJ)/...).
+    // Nie znamy jeszcze dokładnych nazw pól w wersji JSON tego formatu, więc na razie
+    // NIE wyciągamy z niego danych (żeby nie zapisać błędnych wartości) - tylko
+    // potwierdzamy odebranie (status 200), żeby automatyzacja w apce nie raportowała
+    // błędu, i logujemy przykładowy obiekt do dalszej analizy.
+    const rawMetrics = req.body && req.body.data && req.body.data.metrics;
+    const rawWorkouts = req.body && req.body.data && req.body.data.workouts;
+    const metrics = Array.isArray(rawMetrics) ? rawMetrics : null;
+    const workouts = Array.isArray(rawWorkouts) ? rawWorkouts : null;
+
+    if (!metrics && !workouts) {
+      return res.status(400).json({ error: 'Nieprawidłowy format danych - oczekiwano pola data.metrics[] lub data.workouts[].' });
+    }
+
+    if (workouts && workouts.length > 0) {
+      console.log(`[APPLE HEALTH] Odebrano ${workouts.length} trening(ów) z automatyzacji "Treningi" (jeszcze nie przetwarzane). Przykładowy obiekt:`, JSON.stringify(workouts[0]).slice(0, 3000));
+    }
+
+    if (!metrics || metrics.length === 0) {
+      return res.json({ status: 'ok', saved_dates: [], workouts_received: workouts ? workouts.length : 0 });
     }
 
     // Sumujemy wszystkie wpisy danej metryki przypadające na ten sam dzień kalendarzowy

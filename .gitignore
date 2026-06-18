@@ -39,5 +39,9 @@ data/
 backend/server.js.monolith.bak
 backend/**/*.tmp
 
+# Tymczasowe, ręcznie rozpakowane przykładowe eksporty (np. Health Auto Export)
+# wgrywane lokalnie do analizy formatu danych - nigdy nie commitować (dane zdrowotne).
+HealthAutoExport_*/
+
 # Track package-lock.json regardless of global gitignore settings
 !package-lock.json

@@ -3,6 +3,10 @@ import React, { useState, useEffect } from 'react';
 export default function Trends({ selectedDate, sessionToken }) {
   const [historyData, setHistoryData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  // Wspólny stan dla podpowiedzi (tooltip) po najechaniu/kliknięciu na słupek lub punkt
+  // wykresu. Identyfikowany przez klucz metryki (chartKey) + indeks dnia, żeby tylko
+  // właściwy wykres i właściwy słupek/punkt pokazywał swoją podpowiedź.
+  const [hoverInfo, setHoverInfo] = useState(null);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -51,6 +55,33 @@ export default function Trends({ selectedDate, sessionToken }) {
     const day = d.getDay(); // 0: niedziela, 1: poniedziałek...
     const labels = ['n', 'p', 'w', 'ś', 'c', 'p', 's'];
     return labels[day];
+  };
+
+  // Pełna etykieta dnia używana w podpowiedzi (tooltip), np. "śr 17.06"
+  const getFullDayLabel = (dateStr) => {
+    const d = new Date(dateStr);
+    const names = ['niedz', 'pon', 'wt', 'śr', 'czw', 'pt', 'sob'];
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${names[d.getDay()]} ${dd}.${mm}`;
+  };
+
+  // Wspólny komponent podpowiedzi (tooltip) renderowany wewnątrz SVG danego wykresu.
+  // anchorX/anchorY to punkt, do którego "przyklejony" jest dymek (góra słupka/punktu).
+  const renderTooltip = (chartKey, idx, anchorX, anchorY, valueLabel, dateStr, svgWidth) => {
+    if (!hoverInfo || hoverInfo.chartKey !== chartKey || hoverInfo.idx !== idx) return null;
+    const dateLabel = getFullDayLabel(dateStr);
+    const boxWidth = Math.max(46, Math.max(valueLabel.length, dateLabel.length) * 5.5 + 10);
+    const boxHeight = 26;
+    const boxX = Math.min(Math.max(anchorX - boxWidth / 2, 1), svgWidth - boxWidth - 1);
+    const boxY = Math.max(anchorY - boxHeight - 6, 1);
+    return (
+      <g pointerEvents="none">
+        <rect x={boxX} y={boxY} width={boxWidth} height={boxHeight} rx="5" fill="rgba(25,25,28,0.97)" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
+        <text x={boxX + boxWidth / 2} y={boxY + 11} fill="#ffffff" fontSize="8px" fontWeight="700" textAnchor="middle">{valueLabel}</text>
+        <text x={boxX + boxWidth / 2} y={boxY + 21} fill="rgba(255,255,255,0.55)" fontSize="7px" textAnchor="middle">{dateLabel}</text>
+      </g>
+    );
   };
 
   const getMetricData = (days, key) => {
@@ -152,9 +183,24 @@ export default function Trends({ selectedDate, sessionToken }) {
               const h = (val / maxVal) * (svgHeight - topMargin - 15);
               const x = leftMargin + idx * (barWidth + gap);
               const y = svgHeight - topMargin - h;
+              const isActive = hoverInfo && hoverInfo.chartKey === key && hoverInfo.idx === idx;
+
+              const toggleHover = () => {
+                setHoverInfo(prev => (prev && prev.chartKey === key && prev.idx === idx)
+                  ? null
+                  : { chartKey: key, idx });
+              };
 
               return (
-                <g key={idx}>
+                <g
+                  key={idx}
+                  style={{ cursor: 'pointer' }}
+                  onMouseEnter={() => setHoverInfo({ chartKey: key, idx })}
+                  onMouseLeave={() => setHoverInfo(prev => (prev && prev.chartKey === key && prev.idx === idx) ? null : prev)}
+                  onClick={toggleHover}
+                >
+                  {/* Niewidoczne, szersze pole "trafienia" - ułatwia kliknięcie/hover na wąski słupek */}
+                  <rect x={x - gap / 2} y={0} width={barWidth + gap} height={svgHeight} fill="transparent" />
                   {/* Słupek z zaokrąglonymi rogami na górze */}
                   <rect
                     x={x}
@@ -163,7 +209,7 @@ export default function Trends({ selectedDate, sessionToken }) {
                     height={Math.max(h, 2)}
                     rx="2"
                     ry="2"
-                    fill={val > 0 ? '#ffffff' : 'rgba(255,255,255,0.08)'}
+                    fill={val > 0 ? (isActive ? '#a3e6ff' : '#ffffff') : 'rgba(255,255,255,0.08)'}
                   />
                   {/* Etykieta dnia tygodnia */}
                   <text
@@ -179,6 +225,17 @@ export default function Trends({ selectedDate, sessionToken }) {
                 </g>
               );
             })}
+
+            {/* Podpowiedź (tooltip) dla aktywnego słupka */}
+            {hoverInfo && hoverInfo.chartKey === key && (() => {
+              const idx = hoverInfo.idx;
+              const day = currentWeekDays[idx];
+              const val = currentWeekVals[idx] || 0;
+              const h = (val / maxVal) * (svgHeight - topMargin - 15);
+              const x = leftMargin + idx * (barWidth + gap) + barWidth / 2;
+              const y = svgHeight - topMargin - h;
+              return renderTooltip(key, idx, x, y, `${formatFn(val)} ${unit}`, day, svgWidth);
+            })()}
           </svg>
         </div>
       </div>
@@ -313,6 +370,37 @@ export default function Trends({ selectedDate, sessionToken }) {
               />
             )}
 
+            {/* Interaktywne punkty - hover/klik pokazuje podpowiedź z dokładną wartością i dniem */}
+            {points.map((p, idx) => {
+              if (!p) return null;
+              const isActive = hoverInfo && hoverInfo.chartKey === key && hoverInfo.idx === idx;
+              const toggleHover = () => {
+                setHoverInfo(prev => (prev && prev.chartKey === key && prev.idx === idx)
+                  ? null
+                  : { chartKey: key, idx });
+              };
+              return (
+                <g
+                  key={idx}
+                  style={{ cursor: 'pointer' }}
+                  onMouseEnter={() => setHoverInfo({ chartKey: key, idx })}
+                  onMouseLeave={() => setHoverInfo(prev => (prev && prev.chartKey === key && prev.idx === idx) ? null : prev)}
+                  onClick={toggleHover}
+                >
+                  {/* Niewidoczne, większe pole "trafienia" wokół punktu */}
+                  <circle cx={p.x} cy={p.y} r="9" fill="transparent" />
+                  <circle
+                    cx={p.x}
+                    cy={p.y}
+                    r={isActive ? '4.5' : '2.5'}
+                    fill={isActive ? '#a3e6ff' : '#ffffff'}
+                    stroke="#121314"
+                    strokeWidth="1.5"
+                  />
+                </g>
+              );
+            })}
+
             {/* Dni tygodnia */}
             {currentWeekDays.map((day, idx) => {
               const x = leftMargin + (idx / 6) * chartWidth;
@@ -330,6 +418,12 @@ export default function Trends({ selectedDate, sessionToken }) {
                 </text>
               );
             })}
+
+            {/* Podpowiedź (tooltip) dla aktywnego punktu */}
+            {hoverInfo && hoverInfo.chartKey === key && points[hoverInfo.idx] && (() => {
+              const p = points[hoverInfo.idx];
+              return renderTooltip(key, hoverInfo.idx, p.x, p.y, `${formatFn(p.val)} ${unit}`, p.day, svgWidth);
+            })()}
           </svg>
         </div>
       </div>

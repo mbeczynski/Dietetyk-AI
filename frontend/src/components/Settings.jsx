@@ -948,6 +948,17 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           Skonfiguruj swoje poświadczenia deweloperskie i połącz konto z API Oura Ring oraz Withings, aby automatycznie importować dane o aktywności, śnie, wadze i składzie ciała.
         </p>
 
+        {/* Komunikat o wyniku akcji (np. synchronizacji lub odłączenia integracji) -
+            zduplikowany tutaj, bo oryginalny alert renderuje się tylko w karcie "Cele
+            Dietetyczne" na samym szczycie strony. Bez tego, kliknięcie "Wymuś ręczną
+            synchronizację" (które jest w tej karcie, niżej na stronie) nie dawało
+            żadnej widocznej reakcji, jeśli użytkownik nie przewinął strony do góry. */}
+        {message.text && (
+          <div className={`alert alert-${message.type}`} style={{ marginBottom: '16px' }}>
+            {message.text}
+          </div>
+        )}
+
         {(userProfile.has_oura || userProfile.has_withings) && (
           <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '20px' }}>
             <button

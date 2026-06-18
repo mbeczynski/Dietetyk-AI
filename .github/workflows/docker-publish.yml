@@ -15,10 +15,13 @@ name: Build i publikacja obrazów Docker
 # na serwer produkcyjny i odświeża kontenery (docker compose pull + up -d).
 # Wymaga ustawienia w repo (Settings -> Secrets and variables -> Actions):
 #   VPS_HOST     - adres IP lub domena serwera (np. 185.201.112.104)
-#   VPS_USER     - użytkownik SSH (np. root)
+#   VPS_USER     - dedykowany, NIEPRIVILEGOWANY użytkownik SSH (np. "deploy"),
+#                  będący członkiem grupy "docker" - celowo NIE root. Patrz
+#                  notatka w repo / wiadomość Claude z instrukcją utworzenia
+#                  tego konta na serwerze.
 #   VPS_SSH_KEY  - prywatny klucz SSH (klucz dedykowany tylko do CI/CD, którego
 #                  publiczny odpowiednik trzeba dodać do ~/.ssh/authorized_keys
-#                  na serwerze)
+#                  konta "deploy" na serwerze)
 #   VPS_SSH_PORT - (opcjonalnie) port SSH, domyślnie 22
 
 on:
@@ -155,7 +158,7 @@ jobs:
           port: ${{ secrets.VPS_SSH_PORT || 22 }}
           script: |
             set -e
-            cd /root/Dietetyk-AI
+            cd /opt/dietetyk-ai
             docker compose pull
             docker compose up -d --remove-orphans
             docker image prune -f

@@ -77,10 +77,19 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
     // niż automatyzacja ogólnych metryk zdrowia - dane są w polu data.workouts[], a nie
     // data.metrics[] (potwierdzone na podstawie ręcznego eksportu CSV "Workouts-*.csv":
     // kolumny Workout Type/Start/End/Aktywna Energia (kJ)/Energia Spoczynkowa (kJ)/...).
-    // Nie znamy jeszcze dokładnych nazw pól w wersji JSON tego formatu, więc na razie
-    // NIE wyciągamy z niego danych (żeby nie zapisać błędnych wartości) - tylko
-    // potwierdzamy odebranie (status 200), żeby automatyzacja w apce nie raportowała
-    // błędu, i logujemy przykładowy obiekt do dalszej analizy.
+    // Dokładny kształt obiektu treningu w JSON potwierdzony na podstawie logów produkcyjnych:
+    //   { id, name, start: "2026-06-18 06:00:26 +0200", end: "...",
+    //     duration: 4715.99 (SEKUNDY), activeEnergyBurned: { qty: 2299.5, units: "kJ" },
+    //     intensity: {...}, temperature: {...}, humidity: {...}, metadata: {} }
+    // Mapujemy: activeEnergyBurned -> active_calories (po konwersji do kcal), duration
+    // (sekundy -> minuty) -> active_minutes, przypisane do dnia kalendarzowego pola `start`.
+    // Trening NIE dostarcza basal_calories, więc total_calories_burned nie jest tu liczone
+    // (dashboard.js i tak ma fallback bmr + active_calories, gdy total_calories_burned brak).
+    //
+    // BEZ RYZYKA PODWÓJNEGO LICZENIA: użytkownik potwierdził, że to JEDYNA skonfigurowana
+    // automatyzacja Health Auto Export (brak równoległej automatyzacji "ogólne metryki",
+    // która już wliczałaby kalorie treningowe do dobowego active_energy) - bezpiecznie
+    // można więc zapisywać activeEnergyBurned z treningów jako active_calories.
     const rawMetrics = req.body && req.body.data && req.body.data.metrics;
     const rawWorkouts = req.body && req.body.data && req.body.data.workouts;
     const metrics = Array.isArray(rawMetrics) ? rawMetrics : null;
@@ -90,42 +99,93 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       return res.status(400).json({ error: 'Nieprawidłowy format danych - oczekiwano pola data.metrics[] lub data.workouts[].' });
     }
 
-    if (workouts && workouts.length > 0) {
-      console.log(`[APPLE HEALTH] Odebrano ${workouts.length} trening(ów) z automatyzacji "Treningi" (jeszcze nie przetwarzane). Przykładowy obiekt:`, JSON.stringify(workouts[0]).slice(0, 3000));
-    }
-
-    if (!metrics || metrics.length === 0) {
-      return res.json({ status: 'ok', saved_dates: [], workouts_received: workouts ? workouts.length : 0 });
-    }
-
-    // Sumujemy wszystkie wpisy danej metryki przypadające na ten sam dzień kalendarzowy
-    // (Health Auto Export może wysyłać dane w wielu mniejszych, np. godzinowych, paczkach
-    // dla pojedynczej metryki - suma tych paczek daje prawidłową dobową wartość dla
+    // Sumujemy wszystkie wpisy danej metryki/treningu przypadające na ten sam dzień
+    // kalendarzowy (Health Auto Export może wysyłać dane w wielu mniejszych, np.
+    // godzinowych, paczkach - suma tych paczek daje prawidłową dobową wartość dla
     // kroków/kalorii/minut aktywności, bo to wartości kumulatywne, nie chwilowe).
     const byDate = {};
     let matchedEntries = 0;
 
-    for (const metric of metrics) {
-      const name = metric && typeof metric.name === 'string' ? metric.name.toLowerCase() : '';
-      const handler = METRIC_FIELD_MAP[name];
-      if (!handler || !Array.isArray(metric.data)) continue;
+    if (metrics) {
+      for (const metric of metrics) {
+        const name = metric && typeof metric.name === 'string' ? metric.name.toLowerCase() : '';
+        const handler = METRIC_FIELD_MAP[name];
+        if (!handler || !Array.isArray(metric.data)) continue;
 
-      for (const entry of metric.data) {
-        const rawQty = entry && entry.qty;
-        const qty = typeof rawQty === 'number' ? rawQty : parseFloat(rawQty);
-        if (!Number.isFinite(qty)) continue;
+        for (const entry of metric.data) {
+          const rawQty = entry && entry.qty;
+          const qty = typeof rawQty === 'number' ? rawQty : parseFloat(rawQty);
+          if (!Number.isFinite(qty)) continue;
 
-        const parsedDate = parseHealthAutoExportDate(entry.date);
+          const parsedDate = parseHealthAutoExportDate(entry.date);
+          if (!parsedDate) continue;
+
+          const dateStr = dateObjToLocalDateString(parsedDate);
+          if (!byDate[dateStr]) {
+            byDate[dateStr] = { steps: null, active_calories: null, basal_calories: null, active_minutes: null };
+          }
+          const bucket = byDate[dateStr];
+          const converted = handler.convert(qty, metric.units);
+          bucket[handler.field] = (bucket[handler.field] || 0) + converted;
+          matchedEntries++;
+        }
+      }
+    }
+
+    // Każdy trening zapisujemy NAJPIERW osobno (zidentyfikowany przez workout.id) do
+    // tabeli apple_health_workouts - patrz komentarz przy tej tabeli w db.js po co
+    // (uniknięcie podwójnego liczenia przy ponownym wysłaniu tego samego treningu, oraz
+    // prawidłowe sumowanie wielu treningów danego dnia dostarczonych w różnych wywołaniach
+    // webhooka). Dobową sumę do health_metrics liczymy NA KOŃCU jako SUM(...) z tej
+    // tabeli dla wszystkich dni, których dotyczy ten payload - nie inkrementujemy jej
+    // bezpośrednio z treści żądania.
+    let matchedWorkouts = 0;
+    const workoutAffectedDates = new Set();
+    if (workouts) {
+      for (const workout of workouts) {
+        if (!workout || !workout.id) continue;
+
+        const parsedDate = parseHealthAutoExportDate(workout.start);
         if (!parsedDate) continue;
-
         const dateStr = dateObjToLocalDateString(parsedDate);
+
+        let activeCaloriesKcal = 0;
+        const energy = workout.activeEnergyBurned;
+        if (energy && typeof energy.qty === 'number') {
+          activeCaloriesKcal = toKcal(energy.qty, energy.units);
+        }
+
+        let durationMinutes = 0;
+        const durationSec = typeof workout.duration === 'number' ? workout.duration : parseFloat(workout.duration);
+        if (Number.isFinite(durationSec)) {
+          durationMinutes = durationSec / 60;
+        }
+
+        await db.run(`
+          INSERT INTO apple_health_workouts (user_id, workout_id, date, active_calories, duration_minutes, updated_at)
+          VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
+          ON CONFLICT(user_id, workout_id) DO UPDATE SET
+            date = excluded.date,
+            active_calories = excluded.active_calories,
+            duration_minutes = excluded.duration_minutes,
+            updated_at = excluded.updated_at
+        `, [user.id, String(workout.id), dateStr, activeCaloriesKcal, durationMinutes]);
+
+        workoutAffectedDates.add(dateStr);
+        matchedWorkouts++;
+      }
+
+      for (const dateStr of workoutAffectedDates) {
+        const sums = await db.get(
+          `SELECT SUM(active_calories) AS total_calories, SUM(duration_minutes) AS total_minutes
+           FROM apple_health_workouts WHERE user_id = ? AND date = ?`,
+          [user.id, dateStr]
+        );
         if (!byDate[dateStr]) {
           byDate[dateStr] = { steps: null, active_calories: null, basal_calories: null, active_minutes: null };
         }
-        const bucket = byDate[dateStr];
-        const converted = handler.convert(qty, metric.units);
-        bucket[handler.field] = (bucket[handler.field] || 0) + converted;
-        matchedEntries++;
+        byDate[dateStr].active_calories = sums && sums.total_calories !== null ? sums.total_calories : 0;
+        byDate[dateStr].active_minutes = sums && sums.total_minutes !== null ? sums.total_minutes : 0;
       }
     }
 
@@ -163,8 +223,8 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       savedDates.push(dateStr);
     }
 
-    console.log(`[APPLE HEALTH] Użytkownik ${user.id}: zapisano dane dla dat [${savedDates.join(', ')}] (${matchedEntries} wpisów źródłowych z payloadu).`);
-    res.json({ status: 'ok', saved_dates: savedDates });
+    console.log(`[APPLE HEALTH] Użytkownik ${user.id}: zapisano dane dla dat [${savedDates.join(', ')}] (${matchedEntries} wpisów metryk, ${matchedWorkouts} treningów z payloadu).`);
+    res.json({ status: 'ok', saved_dates: savedDates, workouts_received: workouts ? workouts.length : 0 });
   } catch (err) {
     console.error('[APPLE HEALTH ERROR]', err.message);
     res.status(500).json({ error: 'Błąd przetwarzania danych Apple Health.' });

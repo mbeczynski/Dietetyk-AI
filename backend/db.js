@@ -330,6 +330,31 @@ const initDb = async () => {
   // Domyślny cel wody (ml) dla istniejącego konta admina/Marcina, jeśli jeszcze nie ustawiony
   await run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (1, 'target_water_ml', '2500')`);
 
+  // 7a. Tabela pojedynczych Treningów z Apple Health (Health Auto Export, "Typ danych:
+  // Treningi" - patrz routes/appleHealth.js). Trzymamy tu KAŻDY trening osobno (klucz:
+  // user_id + workout_id z payloadu) zamiast od razu sumować do health_metrics, żeby:
+  //   1) ponowne wysłanie tego samego treningu przez automatyzację (np. retry, albo
+  //      zasięg dat automatyzacji obejmujący ten sam trening więcej niż raz) tylko
+  //      NADPISYWAŁO jego własny wiersz (ON CONFLICT DO UPDATE), a nie dodawało
+  //      kalorie/minuty po raz drugi do dobowej sumy (podwójne liczenie),
+  //   2) wiele różnych treningów tego samego dnia, dostarczonych w OSOBNYCH wywołaniach
+  //      webhooka (np. automatyzacja odpala się po zakończeniu każdego treningu), mogło
+  //      się prawidłowo zsumować - dobowa suma w health_metrics jest każdorazowo
+  //      przeliczana na nowo jako SUM(...) po wszystkich treningach danego dnia z tej
+  //      tabeli, a nie inkrementowana "na ślepo".
+  await run(`
+    CREATE TABLE IF NOT EXISTS apple_health_workouts (
+      user_id INTEGER NOT NULL,
+      workout_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      active_calories REAL DEFAULT 0,
+      duration_minutes REAL DEFAULT 0,
+      updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY(user_id, workout_id),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
   // 8. Tabela Pomiarów Obwodów Ciała (body_measurements)
   await run(`
     CREATE TABLE IF NOT EXISTS body_measurements (

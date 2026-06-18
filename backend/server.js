@@ -16,7 +16,12 @@ app.set('trust proxy', 1);
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+// Limit zwiększony z domyślnych 100kb - webhook Apple Health (Health Auto Export,
+// patrz routes/appleHealth.js) przy eksporcie Treningów z włączonymi "Danymi Trasy"
+// (GPS) za dłuższy okres wysyła duże payloady JSON, które przekraczały domyślny
+// limit i kończyły się błędem 413 "Nieprawidłowe żądanie" (patrz centralny handler
+// błędów poniżej).
+app.use(express.json({ limit: '20mb' }));
 app.use(morgan('dev'));
 
 // Serwowanie plików statycznych frontendu w trybie produkcyjnym

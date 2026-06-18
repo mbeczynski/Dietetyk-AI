@@ -37,6 +37,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   const [emailInput, setEmailInput] = useState(userProfile.email || '');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [isRegeneratingToken, setIsRegeneratingToken] = useState(false);
   const [weeklySummaryEnabled, setWeeklySummaryEnabled] = useState(userProfile.weekly_summary_enabled || false);
   const [weeklySummaryDay, setWeeklySummaryDay] = useState(userProfile.weekly_summary_day || 1);
   const [weeklySummaryTime, setWeeklySummaryTime] = useState(userProfile.weekly_summary_time || '18:00');
@@ -148,6 +149,43 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
       setTimeout(() => setMessage({ type: '', text: '' }), 5000);
     } catch (err) {
       setMessage({ type: 'error', text: 'Nie udało się skopiować URL do schowka.' });
+    }
+  };
+
+  // Generuje nowy, losowy token synchronizacji (taki sam format jak tokeny
+  // tworzone automatycznie przy rejestracji - patrz backend/routes/auth.js)
+  // i zapisuje go przez istniejący endpoint POST /api/user/profile (już
+  // wspiera pole syncToken - backend/routes/account.js).
+  const generateRandomToken = () => {
+    return 'sync_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+  };
+
+  const handleRegenerateToken = async () => {
+    setIsRegeneratingToken(true);
+    setMessage({ type: '', text: '' });
+    try {
+      const newToken = generateRandomToken();
+      const res = await fetch('/api/user/profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`
+        },
+        body: JSON.stringify({ syncToken: newToken })
+      });
+
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'Wygenerowano nowy token synchronizacji. Zaktualizuj URL webhooka w apce Health Auto Export!' });
+        setTimeout(() => setMessage({ type: '', text: '' }), 8000);
+        if (onProfileUpdate) onProfileUpdate();
+      } else {
+        const data = await res.json();
+        setMessage({ type: 'error', text: data.error || 'Błąd generowania nowego tokenu.' });
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Problem z połączeniem z serwerem.' });
+    } finally {
+      setIsRegeneratingToken(false);
     }
   };
 
@@ -1206,6 +1244,15 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                     Kopiuj
                   </button>
                 </div>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleRegenerateToken}
+                  disabled={isRegeneratingToken}
+                  style={{ marginTop: '8px', width: '100%' }}
+                >
+                  {isRegeneratingToken ? 'Generowanie...' : 'Wygeneruj nowy losowy token'}
+                </button>
               </div>
 
               <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', lineHeight: '1.6' }}>

@@ -381,6 +381,40 @@ header {
   cursor: not-allowed;
 }
 
+/* Klasa .btn-secondary była używana w wielu miejscach (Settings, App, AdminPanel)
+   ale nigdy nie miała tu definicji - przyciski wyglądały jak domyślne, niestylowane
+   przyciski przeglądarki (szare prostokąty), niespójnie z resztą UI. */
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-glass);
+  color: var(--text-muted);
+  padding: 12px 20px;
+  border-radius: var(--radius-md);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  border-color: var(--border-glass-glow);
+}
+
+.btn-secondary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Animacja ładowania analizy */
 .loading-pulse {
   display: inline-block;

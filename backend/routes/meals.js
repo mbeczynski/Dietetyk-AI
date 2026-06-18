@@ -36,29 +36,46 @@ router.post('/api/meals', async (req, res) => {
     let prompt = '';
     if (imagePart) {
       prompt = `
-Przeanalizuj dołączone zdjęcie posiłku pod kątem wartości odżywczych. 
-${rawText ? `Użytkownik opisał ten posiłek następująco: "${rawText}"` : 'Użytkownik nie podał opisu tekstowego, zidentyfikuj dania na zdjęciu samodzielnie.'}
+Przeanalizuj dołączone zdjęcie pod kątem wartości odżywczych.
+${rawText ? `Użytkownik podał dodatkowy kontekst/opis: "${rawText}"` : 'Użytkownik nie podał opisu tekstowego, zidentyfikuj dania na zdjęciu samodzielnie.'}
 
-Zwróć odpowiedź w formacie JSON zawierającym szacunkowe wartości odżywcze posiłku. Odpowiedź musi być wyłącznie poprawnym JSON-em, bez żadnych dodatkowych znaczników markdown czy tekstu przed/po.
+WAŻNE - zdjęcie może przedstawiać JEDEN posiłek (np. zdjęcie talerza) ALBO zrzut
+ekranu z aplikacji do liczenia kalorii, pokazujący podział całego dnia na kilka
+osobnych posiłków (np. sekcje "Śniadanie", "II Śniadanie", "Obiad", "Podwieczorek",
+"Kolacja", każda z własnymi pozycjami i sumą kcal/makro).
+- Jeśli widzisz na zdjęciu wyraźny podział na kilka sekcji/posiłków, zwróć w tablicy
+  "meals" JEDEN obiekt na KAŻDĄ wykrytą sekcję, każdy z własnymi, osobnymi wartościami
+  odżywczymi - NIE sumuj ich w jeden wpis. Jako "name" użyj etykiety posiłku widocznej
+  na zdjęciu (np. "Śniadanie", "Obiad", "Kolacja").
+- Jeśli na zdjęciu jest tylko jeden posiłek/danie, bez podziału na sekcje, zwróć
+  tablicę "meals" z JEDNYM elementem, a jako "name" użyj krótkiej nazwy rozpoznanego
+  dania (np. "Owsianka z bananem i orzechami").
+
+Zwróć odpowiedź w formacie JSON. Odpowiedź musi być wyłącznie poprawnym JSON-em, bez żadnych dodatkowych znaczników markdown czy tekstu przed/po.
 
 Struktura JSON:
 {
-  "calories": (liczba całkowita - kcal dla całego posiłku),
-  "protein": (liczba - gramy białka),
-  "carbs": (liczba - gramy węglowodanów),
-  "fat": (liczba - gramy tłuszczu),
-  "food_items": [
+  "meals": [
     {
-      "name": "nazwa zidentyfikowanego składnika (np. jajko sadzone, ziemniaki gotowane, pierś z kurczaka)",
-      "portion": "wielkość porcji oszacowana na podstawie zdjęcia (np. 2 sztuki, 150g, 1 szklanka)",
-      "calories": (liczba - kcal),
-      "protein": (liczba - g),
-      "carbs": (liczba - g),
-      "fat": (liczba - g)
+      "name": "nazwa posiłku/etykieta wykryta na zdjęciu (patrz instrukcja powyżej)",
+      "calories": (liczba całkowita - kcal dla TEGO posiłku),
+      "protein": (liczba - gramy białka),
+      "carbs": (liczba - gramy węglowodanów),
+      "fat": (liczba - gramy tłuszczu),
+      "food_items": [
+        {
+          "name": "nazwa zidentyfikowanego składnika (np. jajko sadzone, ziemniaki gotowane, pierś z kurczaka)",
+          "portion": "wielkość porcji oszacowana na podstawie zdjęcia (np. 2 sztuki, 150g, 1 szklanka)",
+          "calories": (liczba - kcal),
+          "protein": (liczba - g),
+          "carbs": (liczba - g),
+          "fat": (liczba - g)
+        }
+      ],
+      "dietician_comment": "Krótki, profesjonalny komentarz dietetyczny po polsku (max 3 zdania) dotyczący TEGO posiłku. Oceń zbilansowanie, zalety, wady i ewentualne sugestie ulepszenia.",
+      "health_rating": (liczba całkowita od 1 do 10, gdzie 1 to bardzo niezdrowe, a 10 to super zdrowe i zbilansowane)
     }
-  ],
-  "dietician_comment": "Krótki, profesjonalny komentarz dietetyczny po polsku (max 3 zdania). Oceń zbilansowanie posiłku na zdjęciu, zalety, wady i ewentualne sugestie ulepszenia.",
-  "health_rating": (liczba całkowita od 1 do 10, gdzie 1 to bardzo niezdrowe, a 10 to super zdrowe i zbilansowane)
+  ]
 }
 `;
     } else {
@@ -102,32 +119,61 @@ Struktura JSON:
       throw new Error('AI nie zwróciło poprawnego formatu JSON.');
     }
 
-    const mealDescription = rawText || "Posiłek ze zdjęcia";
+    // Przy zdjęciu AI może zwrócić kilka rozbitych posiłków (analysis.meals - patrz
+    // prompt powyżej, np. zrzut ekranu z aplikacji do liczenia kalorii podzielony na
+    // Śniadanie/Obiad/Kolację). Każdy wykryty posiłek zapisujemy jako OSOBNY wiersz
+    // w tabeli meals, z własnymi makroskładnikami i własną nazwą (raw_text) wziętą
+    // z detekcji AI, a nie z tekstu wpisanego przez użytkownika.
+    let mealsToInsert;
+    if (imagePart) {
+      if (analysis && Array.isArray(analysis.meals) && analysis.meals.length > 0) {
+        mealsToInsert = analysis.meals;
+      } else {
+        // Fallback: AI zwróciło płaski obiekt mimo instrukcji w prompcie (starszy
+        // format) - traktujemy to jako jeden posiłek, żeby nie wywalić całego żądania.
+        mealsToInsert = [{ ...analysis, name: analysis?.name || rawText || 'Posiłek ze zdjęcia' }];
+      }
+    } else {
+      // Brak zdjęcia - posiłek wpisany tylko tekstem, bez detekcji wielu sekcji,
+      // zachowanie identyczne jak wcześniej (jeden wiersz, nazwa = tekst użytkownika).
+      mealsToInsert = [{ ...analysis, name: rawText }];
+    }
 
-    // Zapisz posiłek w bazie
-    const result = await db.run(`
-      INSERT INTO meals (user_id, date, raw_text, calories, protein, carbs, fat, analysis_json, image_base64)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      req.user.id,
-      targetDate,
-      mealDescription,
-      analysis.calories || 0,
-      analysis.protein || 0,
-      analysis.carbs || 0,
-      analysis.fat || 0,
-      JSON.stringify(analysis),
-      image || null
-    ]);
+    const insertedMeals = [];
+    for (const m of mealsToInsert) {
+      const mealDescription = (imagePart ? (m.name || rawText || 'Posiłek ze zdjęcia') : (m.name || rawText));
 
-    console.log(`[API LOG] Dodano posiłek o ID: ${result.id} dla ${req.user.username}. Kalorie: ${analysis.calories} kcal`);
+      // Zapisz posiłek w bazie
+      const result = await db.run(`
+        INSERT INTO meals (user_id, date, raw_text, calories, protein, carbs, fat, analysis_json, image_base64)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        req.user.id,
+        targetDate,
+        mealDescription,
+        m.calories || 0,
+        m.protein || 0,
+        m.carbs || 0,
+        m.fat || 0,
+        JSON.stringify(m),
+        image || null
+      ]);
+
+      insertedMeals.push({
+        id: result.id,
+        date: targetDate,
+        raw_text: mealDescription,
+        image_base64: image || null,
+        ...m
+      });
+    }
+
+    const totalCalories = insertedMeals.reduce((sum, m) => sum + (m.calories || 0), 0);
+    console.log(`[API LOG] Dodano ${insertedMeals.length} posiłek(ów) dla ${req.user.username} (ID: ${insertedMeals.map(m => m.id).join(', ')}). Łącznie: ${totalCalories} kcal`);
 
     res.status(201).json({
-      id: result.id,
-      date: targetDate,
-      raw_text: mealDescription,
-      image_base64: image || null,
-      ...analysis
+      count: insertedMeals.length,
+      meals: insertedMeals
     });
 
   } catch (err) {

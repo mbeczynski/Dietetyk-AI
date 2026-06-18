@@ -54,12 +54,36 @@ Aplikacja wspiera pełne szyfrowanie HTTPS (SSL Let's Encrypt) i jest przystosow
 
 ## ☁️ Wdrożenie na serwerze VPS (Docker Compose)
 
-Najwygodniejszym sposobem wdrożenia produkcyjnego jest użycie Docker Compose.
+Obrazy backendu i frontendu są budowane i publikowane automatycznie przez GitHub
+Actions (`.github/workflows/docker-publish.yml`) przy każdym pushu na `main` i
+wypychane do `ghcr.io`. Serwer produkcyjny **nie buduje już kodu lokalnie** —
+potrzebuje tylko `docker-compose.yml`, plików `.env` i katalogu `./data`, żeby
+ściągnąć i podnieść gotowe obrazy.
+
+> Ścieżka katalogu na serwerze to zawsze `/opt/dietetyk-ai` (małymi literami),
+> niezależnie od tego, że repozytorium na GitHubie nazywa się `Dietetyk-AI`.
+> Podawaj tę ścieżkę explicite jako argument `git clone` (jak poniżej) - nigdy
+> nie pozwalaj git'owi nazwać katalogu samodzielnie na podstawie nazwy repo,
+> bo wtedy powstanie wielkością liter niezgodny `Dietetyk-AI`. To samo
+> `/opt/dietetyk-ai` jest zaszyte w joby `deploy` w workflow CI/CD oraz w
+> `scripts/setup-deploy-user.sh`.
+
+### Krok 0: Pierwsze uruchomienie - dedykowany użytkownik `deploy`
+Jeśli to pierwsza konfiguracja serwera (lub migrujesz ze starszego, mniej
+bezpiecznego ustawienia gdzie CI/CD logowało się jako `root`), uruchom na VPS
+jako root skrypt `scripts/setup-deploy-user.sh` z tego repozytorium - tworzy on
+nieprivilegiowanego użytkownika `deploy` (w grupie `docker`), przenosi
+aplikację do `/opt/dietetyk-ai` i ustawia uprawnienia katalogu `./data` pod
+nieprivilegiowanego użytkownika `node` wewnątrz kontenera backendu. Szczegóły
+i kolejne kroki ręczne (Secrets w GitHub, autoryzacja klucza SSH) są opisane
+w komentarzach na początku tego skryptu.
 
 ### Krok 1: Klonowanie repozytorium na VPS
+Potrzebne tylko po to, by mieć `docker-compose.yml`, `docker/nginx.conf` i
+`backend/.env` - kod aplikacji jest już zapakowany w obrazach z `ghcr.io`.
 ```bash
-git clone https://github.com/mbeczynski/Dietetyk-AI.git /root/dietetyk-ai
-cd /root/dietetyk-ai
+git clone https://github.com/mbeczynski/Dietetyk-AI.git /opt/dietetyk-ai
+cd /opt/dietetyk-ai
 ```
 
 ### Krok 2: Przygotowanie Certyfikatów Let's Encrypt
@@ -70,12 +94,12 @@ certbot certonly --standalone -d dietetyk.renacode.com
 ```
 
 ### Krok 3: Plik Konfiguracyjny `.env` na VPS
-Utwórz plik `/root/dietetyk-ai/.env` i zdefiniuj ścieżki do wygenerowanych certyfikatów oraz klucz Gemini:
+Utwórz plik `/opt/dietetyk-ai/.env` i zdefiniuj ścieżki do wygenerowanych certyfikatów oraz klucz Gemini:
 ```env
 SSL_CERT_PATH=/etc/letsencrypt/live/dietetyk.renacode.com/fullchain.pem
 SSL_KEY_PATH=/etc/letsencrypt/live/dietetyk.renacode.com/privkey.pem
 ```
-W katalogu `/root/dietetyk-ai/backend/.env` utwórz konfigurację dla backendu:
+W katalogu `/opt/dietetyk-ai/backend/.env` utwórz konfigurację dla backendu:
 ```env
 PORT=3000
 GEMINI_API_KEY=twój_klucz_api_gemini
@@ -83,11 +107,17 @@ GEMINI_MODEL=gemini-1.5-flash
 SYNC_TOKEN=twoje_bezpieczne_haslo_synchronizacji
 APP_PASSWORD=dietetyk-admin
 ```
+Katalog `./data` musi być zapisywalny dla uid 1000 (`chown -R 1000:1000 ./data`) -
+kontener backendu działa wewnątrz jako nieprivilegiowany użytkownik `node`, nie root.
 
 ### Krok 4: Uruchomienie kontenerów
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
+Po tym kroku każdy kolejny push na `main` automatycznie odświeży kontenery przez
+CI/CD (job `deploy` w `docker-publish.yml`) - ręczne `docker compose pull/up`
+jest potrzebne tylko przy pierwszym uruchomieniu.
 Aplikacja zostanie automatycznie uruchomiona na portach `80` i `443` (z automatycznym przekierowaniem na HTTPS).
 Opcjonalnie panel przeglądania bazy SQLite (sqlite-web) jest dostępny pod adresem `http://<IP_VPS>:8081`.
 

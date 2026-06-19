@@ -24,6 +24,14 @@ const fs = require('fs');
 const auditPath = process.argv[2];
 const allowList = (process.argv[3] || '').split(',').map(s => s.trim()).filter(Boolean);
 
+// TYMCZASOWY DEBUG - do usunięcia po zdiagnozowaniu, czemu w CI tylko
+// "cacache" jest dopasowywane do białej listy, a "tar"/"node-gyp"/
+// "make-fetch-happen" (mimo że są na liście) wciąż blokują. Lokalnie
+// z identycznymi danymi wszystkie cztery przechodzą - więc coś różni
+// się w tym, co skrypt faktycznie dostaje jako argv w prawdziwym CI.
+console.log('[DEBUG] argv:', JSON.stringify(process.argv));
+console.log('[DEBUG] allowList:', JSON.stringify(allowList));
+
 if (!auditPath) {
   console.error('Użycie: node check-npm-audit.js <plik-audit.json> [dozwolony-pakiet,...]');
   process.exit(1);
@@ -38,6 +46,7 @@ try {
 }
 
 const vulns = report.vulnerabilities || {};
+console.log('[DEBUG] vulnerabilities keys:', JSON.stringify(Object.keys(vulns)));
 const blocking = [];
 const accepted = [];
 

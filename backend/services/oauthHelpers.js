@@ -1,6 +1,22 @@
 const crypto = require('crypto');
 const db = require('../db');
 
+// Sekret do podpisywania (HMAC) parametru `state` w przepływie OAuth.
+// Wcześniej w razie braku APP_PASSWORD w środowisku kod po cichu używał
+// stałego, znanego z kodu źródłowego ciągu 'default_secret' - co czyniłoby
+// podpis trywialnym do podrobienia (atak CSRF na przepływ OAuth) w razie
+// pomyłki przy konfiguracji .env na produkcji. Teraz: brak konfiguracji
+// = błąd startowy (fail-fast), żeby taka pomyłka nigdy nie przeszła niezauważona.
+// Można nadpisać dedykowaną zmienną OAUTH_STATE_SECRET, żeby nie używać
+// hasła panelu admina (APP_PASSWORD) jednocześnie jako sekretu kryptograficznego.
+const OAUTH_STATE_SECRET = process.env.OAUTH_STATE_SECRET || process.env.APP_PASSWORD;
+if (!OAUTH_STATE_SECRET) {
+  throw new Error(
+    'Brak OAUTH_STATE_SECRET (lub zapasowo APP_PASSWORD) w zmiennych środowiskowych. ' +
+    'Ustaw jedną z nich w backend/.env, inaczej przepływ OAuth (Oura/Withings/Google) nie jest bezpieczny.'
+  );
+}
+
 // Helper do pobierania konfiguracji z bazy app_config
 async function getAppConfig(key) {
   if (key === 'app_url' && process.env.APP_URL) {
@@ -20,7 +36,7 @@ async function getUserSetting(userId, key) {
 function generateOAuthState(userId, service = 'oura') {
   const salt = Math.random().toString(36).substring(2);
   const data = `${userId}:${service}:${salt}`;
-  const hmac = crypto.createHmac('sha256', process.env.APP_PASSWORD || 'default_secret').update(data).digest('hex');
+  const hmac = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(data).digest('hex');
   return `${userId}:${service}:${salt}:${hmac}`;
 }
 
@@ -29,13 +45,13 @@ function verifyOAuthState(state) {
   const parts = state.split(':');
   if (parts.length === 3) {
     const [userId, salt, hmac] = parts;
-    const expectedHmac = crypto.createHmac('sha256', process.env.APP_PASSWORD || 'default_secret').update(`${userId}:${salt}`).digest('hex');
+    const expectedHmac = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(`${userId}:${salt}`).digest('hex');
     if (hmac === expectedHmac) {
       return { userId: parseInt(userId, 10), service: 'oura' };
     }
   } else if (parts.length === 4) {
     const [userId, service, salt, hmac] = parts;
-    const expectedHmac = crypto.createHmac('sha256', process.env.APP_PASSWORD || 'default_secret').update(`${userId}:${service}:${salt}`).digest('hex');
+    const expectedHmac = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(`${userId}:${service}:${salt}`).digest('hex');
     if (hmac === expectedHmac) {
       return { userId: parseInt(userId, 10), service };
     }

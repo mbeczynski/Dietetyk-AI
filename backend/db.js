@@ -19,6 +19,26 @@ const db = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
+// WAL (Write-Ahead Logging) pozwala na równoczesne odczyty podczas zapisu
+// (domyślny journal_mode SQLite blokuje cały plik na czas zapisu), a busy_timeout
+// sprawia, że krótkie kolizje zapisów (np. godzinowa synchronizacja Oura/Withings/
+// Google Fit nakładająca się na zapis użytkownika) czekają chwilę i się ponawiają,
+// zamiast od razu zwracać błąd "SQLITE_BUSY: database is locked".
+db.run('PRAGMA journal_mode = WAL;', (err) => {
+  if (err) console.error('Błąd ustawiania PRAGMA journal_mode=WAL:', err.message);
+});
+db.run('PRAGMA busy_timeout = 5000;', (err) => {
+  if (err) console.error('Błąd ustawiania PRAGMA busy_timeout:', err.message);
+});
+// SQLite domyślnie NIE wymusza kluczy obcych ani "ON DELETE CASCADE" zadeklarowanych
+// w schemacie (CREATE TABLE) - trzeba to włączyć per-połączenie. Bez tego usunięcie
+// użytkownika (np. nowa funkcja usuwania konta, patrz routes/account.js) zostawiałoby
+// osierocone wiersze w sessions/oauth_tokens/meals/health_metrics/settings/
+// body_measurements zamiast je kaskadowo usuwać.
+db.run('PRAGMA foreign_keys = ON;', (err) => {
+  if (err) console.error('Błąd ustawiania PRAGMA foreign_keys=ON:', err.message);
+});
+
 // Pomocnicza funkcja do asynchronicznych zapytań (run)
 const run = (sql, params = []) => {
   return new Promise((resolve, reject) => {
@@ -274,6 +294,18 @@ const initDb = async () => {
     await run(`ALTER TABLE sessions ADD COLUMN is_verified_2fa INTEGER DEFAULT 0`);
   } catch (e) {}
 
+  // 5b. Tabela blokady brute-force logowania (login_attempts) - przeniesiona
+  // z pamięci procesu (Map) do bazy, żeby blokady przetrwały restart kontenera
+  // backendu (np. przy wgrywaniu nowej wersji) - patrz services/loginAttempts.js.
+  await run(`
+    CREATE TABLE IF NOT EXISTS login_attempts (
+      key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL DEFAULT 0,
+      first_at INTEGER NOT NULL,
+      locked_until INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
   // 6. Tabela Tokenów OAuth (Oura, Withings)
   await run(`
     CREATE TABLE IF NOT EXISTS oauth_tokens (
@@ -409,9 +441,49 @@ const cleanupOldImages = async () => {
   }
 };
 
+// Automatyczne kopie zapasowe bazy SQLite (rotacja - domyślnie ostatnie 14 dni).
+// Plik bazy żyje w wolumenie Dockera (./data), który nie jest sam w sobie
+// kopią zapasową - awaria dysku/przypadkowe `rm -rf`/błąd migracji nadpisałby
+// jedyną kopię danych. Kopie trzymane są w podkatalogu backups/ tego samego
+// wolumenu - do realnej ochrony przed awarią hosta trzeba je jeszcze zgrywać
+// poza serwer (patrz README, sekcja "Kopie zapasowe").
+const backupDir = path.join(dbDir, 'backups');
+const BACKUP_RETENTION_COUNT = 14;
+
+const backupDatabase = async () => {
+  try {
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+
+    // Wymuszenie zapisu zawartości WAL do głównego pliku bazy przed kopiowaniem -
+    // inaczej kopia samego pliku .db (bez pliku -wal) mogłaby nie zawierać
+    // najnowszych, jeszcze nie scalonych zapisów.
+    await run('PRAGMA wal_checkpoint(FULL);');
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(backupDir, `dietetyk-${timestamp}.db`);
+    await fs.promises.copyFile(dbPath, backupPath);
+    console.log(`[BACKUP] Zapisano kopię zapasową bazy danych: ${backupPath}`);
+
+    // Rotacja - usuń najstarsze kopie powyżej limitu
+    const files = (await fs.promises.readdir(backupDir))
+      .filter(f => f.startsWith('dietetyk-') && f.endsWith('.db'))
+      .sort();
+    const toDelete = files.slice(0, Math.max(0, files.length - BACKUP_RETENTION_COUNT));
+    for (const f of toDelete) {
+      await fs.promises.unlink(path.join(backupDir, f));
+      console.log(`[BACKUP] Usunięto starą kopię zapasową: ${f}`);
+    }
+  } catch (err) {
+    console.error('[BACKUP ERROR] Błąd podczas tworzenia kopii zapasowej bazy danych:', err);
+  }
+};
+
 module.exports = {
   initDb,
   cleanupOldImages,
+  backupDatabase,
   run,
   get,
   all,

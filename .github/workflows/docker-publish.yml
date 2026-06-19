@@ -68,6 +68,21 @@ jobs:
       - name: Checkout kodu
         uses: actions/checkout@v5
 
+      # Skan podatności zależności npm. Działa tutaj (w CI), a nie lokalnie
+      # w środowisku deweloperskim/sandboksie, bo CI ma realny dostęp do
+      # rejestru npm. audit-level=high - nie blokujemy builda za drobne/niskie
+      # podatności, ale wysokie/krytyczne mają od razu wstrzymać publikację obrazu.
+      - name: Ustawienie Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: npm audit (backend)
+        working-directory: ./backend
+        run: |
+          npm install --package-lock-only
+          npm audit --audit-level=high
+
       - name: Logowanie do GitHub Container Registry
         uses: docker/login-action@v4
         with:
@@ -106,6 +121,17 @@ jobs:
     steps:
       - name: Checkout kodu
         uses: actions/checkout@v5
+
+      - name: Ustawienie Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: npm audit (frontend)
+        working-directory: ./frontend
+        run: |
+          npm install --package-lock-only
+          npm audit --audit-level=high
 
       - name: Logowanie do GitHub Container Registry
         uses: docker/login-action@v4

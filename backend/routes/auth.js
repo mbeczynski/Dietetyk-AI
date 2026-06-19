@@ -223,7 +223,7 @@ router.post('/api/login', async (req, res) => {
     return res.status(400).json({ error: 'Nazwa użytkownika i hasło są wymagane.' });
   }
 
-  const lockedMs = loginAttempts.isLocked(req.ip, username);
+  const lockedMs = await loginAttempts.isLocked(req.ip, username);
   if (lockedMs > 0) {
     return res.status(429).json({
       error: `Za dużo nieudanych prób logowania. Spróbuj ponownie za ${Math.ceil(lockedMs / 60000)} min.`
@@ -233,17 +233,17 @@ router.post('/api/login', async (req, res) => {
   try {
     const user = await db.get(`SELECT * FROM users WHERE username = ?`, [username]);
     if (!user) {
-      loginAttempts.recordFailure(req.ip, username);
+      await loginAttempts.recordFailure(req.ip, username);
       return res.status(401).json({ error: 'Niepoprawny użytkownik lub hasło.' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
-      loginAttempts.recordFailure(req.ip, username);
+      await loginAttempts.recordFailure(req.ip, username);
       return res.status(401).json({ error: 'Niepoprawny użytkownik lub hasło.' });
     }
 
-    loginAttempts.recordSuccess(req.ip, username);
+    await loginAttempts.recordSuccess(req.ip, username);
 
     // Sprawdź czy wymuszona jest zmiana hasła
     if (user.force_password_change === 1) {
@@ -351,7 +351,7 @@ router.post('/api/verify-2fa-setup', async (req, res) => {
     return res.status(400).json({ error: 'Tymczasowy token i kod są wymagane.' });
   }
 
-  const lockedMs = loginAttempts.isLocked(req.ip, tempToken);
+  const lockedMs = await loginAttempts.isLocked(req.ip, tempToken);
   if (lockedMs > 0) {
     return res.status(429).json({
       error: `Za dużo nieudanych prób. Spróbuj ponownie za ${Math.ceil(lockedMs / 60000)} min.`
@@ -376,11 +376,11 @@ router.post('/api/verify-2fa-setup', async (req, res) => {
     });
 
     if (!isValid) {
-      loginAttempts.recordFailure(req.ip, tempToken);
+      await loginAttempts.recordFailure(req.ip, tempToken);
       return res.status(400).json({ error: 'Niepoprawny kod 2FA. Spróbuj ponownie.' });
     }
 
-    loginAttempts.recordSuccess(req.ip, tempToken);
+    await loginAttempts.recordSuccess(req.ip, tempToken);
 
     // Aktywuj 2FA dla użytkownika
     await db.run(`UPDATE users SET totp_enabled = 1, force_2fa = 0 WHERE id = ?`, [session.user_id]);
@@ -411,7 +411,7 @@ router.post('/api/login-2fa', async (req, res) => {
     return res.status(400).json({ error: 'Tymczasowy token i kod są wymagane.' });
   }
 
-  const lockedMs = loginAttempts.isLocked(req.ip, tempToken);
+  const lockedMs = await loginAttempts.isLocked(req.ip, tempToken);
   if (lockedMs > 0) {
     return res.status(429).json({
       error: `Za dużo nieudanych prób. Spróbuj ponownie za ${Math.ceil(lockedMs / 60000)} min.`
@@ -436,11 +436,11 @@ router.post('/api/login-2fa', async (req, res) => {
     });
 
     if (!isValid) {
-      loginAttempts.recordFailure(req.ip, tempToken);
+      await loginAttempts.recordFailure(req.ip, tempToken);
       return res.status(400).json({ error: 'Niepoprawny kod 2FA. Spróbuj ponownie.' });
     }
 
-    loginAttempts.recordSuccess(req.ip, tempToken);
+    await loginAttempts.recordSuccess(req.ip, tempToken);
 
     // Wygeneruj stały token sesji (ważny 7 dni)
     const permanentToken = 'sess_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);

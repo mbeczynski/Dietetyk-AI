@@ -373,4 +373,107 @@ router.post('/api/user/send-monthly-summary', async (req, res) => {
   }
 });
 
+// Eksport danych użytkownika (RODO/GDPR, art. 20 - prawo do przenoszenia danych).
+// Aplikacja przetwarza dane zdrowotne (waga, skład ciała, aktywność, sen) z Oura/
+// Withings/Apple Health/Google Fit - to dane szczególnej kategorii (art. 9 RODO),
+// więc użytkownik musi mieć możliwość samodzielnego pobrania własnych danych bez
+// proszenia administratora. Hasła/sekrety (password_hash, totp_secret, tokeny OAuth)
+// są świadomie WYŁĄCZONE z eksportu - to nie są "dane osobowe do przenoszenia" tylko
+// poświadczenia bezpieczeństwa konta.
+router.get('/api/user/export', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await db.get(`
+      SELECT username, email, first_name, last_name, role, created_at
+      FROM users WHERE id = ?
+    `, [userId]);
+    if (!user) {
+      return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
+    }
+
+    const [settings, meals, healthMetrics, bodyMeasurements, workouts] = await Promise.all([
+      db.all(`SELECT key, value FROM settings WHERE user_id = ?`, [userId]),
+      db.all(`SELECT * FROM meals WHERE user_id = ? ORDER BY timestamp`, [userId]),
+      db.all(`SELECT * FROM health_metrics WHERE user_id = ? ORDER BY date`, [userId]),
+      db.all(`SELECT * FROM body_measurements WHERE user_id = ? ORDER BY date`, [userId]),
+      db.all(`SELECT * FROM apple_health_workouts WHERE user_id = ? ORDER BY date`, [userId])
+    ]);
+
+    // Sekrety/poświadczenia OAuth (oura_client_secret, withings_client_secret,
+    // gemini_api_key) maskowane tak samo jak w GET /api/settings - eksport profilu
+    // nie powinien ujawniać sekretów integracji w pliku, który użytkownik może
+    // gdzieś zapisać/wysłać dalej.
+    const maskedSettings = {};
+    settings.forEach(r => {
+      if (['gemini_api_key', 'oura_client_secret', 'withings_client_secret'].includes(r.key) && r.value) {
+        maskedSettings[r.key] = '********';
+      } else {
+        maskedSettings[r.key] = r.value;
+      }
+    });
+
+    res.setHeader('Content-Disposition', 'attachment; filename="dietetyk-ai-eksport-danych.json"');
+    res.json({
+      exported_at: new Date().toISOString(),
+      profile: {
+        username: user.username,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        role: user.role,
+        created_at: user.created_at
+      },
+      settings: maskedSettings,
+      meals,
+      health_metrics: healthMetrics,
+      body_measurements: bodyMeasurements,
+      apple_health_workouts: workouts
+    });
+  } catch (err) {
+    console.error('[EXPORT ERROR]', err);
+    res.status(500).json({ error: 'Błąd eksportu danych.' });
+  }
+});
+
+// Usunięcie własnego konta (RODO/GDPR, art. 17 - prawo do bycia zapomnianym).
+// Wymaga podania aktualnego hasła, żeby ktoś, kto przejął WYŁĄCZNIE token sesji
+// (np. zostawiony otwarty w przeglądarce), nie mógł trwale usunąć konta bez
+// znajomości hasła. Konta zalogowane przez Google bez ustawionego hasła
+// (teoretyczny przypadek - rejestracja przez Google ustawia losowy hash) są
+// obsłużone tym samym sprawdzeniem bcrypt.
+router.delete('/api/user/account', async (req, res) => {
+  const { password } = req.body;
+  if (!password) {
+    return res.status(400).json({ error: 'Potwierdzenie hasłem jest wymagane do usunięcia konta.' });
+  }
+
+  try {
+    const user = await db.get(`SELECT password_hash, role FROM users WHERE id = ?`, [req.user.id]);
+    if (!user) {
+      return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Niepoprawne hasło.' });
+    }
+
+    if (user.role === 'admin') {
+      return res.status(403).json({
+        error: 'Konto administratora nie może zostać usunięte samodzielnie z tego miejsca. Skontaktuj się z drugim administratorem lub usuń konto bezpośrednio w bazie danych.'
+      });
+    }
+
+    // PRAGMA foreign_keys=ON (patrz db.js) zapewnia kaskadowe usunięcie wierszy
+    // powiązanych z tym user_id (sessions, oauth_tokens, meals, settings,
+    // health_metrics, body_measurements, apple_health_workouts).
+    await db.run(`DELETE FROM users WHERE id = ?`, [req.user.id]);
+
+    res.json({ success: true, message: 'Konto i wszystkie powiązane dane zostały usunięte.' });
+  } catch (err) {
+    console.error('[ACCOUNT DELETE ERROR]', err);
+    res.status(500).json({ error: 'Błąd usuwania konta.' });
+  }
+});
+
 module.exports = router;

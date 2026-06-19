@@ -122,7 +122,26 @@ Po tym kroku każdy kolejny push na `main` automatycznie odświeży kontenery pr
 CI/CD (job `deploy` w `docker-publish.yml`) - ręczne `docker compose pull/up`
 jest potrzebne tylko przy pierwszym uruchomieniu.
 Aplikacja zostanie automatycznie uruchomiona na portach `80` i `443` (z automatycznym przekierowaniem na HTTPS).
-Opcjonalnie panel przeglądania bazy SQLite (sqlite-web) jest dostępny pod adresem `http://<IP_VPS>:8081`.
+Opcjonalny panel przeglądania bazy SQLite (sqlite-web) jest dostępny **tylko lokalnie** na
+VPS pod adresem `http://127.0.0.1:8081` (świadomie niewystawiony publicznie - sqlite-web nie
+ma własnej autoryzacji). Dostęp zdalny wymaga tunelu SSH z Twojego komputera:
+```bash
+ssh -L 8081:localhost:8081 deploy@<IP_VPS>
+```
+a następnie otwarcia `http://localhost:8081` lokalnie.
+
+### Krok 5: Kopie zapasowe bazy danych
+Backend sam tworzy kopie zapasowe pliku SQLite (przy starcie i co 24h, rotacja -
+ostatnie 14 kopii) w katalogu `./data/backups` na VPS (patrz `backend/db.js`,
+funkcja `backupDatabase`). To chroni przed uszkodzeniem/błędną migracją bazy,
+ale **nie** przed awarią całego serwera/dysku - katalog `./data` to wciąż
+jeden, lokalny wolumen. Dla realnego bezpieczeństwa danych zdrowotnych
+użytkowników zalecane jest dodatkowo skopiowanie tego katalogu poza serwer,
+np. cronem na VPS:
+```bash
+# /etc/cron.d/dietetyk-offsite-backup (przykład - dopasuj miejsce docelowe)
+0 4 * * * root rsync -a /opt/dietetyk-ai/data/backups/ user@backup-host:/backups/dietetyk-ai/
+```
 
 ---
 

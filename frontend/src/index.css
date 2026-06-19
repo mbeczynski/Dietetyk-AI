@@ -10,6 +10,7 @@
   --color-secondary: #10b981; /* Szmaragd Zdrowia */
   --color-orange: #f59e0b; /* Pomarańcz */
   --color-blue: #06b6d4; /* Cyjan aktywności */
+  --danger: #ef4444; /* Czerwień dla akcji destrukcyjnych (usunięcie konta itp.) */
   
   --gradient-ai: linear-gradient(135deg, #7c3aed 0%, #c084fc 100%);
   --gradient-health: linear-gradient(135deg, #059669 0%, #34d399 100%);
@@ -421,6 +422,39 @@ header {
 }
 
 .btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Klasa .btn-danger - akcje destrukcyjne i nieodwracalne (np. usunięcie konta
+   w panelu RODO w Ustawieniach). Wyróżniona kolorem --danger, żeby wizualnie
+   odróżniać się od .btn-primary/.btn-secondary. */
+.btn-danger {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: var(--danger);
+  padding: 12px 20px;
+  border-radius: var(--radius-md);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: var(--danger);
+}
+
+.btn-danger:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-danger:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

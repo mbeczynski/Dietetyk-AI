@@ -33,6 +33,13 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
 
+  // Stan eksportu danych i usuwania konta (RODO/GDPR)
+  const [isExportingData, setIsExportingData] = useState(false);
+  const [exportMessage, setExportMessage] = useState({ type: '', text: '' });
+  const [deletePassword, setDeletePassword] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteMessage, setDeleteMessage] = useState({ type: '', text: '' });
+
   // Stan e-mail, raportów tygodniowych i tokenu synchronizacji
   const [emailInput, setEmailInput] = useState(userProfile.email || '');
   // Imię/nazwisko - AI dietetyk używa imienia, by zwracać się do użytkownika po imieniu
@@ -344,6 +351,71 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
       setPasswordMessage({ type: 'error', text: 'Problem z połączeniem z serwerem.' });
     } finally {
       setIsChangingPassword(false);
+    }
+  };
+
+  // Eksport własnych danych (RODO art. 20) - pobiera plik JSON z profilem,
+  // ustawieniami (sekrety zamaskowane), posiłkami i historią zdrowotną.
+  const handleExportData = async () => {
+    setExportMessage({ type: '', text: '' });
+    setIsExportingData(true);
+    try {
+      const res = await fetch('/api/user/export', {
+        headers: { 'Authorization': `Bearer ${sessionToken}` }
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setExportMessage({ type: 'error', text: data.error || 'Błąd eksportu danych.' });
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'dietetyk-ai-eksport-danych.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportMessage({ type: 'error', text: 'Problem z połączeniem z serwerem.' });
+    } finally {
+      setIsExportingData(false);
+    }
+  };
+
+  // Usunięcie własnego konta (RODO art. 17) - wymaga potwierdzenia hasłem
+  // oraz dodatkowego potwierdzenia w oknie dialogowym, bo to nieodwracalne.
+  const handleDeleteAccount = async (e) => {
+    e.preventDefault();
+    setDeleteMessage({ type: '', text: '' });
+
+    if (!confirm('Czy na pewno chcesz trwale usunąć swoje konto? Tej operacji nie można odwrócić - wszystkie posiłki, ustawienia i historia zdrowotna zostaną usunięte.')) {
+      return;
+    }
+
+    setIsDeletingAccount(true);
+    try {
+      const res = await fetch('/api/user/account', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`
+        },
+        body: JSON.stringify({ password: deletePassword })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        localStorage.removeItem('diet_session_token');
+        window.location.href = '/';
+      } else {
+        setDeleteMessage({ type: 'error', text: data.error || 'Błąd usuwania konta.' });
+      }
+    } catch (err) {
+      setDeleteMessage({ type: 'error', text: 'Problem z połączeniem z serwerem.' });
+    } finally {
+      setIsDeletingAccount(false);
     }
   };
 
@@ -1032,6 +1104,57 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
             <button type="submit" className="btn-primary" disabled={isChangingPassword} style={{ marginTop: '8px' }}>
               {isChangingPassword ? 'Zmienianie...' : 'Zmień hasło'}
+            </button>
+          </form>
+        </div>
+
+        {/* Panel Twoje Dane (RODO) - eksport i usunięcie konta */}
+        <div className="glass-card">
+          <h3 className="card-title">📦 Twoje Dane</h3>
+          <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+            Zgodnie z RODO możesz pobrać kopię swoich danych albo trwale usunąć swoje konto.
+          </p>
+
+          {exportMessage.text && (
+            <div className={`alert alert-${exportMessage.type}`} style={{ marginBottom: '16px' }}>
+              {exportMessage.text}
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={handleExportData}
+            disabled={isExportingData}
+            style={{ marginBottom: '24px' }}
+          >
+            {isExportingData ? 'Przygotowywanie...' : '⬇️ Eksportuj moje dane (JSON)'}
+          </button>
+
+          <h4 style={{ fontSize: '1rem', color: 'var(--danger)', marginBottom: '8px' }}>Usunięcie konta</h4>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+            Trwale usuwa Twoje konto i wszystkie powiązane dane (posiłki, ustawienia, historię zdrowotną, połączenia Oura/Withings/Google). Tej operacji nie można odwrócić.
+          </p>
+
+          {deleteMessage.text && (
+            <div className={`alert alert-${deleteMessage.type}`} style={{ marginBottom: '16px' }}>
+              {deleteMessage.text}
+            </div>
+          )}
+
+          <form onSubmit={handleDeleteAccount} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="input-group">
+              <label className="input-label">Potwierdź hasłem</label>
+              <input
+                type="password"
+                className="input-field"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                required
+              />
+            </div>
+            <button type="submit" className="btn-danger" disabled={isDeletingAccount}>
+              {isDeletingAccount ? 'Usuwanie...' : 'Usuń moje konto na zawsze'}
             </button>
           </form>
         </div>

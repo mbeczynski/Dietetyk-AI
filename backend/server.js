@@ -5,6 +5,7 @@ const path = require('path');
 const db = require('./db');
 const { PORT } = require('./config');
 const { requireAuth } = require('./middleware/auth');
+const { apiRateLimiter } = require('./middleware/rateLimit');
 const { runHourlySyncIfDue } = require('./scheduler');
 
 const app = express();
@@ -15,7 +16,14 @@ const app = express();
 app.set('trust proxy', 1);
 
 // Middleware
-app.use(cors());
+// CORS ograniczony do skonfigurowanego adresu aplikacji (APP_URL) - wcześniej
+// cors() bez opcji odpowiadał Access-Control-Allow-Origin dla KAŻDEJ domeny,
+// co przy uwierzytelnianiu tokenem Bearer nie jest krytyczne (token nie jest
+// ciastkiem wysyłanym automatycznie), ale niepotrzebnie ułatwiało zapytania
+// z dowolnej, nieznanej strony. W lokalnym dev (brak APP_URL) zostaje otwarte,
+// żeby nie blokować pracy na różnych portach/localhost.
+const allowedOrigin = process.env.APP_URL;
+app.use(cors(allowedOrigin ? { origin: allowedOrigin } : {}));
 // Limit zwiększony z domyślnych 100kb - webhook Apple Health (Health Auto Export,
 // patrz routes/appleHealth.js) przy eksporcie Treningów z włączonymi "Danymi Trasy"
 // (GPS) za dłuższy okres wysyła duże payloady JSON, które przekraczały domyślny
@@ -36,6 +44,11 @@ app.use(require('./routes/healthcheck'));
 // requireAuth, ponieważ ma własną autoryzację per-żądanie (sync_token w adresie URL,
 // patrz routes/appleHealth.js), a nie sesję/ciasteczko jak resztę /api/.
 app.use(require('./routes/appleHealth'));
+
+// Globalny limiter zapytań (chroni m.in. trasy korzystające z Gemini AI
+// i resztę /api przed nadużyciem) - zamontowany PRZED requireAuth, żeby
+// limitować również próby logowania, nie tylko zapytania zalogowanych.
+app.use('/api', apiRateLimiter);
 
 // Zabezpieczenie wszystkich tras /api/ za pomocą middleware
 app.use('/api', requireAuth);
@@ -73,10 +86,19 @@ async function start() {
   // Uruchomienie czyszczenia starych zdjęć przy starcie
   await db.cleanupOldImages();
 
-  // Uruchomienie czyszczenia co 24 godziny
+  // Pierwsza kopia zapasowa bazy danych przy starcie (patrz db.js, backupDatabase) -
+  // dzięki temu kopia istnieje od razu, a nie tylko po 24h działania kontenera.
+  await db.backupDatabase();
+
+  // Uruchomienie czyszczenia i kopii zapasowej co 24 godziny
   setInterval(async () => {
     console.log('[CRON] Uruchomienie okresowego czyszczenia starych zdjęć...');
     await db.cleanupOldImages();
+  }, 24 * 60 * 60 * 1000);
+
+  setInterval(async () => {
+    console.log('[CRON] Uruchomienie okresowej kopii zapasowej bazy danych...');
+    await db.backupDatabase();
   }, 24 * 60 * 60 * 1000);
 
   // Synchronizacja danych (Oura, Withings) oraz sprawdzanie podsumowań: co godzinę,

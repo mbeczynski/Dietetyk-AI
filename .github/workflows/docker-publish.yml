@@ -101,6 +101,18 @@ jobs:
         working-directory: ./backend
         run: npm audit --audit-level=high --omit=dev
 
+      # Przekazujemy świeżo zregenerowany lockfile do joba build-backend
+      # (osobny runner = osobny checkout, nie widzi plików z tego joba).
+      # Dzięki temu `npm ci` w Dockerze zawsze dostaje lockfile zgodny
+      # z aktualnym package.json, wygenerowany tu, w CI, gdzie jest realny
+      # dostęp do rejestru npm - nikt nie musi odświeżać go ręcznie lokalnie.
+      - name: Przekazanie zaktualizowanego lockfile do build-backend
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-lockfile
+          path: backend/package-lock.json
+          retention-days: 1
+
   build-backend:
     name: Build i push obrazu (backend)
     needs: [changes, test-backend]
@@ -111,6 +123,12 @@ jobs:
     steps:
       - name: Checkout kodu
         uses: actions/checkout@v5
+
+      - name: Pobranie zaktualizowanego lockfile z joba test-backend
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-lockfile
+          path: backend
 
       - name: Logowanie do GitHub Container Registry
         uses: docker/login-action@v4
@@ -131,7 +149,24 @@ jobs:
             type=raw,value=latest
             type=sha,format=short
 
-      - name: Build i push obrazu backendu
+      # Build i push są teraz osobnymi krokami: jeśli sam build (kompilacja
+      # Dockerfile, npm ci w obrazie itd.) zawiedzie, nic nie trafia do
+      # registry - krok push w ogóle się nie wykona. Wcześniej jeden krok
+      # robił oba na raz, co utrudniało odróżnienie błędu builda od błędu
+      # logowania/publikacji do ghcr.io.
+      - name: Build obrazu backendu (bez push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./docker/backend.Dockerfile
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Push obrazu backendu do registry
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -140,7 +175,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
 
   # Analogiczny, osobny job audytu dla frontendu - patrz komentarz przy
   # test-backend powyżej (te samo uzasadnienie rozdzielenia od builda).
@@ -166,6 +200,13 @@ jobs:
         working-directory: ./frontend
         run: npm audit --audit-level=high --omit=dev
 
+      - name: Przekazanie zaktualizowanego lockfile do build-frontend
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-lockfile
+          path: frontend/package-lock.json
+          retention-days: 1
+
   build-frontend:
     name: Build i push obrazu (frontend)
     needs: [changes, test-frontend]
@@ -176,6 +217,12 @@ jobs:
     steps:
       - name: Checkout kodu
         uses: actions/checkout@v5
+
+      - name: Pobranie zaktualizowanego lockfile z joba test-frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-lockfile
+          path: frontend
 
       - name: Logowanie do GitHub Container Registry
         uses: docker/login-action@v4
@@ -196,7 +243,19 @@ jobs:
             type=raw,value=latest
             type=sha,format=short
 
-      - name: Build i push obrazu frontendu
+      - name: Build obrazu frontendu (bez push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./docker/frontend.Dockerfile
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Push obrazu frontendu do registry
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -205,7 +264,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
 
   deploy:
     name: Wdrożenie na serwer produkcyjny (CD)

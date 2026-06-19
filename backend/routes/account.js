@@ -77,7 +77,7 @@ router.post('/api/settings', async (req, res) => {
 // 6a. Pobranie profilu użytkownika (nazwa, email, avatar, rola i status 2FA)
 router.get('/api/user/profile', async (req, res) => {
   try {
-    const user = await db.get(`SELECT username, email, avatar_base64, role, totp_enabled FROM users WHERE id = ?`, [req.user.id]);
+    const user = await db.get(`SELECT username, email, avatar_base64, role, totp_enabled, first_name, last_name, google_id FROM users WHERE id = ?`, [req.user.id]);
     if (!user) {
       return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
     }
@@ -92,12 +92,15 @@ router.get('/api/user/profile', async (req, res) => {
 
     const hasOuraRow = await db.get(`SELECT 1 FROM oauth_tokens WHERE user_id = ? AND service = 'oura'`, [req.user.id]);
     const hasWithingsRow = await db.get(`SELECT 1 FROM oauth_tokens WHERE user_id = ? AND service = 'withings'`, [req.user.id]);
+    const hasGoogleFitRow = await db.get(`SELECT 1 FROM oauth_tokens WHERE user_id = ? AND service = 'google_fit'`, [req.user.id]);
 
     res.json({
       username: user.username,
       email: user.email || '',
       avatar_base64: user.avatar_base64,
       role: user.role,
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
       totp_enabled: user.totp_enabled === 1,
       weekly_summary_enabled: summaryEnabledRow ? summaryEnabledRow.value === '1' : false,
       weekly_summary_day: summaryDayRow ? Number(summaryDayRow.value) : 1,
@@ -106,7 +109,9 @@ router.get('/api/user/profile', async (req, res) => {
       monthly_summary_day: monthlyDayRow ? Number(monthlyDayRow.value) : 1,
       monthly_summary_time: monthlyTimeRow ? monthlyTimeRow.value : '09:00',
       has_oura: !!hasOuraRow,
-      has_withings: !!hasWithingsRow
+      has_withings: !!hasWithingsRow,
+      has_google: !!user.google_id,
+      has_google_fit: !!hasGoogleFitRow
     });
   } catch (err) {
     console.error(err);
@@ -116,7 +121,7 @@ router.get('/api/user/profile', async (req, res) => {
 
 // 6b. Aktualizacja profilu użytkownika (avatar, email, syncToken)
 router.post('/api/user/profile', async (req, res) => {
-  const { avatar, email, syncToken, weekly_summary_enabled, weekly_summary_day, weekly_summary_time, monthly_summary_enabled, monthly_summary_day, monthly_summary_time } = req.body;
+  const { avatar, email, syncToken, first_name, last_name, weekly_summary_enabled, weekly_summary_day, weekly_summary_time, monthly_summary_enabled, monthly_summary_day, monthly_summary_time } = req.body;
   try {
     if (syncToken !== undefined) {
       const trimmedToken = syncToken.trim();
@@ -136,6 +141,18 @@ router.post('/api/user/profile', async (req, res) => {
       await db.run(`UPDATE users SET avatar_base64 = ? WHERE id = ?`, [avatar, req.user.id]);
     } else if (email !== undefined) {
       await db.run(`UPDATE users SET email = ? WHERE id = ?`, [email, req.user.id]);
+    }
+
+    // Imię/nazwisko - używane przez AI dietetyka do personalizacji zwrotów
+    // (np. "Cześć Marcin"). Trim + zamiana pustego stringa na NULL, żeby AI nie
+    // dostawało literalnie pustego ciągu jako "imienia" użytkownika.
+    if (first_name !== undefined) {
+      const trimmedFirstName = String(first_name).trim();
+      await db.run(`UPDATE users SET first_name = ? WHERE id = ?`, [trimmedFirstName || null, req.user.id]);
+    }
+    if (last_name !== undefined) {
+      const trimmedLastName = String(last_name).trim();
+      await db.run(`UPDATE users SET last_name = ? WHERE id = ?`, [trimmedLastName || null, req.user.id]);
     }
 
     if (weekly_summary_enabled !== undefined) {
@@ -269,6 +286,19 @@ router.post('/api/user/disable-2fa', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd dezaktywacji 2FA.' });
+  }
+});
+
+// Odłączenie konta Google - logowanie hasłem (lub Google Fit, jeśli był połączony
+// wyłącznie przy okazji logowania Google) pozostaje dostępne, bo konto zawsze ma
+// password_hash (losowy, jeśli konto powstało przez Google - można go zresetować).
+router.post('/api/user/unlink-google', async (req, res) => {
+  try {
+    await db.run(`UPDATE users SET google_id = NULL WHERE id = ?`, [req.user.id]);
+    res.json({ success: true, message: 'Odłączono konto Google.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd odłączania konta Google.' });
   }
 });
 

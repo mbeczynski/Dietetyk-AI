@@ -144,9 +144,11 @@ router.post('/api/chat', requireAuth, async (req, res) => {
     const apiKeyRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'gemini_api_key'", [req.user.id]);
     const userApiKey = apiKeyRow ? apiKeyRow.value : null;
 
+    // Imię (jeśli ustawione w Ustawieniach) ma priorytet nad loginem technicznym.
+    const displayName = req.user.first_name || req.user.username;
     const chatPrompt = `
 Jesteś profesjonalnym, empatycznym i zorientowanym na cele dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
-Pomagasz użytkownikowi ${req.user.username} w optymalizacji jego diety, regeneracji, snu i treningów.
+Pomagasz użytkownikowi ${displayName} w optymalizacji jego diety, regeneracji, snu i treningów.
 
 Informacje o profilu i celach użytkownika:
 - Cel kaloryczny spożycia: ${settings.target_calories || 2000} kcal

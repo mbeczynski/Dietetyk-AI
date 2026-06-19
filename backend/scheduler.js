@@ -1,6 +1,6 @@
 const db = require('./db');
 const { getLocalDateString } = require('./utils/dates');
-const { syncAllOura, syncAllWithings } = require('./services/sync');
+const { syncAllOura, syncAllWithings, syncAllGoogleFit } = require('./services/sync');
 const { sendWeeklySummaryForUser, sendDailySummaryForUser, sendMonthlySummaryForUser } = require('./services/summaries');
 
 async function checkAndSendAutomatedSummaries() {
@@ -155,6 +155,7 @@ async function runHourlySyncIfDue() {
   try {
     await syncAllOura();
     await syncAllWithings();
+    await syncAllGoogleFit();
     await checkAndSendAutomatedSummaries();
     console.log('[SCHEDULER] Godzinowa synchronizacja i podsumowania zakończone.');
   } catch (err) {

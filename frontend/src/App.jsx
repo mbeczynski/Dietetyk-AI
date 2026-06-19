@@ -176,9 +176,29 @@ export default function App() {
       const tabParam = params.get('tab');
       const successParam = params.get('success');
       const errorParam = params.get('error');
+      const googleLinkParam = params.get('google_link');
+      const googleLinkErrorParam = params.get('google_link_error');
 
       if (tabParam) {
         setCurrentTab(tabParam);
+      }
+
+      // Powrót z przepływu łączenia konta z Google (Ustawienia -> "Połącz z Google").
+      // Osobne parametry od `success`/`error` powyżej, bo to nie jest integracja ze
+      // źródłem danych (Oura/Withings), a połączenie metody logowania.
+      if (googleLinkParam === 'success') {
+        setSuccessMessage('Pomyślnie połączono konto z Google!');
+        setTimeout(() => setSuccessMessage(''), 6000);
+        window.history.replaceState({}, document.title, '/?tab=settings');
+        fetchUserProfile();
+      } else if (googleLinkErrorParam) {
+        let msg = 'Nie udało się połączyć konta z Google.';
+        if (googleLinkErrorParam === 'already_linked') {
+          msg = 'To konto Google jest już połączone z innym użytkownikiem.';
+        }
+        setErrorMessage(msg);
+        setTimeout(() => setErrorMessage(''), 6000);
+        window.history.replaceState({}, document.title, '/?tab=settings');
       }
 
       if (successParam === 'oura') {
@@ -193,10 +213,18 @@ export default function App() {
         window.history.replaceState({}, document.title, '/');
         fetchUserProfile();
         fetchDashboardData();
+      } else if (successParam === 'google_fit') {
+        setSuccessMessage('Pomyślnie zintegrowano z Google Fit!');
+        setTimeout(() => setSuccessMessage(''), 6000);
+        window.history.replaceState({}, document.title, '/');
+        fetchUserProfile();
+        fetchDashboardData();
       } else if (errorParam) {
         let msg = 'Wystąpił błąd podczas integracji.';
         if (errorParam === 'oura_auth_failed' || errorParam === 'oura_exchange_failed') {
           msg = 'Nie udało się połączyć z Oura Ring. Sprawdź poświadczenia w panelu admina.';
+        } else if (errorParam === 'google_fit_auth_failed' || errorParam === 'google_fit_exchange_failed') {
+          msg = 'Nie udało się połączyć z Google Fit. Sprawdź konfigurację Google w panelu admina.';
         } else if (errorParam === 'withings_auth_failed' || errorParam === 'withings_exchange_failed') {
           msg = 'Nie udało się połączyć z Withings. Sprawdź poświadczenia w panelu admina.';
         }
@@ -951,7 +979,7 @@ export default function App() {
 
         {/* Footer */}
         <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', textAlign: 'center' }}>
-          Dietetyk AI v1.1.0 | Powered by <a href="https://renacode.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>RenaCode</a> | <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Regulamin</a> | <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textDecoration: 'underline' }}>Polityka Prywatności</a>
+          Dietetyk AI v1.1.0 | Powered by <a href="https://renacode.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>RenaCode</a> | <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Regulamin</a> | <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Polityka Prywatności</a> | <a href="/sync.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textDecoration: 'underline' }}>Jak zsynchronizować dane</a>
         </div>
 
         {/* Modal regulaminu */}
@@ -1159,7 +1187,7 @@ export default function App() {
       {/* Footer wewnątrz aplikacji */}
       <footer>
         <div style={{ textAlign: 'center', marginTop: '40px', padding: '20px 0', borderTop: '1px solid var(--border-glass)', fontSize: '0.8rem', color: 'var(--text-dim)' }}>
-          Dietetyk AI v1.1.0 | Powered by <a href="https://renacode.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>RenaCode</a> | <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Regulamin</a> | <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline' }}>Polityka Prywatności</a>
+          Dietetyk AI v1.1.0 | Powered by <a href="https://renacode.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>RenaCode</a> | <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Regulamin</a> | <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Polityka Prywatności</a> | <a href="/sync.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline' }}>Jak zsynchronizować dane</a>
         </div>
       </footer>
 

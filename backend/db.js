@@ -67,7 +67,9 @@ const initDb = async () => {
       invitation_token TEXT UNIQUE,
       created_at TEXT DEFAULT (datetime('now')),
       force_password_change INTEGER DEFAULT 0,
-      force_2fa INTEGER DEFAULT 0
+      force_2fa INTEGER DEFAULT 0,
+      first_name TEXT,
+      last_name TEXT
     )
   `);
 
@@ -111,6 +113,18 @@ const initDb = async () => {
   // Migracja: logowanie przez Google (krok w stronę docelowego usunięcia logowania hasłem)
   try {
     await run("ALTER TABLE users ADD COLUMN google_id TEXT");
+  } catch (e) {}
+
+  // Migracja: imię i nazwisko - używane do personalizacji zwrotów AI dietetyka
+  // ("Cześć Marcin, ..." zamiast bezosobowego tonu) oraz do wyświetlenia w profilu.
+  // Oddzielone od `username` (login techniczny, niezmienny) - użytkownik może mieć
+  // login typu "mbeczynski", a imię, którym chce być nazywany, to np. "Marcin".
+  try {
+    await run("ALTER TABLE users ADD COLUMN first_name TEXT");
+  } catch (e) {}
+
+  try {
+    await run("ALTER TABLE users ADD COLUMN last_name TEXT");
   } catch (e) {}
 
 

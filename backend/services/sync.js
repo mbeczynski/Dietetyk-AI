@@ -1,5 +1,6 @@
 const db = require('../db');
 const { formatDateString, timestampToDateString } = require('../utils/dates');
+
 const { getOrRefreshToken } = require('./oauthHelpers');
 
 async function syncOura(userId) {
@@ -288,6 +289,96 @@ async function syncWithings(userId) {
   }
 }
 
+// Synchronizacja Google Fit (kroki, kalorie aktywne) - w przeciwieństwie do Apple Health
+// (webhook/push z apki Health Auto Export), Google Fit nie ma mechanizmu push, więc
+// dane pobieramy aktywnie przez REST API (dataset:aggregate), analogicznie do Oura/Withings.
+async function syncGoogleFit(userId) {
+  const accessToken = await getOrRefreshToken(userId, 'google_fit');
+  if (!accessToken) {
+    return { success: false, error: 'Brak aktywnego tokenu Google Fit. Połącz się ponownie w Ustawieniach.' };
+  }
+
+  const now = new Date();
+  const past = new Date();
+  past.setDate(now.getDate() - 7);
+  const startTimeMillis = past.getTime();
+  const endTimeMillis = now.getTime();
+
+  console.log(`[SYNC GOOGLE FIT] Pobieranie kroków/kalorii dla użytkownika ${userId}...`);
+
+  try {
+    const response = await fetch('https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        aggregateBy: [
+          { dataTypeName: 'com.google.step_count.delta' },
+          { dataTypeName: 'com.google.calories.expended' }
+        ],
+        bucketByTime: { durationMillis: 86400000 },
+        startTimeMillis: String(startTimeMillis),
+        endTimeMillis: String(endTimeMillis)
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Błąd Google Fit API (Status ${response.status}): ${errText}`);
+    }
+
+    const data = await response.json();
+    const buckets = data.bucket || [];
+    const lastSyncTime = new Date().toISOString();
+
+    for (const bucket of buckets) {
+      // Granice dobowe Google Fit (bucketByTime) są liczone w UTC - API
+      // dataset:aggregate nie przyjmuje parametru strefy czasowej. Data dnia może więc
+      // być przesunięta o 1-2h względem innych źródeł (Oura, Apple Health), które
+      // liczą dobę w Europe/Warsaw. Akceptowalny kompromis, bez wpływu na sumy 7-dniowe.
+      const dateStr = timestampToDateString(Math.floor(Number(bucket.startTimeMillis) / 1000));
+
+      let steps = 0;
+      let calories = 0;
+      (bucket.dataset || []).forEach(ds => {
+        (ds.point || []).forEach(point => {
+          const val = point.value && point.value[0];
+          if (!val) return;
+          if (ds.dataSourceId && ds.dataSourceId.includes('step_count')) {
+            steps += val.intVal || 0;
+          } else if (ds.dataSourceId && ds.dataSourceId.includes('calories')) {
+            calories += val.fpVal || 0;
+          }
+        });
+      });
+      calories = Math.round(calories);
+
+      if (steps > 0 || calories > 0) {
+        // Ten sam wzorzec ochrony kolumn co w syncOura: Apple Health (jeśli ma realne
+        // dane > 0 dla tej daty) ma priorytet; Google Fit i Oura są równorzędne źródła.
+        await db.run(`
+          INSERT INTO health_metrics (user_id, date, steps, active_calories, activity_source, last_sync)
+          VALUES (?, ?, ?, ?, 'google_fit', ?)
+          ON CONFLICT(user_id, date) DO UPDATE SET
+            steps = CASE WHEN activity_source = 'apple' AND COALESCE(steps, 0) > 0 THEN steps ELSE COALESCE(excluded.steps, steps) END,
+            active_calories = CASE WHEN activity_source = 'apple' AND COALESCE(active_calories, 0) > 0 THEN active_calories ELSE COALESCE(excluded.active_calories, active_calories) END,
+            activity_source = CASE
+              WHEN activity_source = 'apple' AND (COALESCE(steps, 0) > 0 OR COALESCE(active_calories, 0) > 0) THEN activity_source
+              ELSE COALESCE(excluded.activity_source, activity_source)
+            END,
+            last_sync = excluded.last_sync
+        `, [userId, dateStr, steps || null, calories || null, lastSyncTime]);
+      }
+    }
+    return { success: true };
+  } catch (err) {
+    console.error(`[SYNC GOOGLE FIT ERROR] Użytkownik ${userId}:`, err);
+    return { success: false, error: err.message };
+  }
+}
+
 // Synchronizacja Oura dla wszystkich użytkowników (wywoływana przez wspólny harmonogram godzinowy, 5:00-22:00)
 async function syncAllOura() {
   console.log('[CRON OURA] Synchronizacja danych Oura Ring...');
@@ -316,9 +407,25 @@ async function syncAllWithings() {
   }
 }
 
+// Synchronizacja Google Fit dla wszystkich użytkowników (wywoływana przez wspólny harmonogram godzinowy, 5:00-22:00)
+async function syncAllGoogleFit() {
+  console.log('[CRON GOOGLE FIT] Synchronizacja danych Google Fit...');
+  try {
+    const tokens = await db.all(`SELECT DISTINCT user_id FROM oauth_tokens WHERE service = 'google_fit'`);
+    for (const t of tokens) {
+      await syncGoogleFit(t.user_id);
+    }
+    console.log(`[CRON GOOGLE FIT] Zsynchronizowano ${tokens.length} użytkownik(ów).`);
+  } catch (err) {
+    console.error('[CRON ERROR] Błąd synchronizacji Google Fit:', err);
+  }
+}
+
 module.exports = {
   syncOura,
   syncWithings,
+  syncGoogleFit,
   syncAllOura,
-  syncAllWithings
+  syncAllWithings,
+  syncAllGoogleFit
 };

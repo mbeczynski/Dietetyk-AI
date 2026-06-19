@@ -35,6 +35,9 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
   // Stan e-mail, raportów tygodniowych i tokenu synchronizacji
   const [emailInput, setEmailInput] = useState(userProfile.email || '');
+  // Imię/nazwisko - AI dietetyk używa imienia, by zwracać się do użytkownika po imieniu
+  const [firstNameInput, setFirstNameInput] = useState(userProfile.first_name || '');
+  const [lastNameInput, setLastNameInput] = useState(userProfile.last_name || '');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [isRegeneratingToken, setIsRegeneratingToken] = useState(false);
@@ -56,6 +59,12 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   useEffect(() => {
     if (userProfile.email !== undefined) {
       setEmailInput(userProfile.email || '');
+    }
+    if (userProfile.first_name !== undefined) {
+      setFirstNameInput(userProfile.first_name || '');
+    }
+    if (userProfile.last_name !== undefined) {
+      setLastNameInput(userProfile.last_name || '');
     }
     if (userProfile.weekly_summary_enabled !== undefined) {
       setWeeklySummaryEnabled(userProfile.weekly_summary_enabled);
@@ -352,6 +361,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
         },
         body: JSON.stringify({
           email: emailInput,
+          first_name: firstNameInput,
+          last_name: lastNameInput,
           weekly_summary_enabled: weeklySummaryEnabled ? '1' : '0',
           weekly_summary_day: String(weeklySummaryDay),
           weekly_summary_time: weeklySummaryTime,
@@ -545,6 +556,61 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     window.location.href = `${window.location.origin}/api/auth/${service}?token=${sessionToken}`;
   };
 
+  // Połączenie/odłączenie konta Google (logowanie) - osobne od Google Fit (źródło danych).
+  // Brak Client ID/Secret do zapisania (konfiguracja globalna admina), więc po prostu
+  // przekierowujemy z tokenem sesji - backend rozpoznaje to jako przepływ "łączenia"
+  // dzięki podpisanemu `state` (patrz backend/routes/auth.js, GET /api/auth/google/link).
+  const handleConnectGoogle = () => {
+    window.location.href = `${window.location.origin}/api/auth/google/link?token=${sessionToken}`;
+  };
+
+  const handleUnlinkGoogle = async () => {
+    if (!confirm('Czy na pewno chcesz odłączyć konto Google? Logowanie będzie wtedy możliwe tylko hasłem.')) return;
+    try {
+      const res = await fetch('/api/user/unlink-google', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${sessionToken}` }
+      });
+      if (res.ok) {
+        onProfileUpdate();
+        setMessage({ type: 'success', text: 'Odłączono konto Google!' });
+        setTimeout(() => setMessage({ type: '', text: '' }), 5000);
+      } else {
+        setMessage({ type: 'error', text: 'Nie udało się odłączyć konta Google.' });
+      }
+    } catch (err) {
+      console.error(err);
+      setMessage({ type: 'error', text: 'Błąd połączenia z serwerem.' });
+    }
+  };
+
+  // Połączenie/odłączenie Google Fit (źródło danych o krokach/kaloriach), analogicznie
+  // do Oura/Withings, ale bez własnych Client ID/Secret - korzysta z tej samej,
+  // globalnej konfiguracji Google co logowanie Google.
+  const handleConnectGoogleFit = () => {
+    window.location.href = `${window.location.origin}/api/auth/google-fit?token=${sessionToken}`;
+  };
+
+  const handleDisconnectGoogleFit = async () => {
+    if (!confirm('Czy na pewno chcesz odłączyć integrację z Google Fit?')) return;
+    try {
+      const res = await fetch('/api/auth/google-fit/disconnect', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${sessionToken}` }
+      });
+      if (res.ok) {
+        onProfileUpdate();
+        setMessage({ type: 'success', text: 'Odłączono integrację z Google Fit!' });
+        setTimeout(() => setMessage({ type: '', text: '' }), 5000);
+      } else {
+        setMessage({ type: 'error', text: 'Nie udało się odłączyć integracji.' });
+      }
+    } catch (err) {
+      console.error(err);
+      setMessage({ type: 'error', text: 'Błąd połączenia z serwerem.' });
+    }
+  };
+
   return (
     <div className="setup-container">
       
@@ -701,6 +767,34 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           </div>
 
           <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '16px' }}>
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+              <div className="input-group" style={{ flex: '1 1 140px' }}>
+                <label className="input-label">Imię</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={firstNameInput}
+                  onChange={(e) => setFirstNameInput(e.target.value)}
+                  placeholder="np. Marcin"
+                  maxLength={50}
+                />
+              </div>
+              <div className="input-group" style={{ flex: '1 1 140px' }}>
+                <label className="input-label">Nazwisko</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={lastNameInput}
+                  onChange={(e) => setLastNameInput(e.target.value)}
+                  placeholder="np. Kowalski"
+                  maxLength={50}
+                />
+              </div>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '-8px 0 0' }}>
+              Tego imienia AI dietetyk będzie używać, zwracając się do Ciebie w poradach.
+            </p>
+
             <div className="input-group">
               <label className="input-label">Adres e-mail do raportów</label>
               <input 
@@ -713,10 +807,54 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               />
             </div>
 
+            {/* Połączenie konta z Google - niezależne od logowania Google (które łączy
+                konta automatycznie tylko po zgodnym e-mailu). To pozwala powiązać konto
+                założone hasłem z Google bez zmiany/zgodności adresu e-mail. */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '12px',
+              padding: '16px',
+              background: 'rgba(255, 255, 255, 0.02)',
+              border: '1px solid var(--border-glass)',
+              borderRadius: '12px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '1.6rem' }}>🔗</span>
+                <div>
+                  <strong style={{ display: 'block', color: '#fff' }}>Konto Google</strong>
+                  <span style={{ fontSize: '0.8rem', color: userProfile.has_google ? '#34d399' : 'var(--text-dim)' }}>
+                    {userProfile.has_google ? '✅ Połączono z kontem Google' : '❌ Brak połączenia'}
+                  </span>
+                </div>
+              </div>
+              {userProfile.has_google ? (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '8px 16px' }}
+                  onClick={handleUnlinkGoogle}
+                >
+                  Odłącz Google
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ padding: '8px 16px' }}
+                  onClick={handleConnectGoogle}
+                >
+                  Połącz z Google
+                </button>
+              )}
+            </div>
+
             <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   id="weekly_summary_enabled"
                   checked={weeklySummaryEnabled}
                   onChange={(e) => setWeeklySummaryEnabled(e.target.checked)}
@@ -999,8 +1137,13 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
       {/* 2. Integracje ze Źródłami Danych */}
       <div className="glass-card">
         <h3 className="card-title">🔌 Integracje ze Źródłami Danych</h3>
-        <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '24px' }}>
+        <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
           Skonfiguruj swoje poświadczenia deweloperskie i połącz konto z API Oura Ring oraz Withings, aby automatycznie importować dane o aktywności, śnie, wadze i składzie ciała.
+        </p>
+        <p style={{ fontSize: '0.85rem', marginBottom: '24px' }}>
+          <a href="/sync.html" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'underline' }}>
+            📖 Pełna instrukcja: jak zsynchronizować dane (Apple Health, Oura, Withings)
+          </a>
         </p>
 
         {/* Komunikat o wyniku akcji (np. synchronizacji lub odłączenia integracji) -
@@ -1014,7 +1157,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           </div>
         )}
 
-        {(userProfile.has_oura || userProfile.has_withings) && (
+        {(userProfile.has_oura || userProfile.has_withings || userProfile.has_google_fit) && (
           <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '20px' }}>
             <button
               type="button"
@@ -1040,6 +1183,52 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
         )}
 
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Google Fit - źródło danych o krokach/kaloriach/aktywności, analogicznie do
+              Oura/Withings, ale bez własnych Client ID/Secret (korzysta z globalnej
+              konfiguracji Google ustawionej przez admina - tej samej, co logowanie Google). */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '16px',
+            background: 'rgba(255, 255, 255, 0.02)',
+            border: '1px solid var(--border-glass)',
+            borderRadius: '12px',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '2rem' }}>🏃</span>
+                <div>
+                  <strong style={{ display: 'block', color: '#fff' }}>Google Fit (Kroki, Kalorie, Aktywność)</strong>
+                  <span style={{ fontSize: '0.8rem', color: userProfile.has_google_fit ? '#34d399' : 'var(--text-dim)' }}>
+                    {userProfile.has_google_fit ? '✅ Połączono z Google Fit' : '❌ Brak połączenia'}
+                  </span>
+                </div>
+              </div>
+              <div>
+                {userProfile.has_google_fit ? (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '8px 16px' }}
+                    onClick={handleDisconnectGoogleFit}
+                  >
+                    Odłącz Google Fit
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    style={{ padding: '8px 16px' }}
+                    onClick={handleConnectGoogleFit}
+                  >
+                    Połącz z Google Fit
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Oura Ring */}
           <div style={{
             display: 'flex',
@@ -1233,7 +1422,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '12px' }}>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0, lineHeight: '1.5' }}>
-                Dane aktywności z Apple Health docierają od razu (w przeciwieństwie do Oura, która finalizuje dobowe podsumowanie zwykle następnego ranka). Gdy obie integracje są aktywne, dane z Oura są traktowane jako bardziej wiarygodne i nadpisują wartości wcześniej wpisane przez Apple Health dla tego samego dnia.
+                Dane aktywności z Apple Health docierają od razu (w przeciwieństwie do Oura, która finalizuje dobowe podsumowanie zwykle następnego ranka). Gdy obie integracje są aktywne, dane z Apple Health są traktowane jako bardziej wiarygodne dla kroków/kalorii/minut aktywności - Oura uzupełnia te wartości tylko wtedy, gdy Apple Health jeszcze nic nie przysłało dla danego dnia (albo przysłało same zera).
               </p>
 
               <div className="input-group" style={{ marginBottom: 0 }}>

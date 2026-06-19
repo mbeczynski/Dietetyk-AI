@@ -6,7 +6,7 @@ const { authenticator } = require('otplib');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const loginAttempts = require('../services/loginAttempts');
-const { getAppConfig } = require('../services/oauthHelpers');
+const { getAppConfig, generateOAuthState, verifyOAuthState } = require('../services/oauthHelpers');
 
 // Pomocnicza funkcja do tworzenia stałego tokenu sesji (7 dni) - używana też przez logowanie Google
 async function createPermanentSession(userId) {
@@ -44,15 +44,55 @@ router.get('/api/auth/google', async (req, res) => {
   }
 });
 
+// Krok 1b: jak wyżej, ale dla użytkownika JUŻ ZALOGOWANEGO, który chce explicite
+// powiązać swoje istniejące konto z Google (Ustawienia -> "Połącz z Google"),
+// a nie logować się nim od nowa. Logowanie Google (powyżej) i tak łączy konta po
+// e-mailu jako efekt domyślny, ale tylko gdy e-mail się zgadza - ten przepływ
+// działa niezależnie od adresu e-mail, bo użytkownik jest już zweryfikowany sesją.
+// `state` jest tu podpisany HMAC-em (generateOAuthState), w przeciwieństwie do
+// zwykłego logowania Google, gdzie state to tylko losowy ciąg bez weryfikacji -
+// to po tym callback rozróżnia oba przepływy.
+router.get('/api/auth/google/link', async (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(401).send('Brak tokenu autoryzacji.');
+
+  try {
+    const session = await db.get(`SELECT user_id, expires_at FROM sessions WHERE token = ?`, [token]);
+    if (!session || new Date(session.expires_at) < new Date()) {
+      return res.status(401).send('Sesja wygasła.');
+    }
+
+    const clientId = await getAppConfig('google_client_id');
+    if (!clientId) {
+      return res.status(400).send('Logowanie przez Google nie jest skonfigurowane. Administrator musi wpisać Client ID/Secret w Panelu Admina.');
+    }
+
+    const appUrl = await getAppConfig('app_url');
+    const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+    const redirectUri = `${base}/api/auth/google/callback`;
+
+    const state = generateOAuthState(session.user_id, 'google_link');
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent('openid email profile')}&state=${state}&prompt=select_account`;
+    res.redirect(authUrl);
+  } catch (err) {
+    console.error('[GOOGLE LINK ERROR]', err);
+    res.status(500).send('Błąd serwera.');
+  }
+});
+
 // Krok 2: callback - wymiana kodu na token, pobranie profilu, znalezienie/utworzenie konta
+// (lub, jeśli `state` wskazuje na przepływ łączenia konta - patrz wyżej, po prostu
+// przypisanie google_id do już zalogowanego użytkownika).
 router.get('/api/auth/google/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, error, state } = req.query;
+  const linkVerified = verifyOAuthState(state);
+  const isLinkFlow = linkVerified && linkVerified.service === 'google_link';
   if (error) {
     console.error('[GOOGLE LOGIN CALLBACK ERROR]', error);
-    return res.redirect('/?google_error=auth_failed');
+    return res.redirect(isLinkFlow ? '/?tab=settings&google_link_error=auth_failed' : '/?google_error=auth_failed');
   }
   if (!code) {
-    return res.redirect('/?google_error=auth_failed');
+    return res.redirect(isLinkFlow ? '/?tab=settings&google_link_error=auth_failed' : '/?google_error=auth_failed');
   }
 
   try {
@@ -90,6 +130,20 @@ router.get('/api/auth/google/callback', async (req, res) => {
 
     if (!profile.sub) {
       throw new Error('Odpowiedź Google nie zawiera identyfikatora użytkownika (sub).');
+    }
+
+    // Przepływ łączenia konta (Ustawienia -> "Połącz z Google"): użytkownik jest już
+    // zalogowany (zweryfikowany przez podpisany `state`), więc tylko przypisujemy
+    // google_id do JEGO konta - nie logujemy, nie tworzymy nowego konta, nie wydajemy
+    // nowej sesji. Blokujemy "podebranie" konta, jeśli ten sam google_id jest już
+    // przypisany do innego użytkownika.
+    if (isLinkFlow) {
+      const conflictingUser = await db.get(`SELECT id FROM users WHERE google_id = ? AND id != ?`, [profile.sub, linkVerified.userId]);
+      if (conflictingUser) {
+        return res.redirect('/?tab=settings&google_link_error=already_linked');
+      }
+      await db.run(`UPDATE users SET google_id = ? WHERE id = ?`, [profile.sub, linkVerified.userId]);
+      return res.redirect('/?tab=settings&google_link=success');
     }
 
     // 1. Szukamy użytkownika już powiązanego z tym kontem Google
@@ -159,7 +213,7 @@ router.get('/api/auth/google/callback', async (req, res) => {
     res.redirect(`/?google_token=${permanentToken}`);
   } catch (err) {
     console.error('[GOOGLE LOGIN CALLBACK ERROR]', err.message);
-    res.redirect('/?google_error=exchange_failed');
+    res.redirect(isLinkFlow ? '/?tab=settings&google_link_error=exchange_failed' : '/?google_error=exchange_failed');
   }
 });
 

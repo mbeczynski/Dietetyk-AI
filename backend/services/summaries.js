@@ -4,7 +4,7 @@ const { getLocalDateString } = require('../utils/dates');
 const { sendMailgunEmail } = require('./mailgun');
 
 async function sendWeeklySummaryForUser(userId, customEmail = null) {
-  const user = await db.get(`SELECT username, email, role FROM users WHERE id = ?`, [userId]);
+  const user = await db.get(`SELECT username, email, role, first_name FROM users WHERE id = ?`, [userId]);
   if (!user) {
     throw new Error('Użytkownik nie istnieje.');
   }
@@ -108,7 +108,7 @@ async function sendWeeklySummaryForUser(userId, customEmail = null) {
     try {
       const advicePrompt = `
 Jesteś profesjonalnym dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
-Przeanalizuj tygodniowy raport żywieniowo-treningowy użytkownika ${user.username}:
+Przeanalizuj tygodniowy raport żywieniowo-treningowy użytkownika ${user.first_name || user.username}, zwracając się do niego po imieniu:
 Cele dobowe:
 - Cel kaloryczny: ${targetCalories} kcal
 - Makroskładniki: B:${targetProtein}g, W:${targetCarbs}g, T:${targetFat}g
@@ -323,7 +323,7 @@ Formatuj odpowiedź używając czytelnych akapitów, punktów i nagłówków. Pi
 
 // Pomocnicza funkcja generująca i wysyłająca codzienne podsumowanie
 async function sendDailySummaryForUser(userId, customEmail = null) {
-  const user = await db.get(`SELECT username, email, role FROM users WHERE id = ?`, [userId]);
+  const user = await db.get(`SELECT username, email, role, first_name FROM users WHERE id = ?`, [userId]);
   if (!user) {
     throw new Error('Użytkownik nie istnieje.');
   }
@@ -401,7 +401,7 @@ async function sendDailySummaryForUser(userId, customEmail = null) {
     try {
       const advicePrompt = `
 Jesteś profesjonalnym, przyjaznym dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
-Przeanalizuj dzisiejszy bilans użytkownika ${user.username} dla dnia ${date}:
+Przeanalizuj dzisiejszy bilans użytkownika ${user.first_name || user.username} dla dnia ${date}, zwracając się do niego po imieniu:
 Cele użytkownika:
 - Cel kaloryczny spożycia: ${targetCalories} kcal
 - Cel Białka: ${targetProtein}g, Węglowodanów: ${targetCarbs}g, Tłuszczu: ${targetFat}g
@@ -615,7 +615,7 @@ Pisz bezpośrednio do użytkownika w języku polskim. Bądź konkretny, motywuj�
 
 // Pomocnicza funkcja generująca i wysyłająca miesięczne podsumowanie (analogicznie do tygodniowego, okno 30 dni)
 async function sendMonthlySummaryForUser(userId, customEmail = null) {
-  const user = await db.get(`SELECT username, email, role FROM users WHERE id = ?`, [userId]);
+  const user = await db.get(`SELECT username, email, role, first_name FROM users WHERE id = ?`, [userId]);
   if (!user) {
     throw new Error('Użytkownik nie istnieje.');
   }
@@ -734,7 +734,7 @@ async function sendMonthlySummaryForUser(userId, customEmail = null) {
     try {
       const advicePrompt = `
 Jesteś profesjonalnym dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
-Przeanalizuj miesięczny raport żywieniowo-treningowy użytkownika ${user.username} (ostatnie 30 dni):
+Przeanalizuj miesięczny raport żywieniowo-treningowy użytkownika ${user.first_name || user.username} (ostatnie 30 dni), zwracając się do niego po imieniu:
 Cele dobowe:
 - Cel kaloryczny: ${targetCalories} kcal
 - Makroskładniki: B:${targetProtein}g, W:${targetCarbs}g, T:${targetFat}g

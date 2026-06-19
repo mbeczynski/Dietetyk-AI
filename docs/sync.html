@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jak zsynchronizować dane - Dietetyk AI</title>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --text-color: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --accent: #a78bfa;
+      --border-color: rgba(255, 255, 255, 0.05);
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      line-height: 1.6;
+      margin: 0;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+    }
+    h1 {
+      color: var(--primary);
+      font-size: 2rem;
+      margin-top: 0;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 16px;
+    }
+    h2 {
+      color: var(--accent);
+      font-size: 1.4rem;
+      margin-top: 30px;
+    }
+    p, li {
+      color: var(--text-muted);
+      font-size: 1rem;
+    }
+    ul, ol {
+      padding-left: 20px;
+    }
+    li {
+      margin-bottom: 8px;
+    }
+    code {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 0.9em;
+      color: #e2e8f0;
+    }
+    strong {
+      color: var(--text-color);
+    }
+    .note {
+      font-size: 0.9rem;
+      background: rgba(56, 189, 248, 0.08);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-top: 12px;
+    }
+    .footer {
+      margin-top: 40px;
+      border-top: 1px solid var(--border-color);
+      padding-top: 20px;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Jak zsynchronizować dane zdrowotne</h1>
+    <p>Ostatnia aktualizacja: 19 czerwca 2026 r.</p>
+
+    <p>Dietetyk AI potrafi automatycznie pobierać Twoje dane zdrowotne i aktywności z trzech źródeł: <strong>Apple Health</strong> (kroki, kalorie, minuty aktywności), <strong>Oura Ring</strong> (sen, HRV, gotowość, aktywność) oraz <strong>Withings</strong> (waga, skład ciała). Wszystkie trzy integracje konfiguruje się w zakładce <strong>Ustawienia → Integracje ze Źródłami Danych</strong>.</p>
+
+    <h2>1. Apple Health (przez aplikację Health Auto Export)</h2>
+    <p>Apple Health nie udostępnia publicznego API w chmurze, więc dane przesyłane są z telefonu za pomocą darmowej/płatnej aplikacji <strong>Health Auto Export</strong>, która wysyła je na webhook Dietetyk AI.</p>
+    <ol>
+      <li>Zainstaluj aplikację <strong>Health Auto Export</strong> z App Store na swoim iPhonie.</li>
+      <li>W Dietetyk AI przejdź do <strong>Ustawienia → Integracje → Apple Health</strong> i skopiuj swój unikalny <strong>URL webhooka</strong> (przycisk "Kopiuj").</li>
+      <li>W Health Auto Export przejdź do zakładki <strong>Automations</strong> i utwórz nową automatyzację typu <strong>REST API</strong>.</li>
+      <li>Wklej skopiowany URL jako adres docelowy, a jako format danych wybierz <strong>JSON</strong>.</li>
+      <li>Zaznacz metryki: <strong>Steps</strong>, <strong>Active Energy</strong>, <strong>Basal Energy Burned</strong>, <strong>Apple Exercise Time</strong> (opcjonalnie też treningi).</li>
+      <li>Ustaw harmonogram automatycznego wysyłania (np. co godzinę), albo wysyłaj dane ręcznie z aplikacji, kiedy chcesz.</li>
+    </ol>
+    <div class="note">
+      Jeśli zmienisz telefon lub podejrzewasz, że Twój URL webhooka wyciekł, możesz w każdej chwili wygenerować nowy token w Ustawieniach - poprzedni przestanie wtedy działać.
+    </div>
+
+    <h2>2. Oura Ring</h2>
+    <p>Połączenie z Oura wymaga własnych poświadczeń deweloperskich (Client ID i Client Secret), które tworzy się bezpłatnie na koncie Oura.</p>
+    <ol>
+      <li>Wejdź na <strong>Oura Developer Portal</strong> (cloud.ouraring.com/developer/manage) i utwórz nową aplikację.</li>
+      <li>W konfiguracji aplikacji zaznacz zakresy (scopes): <strong>daily</strong>, <strong>heartrate</strong> oraz <strong>personal</strong>. Bez tych zakresów synchronizacja snu, gotowości i aktywności zwróci błąd autoryzacji.</li>
+      <li>Skopiuj wygenerowane <strong>Client ID</strong> i <strong>Client Secret</strong> i wklej je w Dietetyk AI, w sekcji Oura Ring w Ustawieniach.</li>
+      <li>Kliknij <strong>"Połącz z Oura"</strong> i zaloguj się na swoje konto Oura, aby zatwierdzić dostęp.</li>
+    </ol>
+    <p>Po połączeniu dane synchronizują się automatycznie co godzinę (5:00-22:00). Dobowe podsumowanie Oura zwykle finalizuje się dopiero następnego ranka, więc dane z wczoraj mogą się jeszcze uzupełniać po przebudzeniu.</p>
+
+    <h2>3. Withings</h2>
+    <p>Withings (waga, % tkanki tłuszczowej, masa mięśniowa) działa analogicznie do Oura - również przez własne poświadczenia OAuth.</p>
+    <ol>
+      <li>Zarejestruj aplikację w <strong>Withings Developer Portal</strong> i pobierz Client ID oraz Client Secret.</li>
+      <li>Wklej je w Dietetyk AI, w sekcji Withings w Ustawieniach.</li>
+      <li>Jeśli w portalu Withings zarejestrowałeś inny redirect URI niż domyślny (<code>https://dietetyk.renacode.com/api/auth/withings/callback</code>), wpisz go w polu "Custom Redirect URI".</li>
+      <li>Kliknij <strong>"Połącz z Withings"</strong> i zaloguj się, aby zatwierdzić dostęp.</li>
+    </ol>
+
+    <h2>4. Która integracja "wygrywa", gdy dane się pokrywają?</h2>
+    <p>Dla kroków, kalorii i minut aktywności priorytet ma <strong>Apple Health</strong> - jego dane docierają od razu i są zwykle pełniejsze. Oura uzupełnia te wartości tylko wtedy, gdy Apple Health jeszcze nic nie przysłał dla danego dnia (lub przysłał same zera). Sen, HRV, gotowość i temperatura pochodzą wyłącznie z Oury. Waga i skład ciała - wyłącznie z Withings.</p>
+
+    <h2>5. Synchronizacja ręczna</h2>
+    <p>Jeśli nie chcesz czekać na automatyczny harmonogram, w Ustawieniach (w karcie integracji) znajduje się przycisk <strong>"Wymuś ręczną synchronizację"</strong> - pociągnie on od razu najnowsze dane z Oury i Withings (Apple Health zawsze działa na żywo, przez webhook, więc nie wymaga ręcznego odpytywania).</p>
+
+    <div class="footer">
+      Dietetyk AI &copy; 2026. Wszelkie prawa zastrzeżone.
+    </div>
+  </div>
+</body>
+</html>

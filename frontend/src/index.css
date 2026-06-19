@@ -49,6 +49,16 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   position: relative;
+  /* Telefon (iOS "Dodaj do ekranu głównego", standalone) renderuje stronę pod
+     paskiem systemowym (zegar/bateria) i belką gestów na dole, bo bez tego web app
+     nie wie, że ma zarezerwować tam miejsce - karty na Trendach i nagłówek w Panelu
+     Administratora wizualnie zlewały się z systemowym UI. env(safe-area-inset-*)
+     działa tylko z meta viewport-fit=cover (ustawione w index.html); na zwykłych
+     telefonach/desktopie wartości te są równe 0, więc nic się nie zmienia. */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /* Dekoracyjne tła - świetliste kule */

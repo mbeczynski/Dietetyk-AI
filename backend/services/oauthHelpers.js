@@ -124,6 +124,39 @@ async function getOrRefreshToken(userId, service) {
       `, [data.access_token, data.refresh_token || token.refresh_token, newExpiresAt, userId]);
 
       return data.access_token;
+    } else if (service === 'google_fit') {
+      // W przeciwieństwie do Oura/Withings, Google Fit korzysta z GLOBALNEJ konfiguracji
+      // Google (Panel Admina), tej samej co logowanie Google - nie z poświadczeń per-użytkownik.
+      const clientId = await getAppConfig('google_client_id');
+      const clientSecret = await getAppConfig('google_client_secret');
+      if (!clientId || !clientSecret) throw new Error('Brak Client ID lub Secret dla Google (konfiguracja globalna).');
+
+      const response = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: token.refresh_token,
+          client_id: clientId,
+          client_secret: clientSecret
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Błąd odświeżania Google Fit: ${errorText}`);
+      }
+
+      const data = await response.json();
+      const newExpiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
+      // Google przy odświeżaniu zwykle NIE zwraca nowego refresh_token - zachowujemy stary.
+      await db.run(`
+        UPDATE oauth_tokens
+        SET access_token = ?, refresh_token = ?, expires_at = ?
+        WHERE user_id = ? AND service = 'google_fit'
+      `, [data.access_token, data.refresh_token || token.refresh_token, newExpiresAt, userId]);
+
+      return data.access_token;
     }
   } catch (err) {
     console.error(`[OAUTH ERROR] Błąd odświeżania tokenu dla ${service} (użytkownik ${userId}):`, err.message);

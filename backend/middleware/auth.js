@@ -12,6 +12,7 @@ async function requireAuth(req, res, next) {
     req.path === '/register-public' ||
     req.path === '/auth/oura/callback' ||
     req.path === '/auth/withings/callback' ||
+    req.path === '/auth/google-fit/callback' ||
     req.path === '/auth/google' ||
     req.path === '/auth/google/callback'
   ) {
@@ -31,7 +32,7 @@ async function requireAuth(req, res, next) {
   }
   try {
     const session = await db.get(`
-      SELECT s.*, u.username, u.totp_enabled, u.role
+      SELECT s.*, u.username, u.totp_enabled, u.role, u.first_name, u.last_name
       FROM sessions s
       JOIN users u ON s.user_id = u.id
       WHERE s.token = ? AND datetime(s.expires_at) > datetime('now')
@@ -53,7 +54,11 @@ async function requireAuth(req, res, next) {
     req.user = {
       id: session.user_id,
       username: session.username,
-      role: session.role
+      role: session.role,
+      // Imię/nazwisko (opcjonalne, ustawiane w Ustawieniach) - używane do
+      // personalizacji zwrotów AI dietetyka ("Cześć Marcin" zamiast username).
+      first_name: session.first_name,
+      last_name: session.last_name
     };
     next();
   } catch (err) {

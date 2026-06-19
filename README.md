@@ -17,6 +17,8 @@ Aplikacja wspiera pełne szyfrowanie HTTPS (SSL Let's Encrypt) i jest przystosow
 5. **Codzienna Analiza Gemini AI**: Model analizuje Twoje posiłki, parametry snu z Oura i skład ciała z Withings, dostarczając spersonalizowanych rekomendacji.
 6. **Panel Admina**: Pozwala na dynamiczną konfigurację poświadczeń API dla Oura i Withings bezpośrednio z poziomu interfejsu (bez restartowania kontenerów).
 7. **Synchronizacja z Apple Health**: kroki, kalorie i minuty aktywności można też zaciągać z Apple Health za pomocą webhooka - konfiguracja w zakładce Ustawienia.
+8. **Synchronizacja z Google Fit**: analogicznie do Apple Health, aplikacja może też pobierać kroki i kalorie z Google Fit (synchronizacja godzinowa przez OAuth2, bez konieczności instalowania dodatkowej apki-pośrednika) - połączenie konta z poziomu zakładki Ustawienia.
+9. **Połączenie konta z Google**: istniejące konto (założone login/hasłem) można dodatkowo połączyć z kontem Google w zakładce Ustawienia, żeby logować się jednym kliknięciem bez utraty historii posiłków i ustawień.
 
 ---
 
@@ -132,7 +134,7 @@ Po zalogowaniu na konto administratora (`admin`), możesz przejść do zakładki
 
 ---
 
-## 🔌 Konfiguracja Integracji Oura, Withings i Gemini AI (Instrukcja Krok po Kroku)
+## 🔌 Konfiguracja Integracji Oura, Withings, Apple Health, Google Fit, Konta Google i Gemini AI (Instrukcja Krok po Kroku)
 
 Aby dane o Twoim śnie, aktywności oraz składzie ciała były pobierane automatycznie z zewnętrznych sensorów, a sztuczna inteligencja mogła analizować Twoją dietę na bazie Twojego prywatnego klucza API, wprowadź odpowiednie poświadczenia w zakładce **Ustawienia**.
 
@@ -155,7 +157,38 @@ Aby dane o Twoim śnie, aktywności oraz składzie ciała były pobierane automa
 6. Po utworzeniu aplikacji otrzymasz **Client ID** (identyfikator klienta) oraz **Client Secret** (klucz prywatny).
 7. Skopiuj te dane i wprowadź je w zakładce **Ustawienia** w sekcji Withings w aplikacji Dietetyk AI, kliknij **"Zapisz poświadczenia integracji"**, a następnie kliknij **"Połącz z Withings"**, aby autoryzować połączenie.
 
-### 3. Integracja z Gemini AI (Klucz API)
+### 3. Integracja Apple Health (kroki, kalorie, minuty aktywności)
+W przeciwieństwie do Oura i Withings, Apple Health nie udostępnia publicznego API w chmurze - dane wysyła telefon przez webhook, za pomocą darmowej apki **Health Auto Export** (pośrednik między HealthKit a naszym backendem).
+1. Zainstaluj apkę **Health Auto Export** z App Store na swoim iPhone.
+2. Zaloguj się do Dietetyk AI i przejdź do zakładki **Ustawienia**, sekcja **Apple Health**. Skopiuj wygenerowany tam URL webhooka (zawiera Twój prywatny token synchronizacji, np. `https://dietetyk.renacode.com/api/integrations/apple-health/<token>`) - przyciskiem "Kopiuj" lub ręcznie. Jeśli chcesz, możesz w tym miejscu wygenerować nowy, losowy token (np. po podejrzeniu wycieku starego URL).
+3. W apce Health Auto Export przejdź do zakładki **Automations** i utwórz nową automatyzację typu **REST API**.
+4. Wklej skopiowany URL jako adres docelowy, format danych ustaw na **JSON**.
+5. Wybierz metryki: **Steps**, **Active Energy**, **Basal Energy Burned**, **Apple Exercise Time**. Jeśli chcesz też uwzględniać treningi (np. bieganie, siłownię), dodaj drugą automatyzację typu **Treningi (Workouts)** wskazującą na ten sam URL.
+6. Włącz automatyczne wysyłanie w tle (np. co godzinę) - dane trafią od razu do `health_metrics` z `activity_source = 'apple'` i będą widoczne na Dashboardzie bez potrzeby otwierania apki Dietetyk AI.
+
+> Gdy zarówno Apple Health, jak i Oura są aktywne, dane z Apple Health są traktowane jako bardziej wiarygodne dla kroków/kalorii/minut aktywności (docierają od razu, podczas gdy Oura finalizuje dobowe podsumowanie zwykle następnego ranka) - Oura uzupełnia te wartości tylko wtedy, gdy Apple Health jeszcze nic nie przysłało dla danego dnia.
+
+### 4. Integracja Google Fit (kroki, kalorie)
+W przeciwieństwie do Apple Health (webhook) oraz Oura/Withings (poświadczenia per-użytkownik), Google Fit korzysta z OAuth2 i tych samych globalnych poświadczeń Google (Client ID/Secret), które administrator konfiguruje raz dla całej aplikacji w **Panelu Admina** (te same, co przy logowaniu Google) - dzięki temu zwykły użytkownik nie musi rejestrować własnej aplikacji deweloperskiej.
+1. Administrator musi mieć skonfigurowane w **Panelu Admina** `google_client_id`/`google_client_secret` z [Google Cloud Console](https://console.cloud.google.com/), z dozwolonym przekierowaniem (Authorized redirect URI) ustawionym na `https://dietetyk.renacode.com/api/auth/google-fit/callback` oraz włączonym Fitness API (zakres `https://www.googleapis.com/auth/fitness.activity.read`).
+2. Każdy użytkownik przechodzi do zakładki **Ustawienia**, sekcja **Google Fit**, i klika **"Połącz z Google Fit"**.
+3. Po wybraniu konta Google i zaakceptowaniu uprawnień, dane trafiają automatycznie do `health_metrics` (synchronizacja co godzinę, w oknie 5:00-22:00, oraz natychmiast po połączeniu).
+4. Połączenie można w każdej chwili odłączyć przyciskiem **"Odłącz integrację"** w tej samej sekcji.
+
+> Granice doby dla danych z Google Fit są liczone przez API Google w UTC (Google nie udostępnia parametru strefy czasowej dla agregacji), co może powodować niewielkie (1-2h) przesunięcie względem dni liczonych w czasie Europe/Warsaw używanym w resztą aplikacji (Oura, Withings, Apple Health) - akceptowalny kompromis.
+>
+> Apple Health i Google Fit mają taki sam priorytet (oba mogą nadpisywać się wzajemnie, "kto ostatni zapisał") - tylko Apple Health ma pierwszeństwo przed Oura, zgodnie z opisem w punkcie 3.
+
+### 5. Połączenie istniejącego konta z Google
+Jeśli masz już konto założone loginem/hasłem (lub przez zaproszenie administratora) i chcesz dodatkowo móc logować się jednym kliknięciem przez Google, bez utraty historii posiłków i ustawień:
+1. Zaloguj się normalnie (login/hasło) i przejdź do zakładki **Ustawienia**, sekcja **Konto Google**.
+2. Kliknij **"Połącz z Google"** i wybierz konto Google, które chcesz powiązać.
+3. Od tego momentu możesz logować się zarówno hasłem, jak i przyciskiem "Zaloguj się przez Google" na ekranie logowania - oba sposoby prowadzą do tego samego konta.
+4. Połączenie można odłączyć przyciskiem **"Odłącz Google"** w tej samej sekcji (logowanie będzie wtedy możliwe tylko hasłem).
+
+> To jest osobny mechanizm od logowania przez Google "od zera" - jeśli dane konto Google jest już powiązane z innym użytkownikiem Dietetyk AI, próba połączenia zwróci błąd (jeden google_id może być przypisany tylko do jednego konta).
+
+### 6. Integracja z Gemini AI (Klucz API)
 1. Wejdź na stronę [Google AI Studio](https://aistudio.google.com/).
 2. Zaloguj się za pomocą swojego konta Google.
 3. Kliknij przycisk **"Get API Key"**.

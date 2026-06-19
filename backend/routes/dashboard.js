@@ -167,9 +167,12 @@ router.get('/api/dashboard', async (req, res) => {
       const canUseAI = userApiKey || (!forceCustomKeyOnly && (genAI || process.env.GEMINI_API_KEY));
 
       if (canUseAI && (meals.length > 0 || activeCalories > 0 || health.sleep_score !== null)) {
+        // Imię (jeśli ustawione w Ustawieniach) ma priorytet nad loginem technicznym -
+        // o to prosił użytkownik: AI ma się zwracać po imieniu, nie po nazwie konta.
+        const displayName = req.user.first_name || req.user.username;
         const advicePrompt = `
 Jesteś profesjonalnym, przyjaznym dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
-Przeanalizuj dzisiejszy bilans użytkownika ${req.user.username} dla dnia ${date}:
+Przeanalizuj dzisiejszy bilans użytkownika ${displayName} dla dnia ${date}:
 Cele użytkownika:
 - Cel kaloryczny spożycia: ${settings.target_calories} kcal
 - Cel Białka: ${settings.target_protein}g, Węglowodanów: ${settings.target_carbs}g, Tłuszczu: ${settings.target_fat}g
@@ -196,7 +199,7 @@ Napisz krótką, spersonalizowaną poradę dietetyczno-treningową (maksymalnie 
 1. Analizie intensywności wysiłku i stref kardio po treningu na bazie aktywnych kalorii oraz parametrów serca (RHR, HRV) - oceń, czy trening sprzyjał tlenowemu spalaniu tłuszczu (strefa spalania tłuszczu, niska intensywność) czy wszedł w wyższe strefy beztlenowe/kardio.
 2. Sugerowaniu precyzyjnych zmian w diecie na bazie dzisiejszych posiłków i treningu (np. zalecenie dorzucenia większej ilości białka w celu wsparcia regeneracji włókien mięśniowych po ciężkim wysiłku beztlenowym lub redukcji węglowodanów w dni o niskim wysiłku aerobowym).
 3. Uwzględnieniu gotowości Oura i trendów wagi/mięśni/tłuszczu z Withings.
-Pisz bezpośrednio do użytkownika w języku polskim. Bądź konkretny, motywujący i merytoryczny.
+Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego po imieniu (${displayName}) co najmniej raz. Bądź konkretny, motywujący i merytoryczny.
 `;
 
         // Fire-and-forget: NIE czekamy na wynik w tym żądaniu (patrz komentarz wyżej).

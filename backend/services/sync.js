@@ -142,14 +142,22 @@ async function syncOura(userId) {
     const lastSyncTime = new Date().toISOString();
     for (const [dateStr, metrics] of Object.entries(metricsByDate)) {
       if (metrics.steps !== null || metrics.sleep_score !== null || metrics.readiness_score !== null) {
-        // PRIORYTET ODWRÓCONY (patrz też komentarz w routes/appleHealth.js): Apple Health
-        // jest teraz źródłem autorytatywnym dla aktywności (steps/kalorie/minuty), bo
-        // Oura i Withings i tak synchronizują się do Apple Health na telefonie, a Apple
-        // Health dostarcza dane szybciej i pełniej. Dlatego kolumny aktywności NIE są tu
-        // nadpisywane (CASE poniżej), jeśli dla tej daty activity_source = 'apple' -
-        // Oura wciąż może zapisać sen/gotowość/HRV/RHR/temperaturę (to nie jest "aktywność"
-        // w tym sensie i nie ma odpowiednika w webhooku Apple Health), tylko nie nadpisuje
-        // steps/active_calories/total_calories_burned/active_minutes/activity_source.
+        // PRIORYTET: Apple Health jest źródłem autorytatywnym dla aktywności
+        // (steps/kalorie/minuty), bo Oura i Withings i tak synchronizują się do Apple
+        // Health na telefonie, a Apple Health dostarcza dane szybciej i pełniej.
+        //
+        // POPRAWKA (2026-06-19): blokada "activity_source = 'apple' -> nie nadpisuj"
+        // chroniła kolumnę NIEZALEŻNIE od tego, czy Apple faktycznie wysłało dla niej
+        // realne dane. Jeśli webhook Apple Health zapisał dla danej daty same
+        // zera/null (np. automatyzacja odpaliła się, zanim zegarek zsynchronizował
+        // kroki, albo wysłała tylko część metryk), dzień zostawał trwale zablokowany
+        // na zerze - żaden kolejny resync Oury (mimo realnych, niezerowych danych) go
+        // nie poprawiał. Teraz blokada per-kolumna działa tylko, gdy istniejąca
+        // wartość Apple jest faktycznie > 0 - w przeciwnym razie Oura może ją
+        // uzupełnić. activity_source wraca na 'oura' tylko wtedy, gdy żadna z kolumn
+        // aktywności Apple nie miała realnych danych (czyli wszystkie zostały właśnie
+        // uzupełnione przez Oura) - jeśli chociaż jedna kolumna Apple była realna,
+        // etykieta źródła zostaje 'apple', zgodnie z tym, co faktycznie nadpisano.
         const activitySource = metrics.steps !== null ? 'oura' : null;
         await db.run(`
           INSERT INTO health_metrics (
@@ -159,9 +167,9 @@ async function syncOura(userId) {
           )
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(user_id, date) DO UPDATE SET
-            steps = CASE WHEN activity_source = 'apple' THEN steps ELSE COALESCE(excluded.steps, steps) END,
-            active_calories = CASE WHEN activity_source = 'apple' THEN active_calories ELSE COALESCE(excluded.active_calories, active_calories) END,
-            total_calories_burned = CASE WHEN activity_source = 'apple' THEN total_calories_burned ELSE COALESCE(excluded.total_calories_burned, total_calories_burned) END,
+            steps = CASE WHEN activity_source = 'apple' AND COALESCE(steps, 0) > 0 THEN steps ELSE COALESCE(excluded.steps, steps) END,
+            active_calories = CASE WHEN activity_source = 'apple' AND COALESCE(active_calories, 0) > 0 THEN active_calories ELSE COALESCE(excluded.active_calories, active_calories) END,
+            total_calories_burned = CASE WHEN activity_source = 'apple' AND COALESCE(total_calories_burned, 0) > 0 THEN total_calories_burned ELSE COALESCE(excluded.total_calories_burned, total_calories_burned) END,
             sleep_score = COALESCE(excluded.sleep_score, sleep_score),
             sleep_duration = COALESCE(excluded.sleep_duration, sleep_duration),
             sleep_deep = COALESCE(excluded.sleep_deep, sleep_deep),
@@ -170,8 +178,14 @@ async function syncOura(userId) {
             hrv = COALESCE(excluded.hrv, hrv),
             rhr = COALESCE(excluded.rhr, rhr),
             temperature_deviation = COALESCE(excluded.temperature_deviation, temperature_deviation),
-            active_minutes = CASE WHEN activity_source = 'apple' THEN active_minutes ELSE COALESCE(excluded.active_minutes, active_minutes) END,
-            activity_source = CASE WHEN activity_source = 'apple' THEN activity_source ELSE COALESCE(excluded.activity_source, activity_source) END,
+            active_minutes = CASE WHEN activity_source = 'apple' AND COALESCE(active_minutes, 0) > 0 THEN active_minutes ELSE COALESCE(excluded.active_minutes, active_minutes) END,
+            activity_source = CASE
+              WHEN activity_source = 'apple' AND (
+                COALESCE(steps, 0) > 0 OR COALESCE(active_calories, 0) > 0
+                OR COALESCE(total_calories_burned, 0) > 0 OR COALESCE(active_minutes, 0) > 0
+              ) THEN activity_source
+              ELSE COALESCE(excluded.activity_source, activity_source)
+            END,
             last_sync = excluded.last_sync
         `, [
           userId, dateStr,

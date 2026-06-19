@@ -89,17 +89,24 @@ jobs:
 
       # Skan podatności zależności npm. Działa tutaj (w CI), a nie lokalnie
       # w środowisku deweloperskim/sandboksie, bo CI ma realny dostęp do
-      # rejestru npm. audit-level=high - nie blokujemy za drobne/niskie
-      # podatności, ale wysokie/krytyczne mają od razu wstrzymać pipeline.
-      # --omit=dev - audytujemy tylko zależności produkcyjne. devDependencies
-      # (nodemon tutaj, vite/esbuild w joby frontendu) nigdy nie trafiają do
-      # obrazu Docker (backend.Dockerfile robi `npm ci --only=production`,
-      # frontend.Dockerfile kopiuje tylko zbudowane pliki statyczne) - bez tego
-      # flaga audit-level=high blokowała publikację obrazu za podatności
-      # w narzędziach build-time, które nigdy nie działają na produkcji.
+      # rejestru npm. --omit=dev - audytujemy tylko zależności produkcyjne
+      # (devDependencies, np. nodemon, nigdy nie trafiają do obrazu Docker).
+      #
+      # Wynik filtrujemy przez scripts/check-npm-audit.js, bo `npm audit`
+      # samo w sobie nie odróżnia podatności w kodzie runtime od podatności
+      # w narzędziach used tylko przy `npm ci` do skompilowania natywnego
+      # bindingu sqlite3 (node-gyp -> tar/make-fetch-happen/cacache/
+      # http-proxy-agent/@tootallnate/once). Próba "naprawienia" tego przez
+      # podbicie sqlite3 na wersję główną faktycznie wysadziła produkcję
+      # (prebuildowany binarz wymagał nowszego glibc niż ma node:20-slim -
+      # ERR_DLOPEN_FAILED). Te konkretne pakiety są więc jawnie, z
+      # uzasadnieniem, na białej liście - każda INNA podatność high/critical
+      # (czyli realna zależność runtime) wciąż blokuje pipeline.
       - name: npm audit (backend)
         working-directory: ./backend
-        run: npm audit --audit-level=high --omit=dev
+        run: |
+          npm audit --omit=dev --json > /tmp/audit-backend.json || true
+          node ../scripts/check-npm-audit.js /tmp/audit-backend.json "tar,@tootallnate/once,http-proxy-agent,make-fetch-happen,cacache,node-gyp"
 
       # Przekazujemy świeżo zregenerowany lockfile do joba build-backend
       # (osobny runner = osobny checkout, nie widzi plików z tego joba).

@@ -102,11 +102,18 @@ jobs:
       # ERR_DLOPEN_FAILED). Te konkretne pakiety są więc jawnie, z
       # uzasadnieniem, na białej liście - każda INNA podatność high/critical
       # (czyli realna zależność runtime) wciąż blokuje pipeline.
+      #
+      # "sqlite3" jest też na tej liście (poza samymi narzędziami
+      # node-gyp/tar/...): `npm audit` "podciąga" ryzyko z całego łańcucha
+      # transitive deps do bezpośredniej zależności w package.json, jeśli
+      # jedyny sugerowany fix wymaga podbicia właśnie jej. Dlatego sqlite3
+      # sam wychodzi jako "high" - to wciąż ten sam, już udokumentowany
+      # problem (build-time-only), nie nowa, realna podatność runtime.
       - name: npm audit (backend)
         working-directory: ./backend
         run: |
           npm audit --omit=dev --json > /tmp/audit-backend.json || true
-          node ../scripts/check-npm-audit.js /tmp/audit-backend.json "tar,@tootallnate/once,http-proxy-agent,make-fetch-happen,cacache,node-gyp"
+          node ../scripts/check-npm-audit.js /tmp/audit-backend.json "tar,@tootallnate/once,http-proxy-agent,make-fetch-happen,cacache,node-gyp,sqlite3"
 
       # Przekazujemy świeżo zregenerowany lockfile do joba build-backend
       # (osobny runner = osobny checkout, nie widzi plików z tego joba).

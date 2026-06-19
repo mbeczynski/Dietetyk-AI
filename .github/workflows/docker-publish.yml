@@ -274,12 +274,22 @@ jobs:
 
   deploy:
     name: Wdrożenie na serwer produkcyjny (CD)
-    needs: [build-backend, build-frontend]
+    needs: [test-backend, test-frontend, build-backend, build-frontend]
     # "always()" + sprawdzenie wyników: deploy ma się odbyć, jeśli żaden z jobów
-    # budujących nie zakończył się błędem (skipped jest OK - to znaczy, że dany
-    # serwis się nie zmienił, więc nie trzeba było go przebudowywać).
+    # nie zakończył się błędem (skipped jest OK - to znaczy, że dany serwis się
+    # nie zmienił, więc nie trzeba było go przebudowywać).
+    #
+    # WAŻNE: musimy sprawdzać też wynik test-backend/test-frontend (nie tylko
+    # build-backend/build-frontend). Gdy audyt npm padnie, build się skipuje
+    # (poprawnie - nie buduje zepsutego obrazu), ALE "skipped" dla build był
+    # do tej pory traktowany jako "OK do deployu" - więc deploy i tak ruszał,
+    # ponownie ściągał i restartował STARY (już wcześniej zepsuty) obraz z
+    # registry i healthcheck padał od nowa. Teraz: jeśli audyt faktycznie
+    # zawiódł (failure, nie skipped), deploy też się nie wykonuje.
     if: |
       always() &&
+      (needs.test-backend.result == 'success' || needs.test-backend.result == 'skipped') &&
+      (needs.test-frontend.result == 'success' || needs.test-frontend.result == 'skipped') &&
       (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
       (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
     runs-on: ubuntu-latest

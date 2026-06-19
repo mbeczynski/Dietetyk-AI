@@ -146,10 +146,17 @@ export default function App() {
 
   // Odbiór tokenu po powrocie z logowania Google. Działa niezależnie od sessionToken,
   // bo dla nowego/nielogowanego użytkownika ten token właśnie ustanawia sesję.
+  //
+  // Tokeny (google_token/google_temp_token) backend przekazuje w FRAGMENCIE URL (#),
+  // nie w query stringu - fragment nigdy nie jest wysyłany do serwera przy żądaniu
+  // strony, więc żywy token sesji nie trafia do logów serwera (morgan) ani do
+  // historii/Referer przeglądarki. google_error nie jest sekretem, więc nadal
+  // przychodzi przez zwykły query string.
   useEffect(() => {
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     const params = new URLSearchParams(window.location.search);
-    const googleToken = params.get('google_token');
-    const googleTempToken = params.get('google_temp_token');
+    const googleToken = hashParams.get('google_token');
+    const googleTempToken = hashParams.get('google_temp_token');
     const googleError = params.get('google_error');
 
     if (googleToken) {

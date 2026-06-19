@@ -19,12 +19,16 @@ async function requireAuth(req, res, next) {
     return next();
   }
 
+  // Token akceptujemy WYŁĄCZNIE z nagłówka Authorization. Wcześniej istniał tu
+  // fallback na req.query.token, ale token sesji w query stringu trafiał
+  // niezaszyfrowany do logów morgan('dev') (logującego pełny URL żądania) oraz
+  // do historii przeglądarki/nagłówka Referer. Front-end (App.jsx) i tak zawsze
+  // wysyła token przez nagłówek Bearer - fallback był martwym kodem zwiększającym
+  // powierzchnię ataku, nie realnie wykorzystywaną funkcją.
   let token = null;
   const authHeader = req.headers.authorization;
   if (authHeader) {
     token = authHeader.replace('Bearer ', '');
-  } else if (req.query.token) {
-    token = req.query.token;
   }
 
   if (!token) {

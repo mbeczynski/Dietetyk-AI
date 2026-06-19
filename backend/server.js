@@ -30,7 +30,19 @@ app.use(cors(allowedOrigin ? { origin: allowedOrigin } : {}));
 // limit i kończyły się błędem 413 "Nieprawidłowe żądanie" (patrz centralny handler
 // błędów poniżej).
 app.use(express.json({ limit: '20mb' }));
-app.use(morgan('dev'));
+
+// Domyślny format 'dev' morgana loguje pełny URL żądania WŁĄCZNIE z query stringiem.
+// To problem, bo część endpointów (np. /api/invitation-status?token=...) przyjmuje
+// wrażliwe wartości właśnie w query stringu - taki token trafiałby w czystym tekście
+// do logów kontenera. Tokeny sesji (Google OAuth) już nie podróżują w query stringu
+// (patrz routes/auth.js - przekazywane we fragmencie URL #, którego serwer nigdy nie
+// widzi), ale to dodatkowa warstwa obrony "w głąb" (defense in depth) na wypadek
+// innych/przyszłych parametrów tego typu w query stringu.
+morgan.token('safe-url', (req) => {
+  const url = req.originalUrl || req.url || '';
+  return url.replace(/([?&])(token|code|state|access_token|refresh_token|client_secret|secret|key)=[^&]+/gi, '$1$2=%5Bredacted%5D');
+});
+app.use(morgan(':method :safe-url :status :response-time ms - :res[content-length]'));
 
 // Serwowanie plików statycznych frontendu w trybie produkcyjnym
 app.use(express.static(path.join(__dirname, 'public')));

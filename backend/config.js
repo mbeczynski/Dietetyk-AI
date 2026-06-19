@@ -6,7 +6,6 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const PORT = process.env.PORT || 3000;
-const SYNC_TOKEN = process.env.SYNC_TOKEN || 'secure-diet-token-123';
 
 // Inicjalizacja Gemini API
 const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -88,7 +87,6 @@ async function generateContentWithFallback(promptText, isJson = false, imagePart
 
 module.exports = {
   PORT,
-  SYNC_TOKEN,
   genAI,
   model,
   generateContentWithFallback

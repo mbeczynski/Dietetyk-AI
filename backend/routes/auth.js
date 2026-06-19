@@ -206,11 +206,15 @@ router.get('/api/auth/google/callback', async (req, res) => {
         INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
         VALUES (?, ?, ?, 0)
       `, [tempToken, user.id, expiresAt]);
-      return res.redirect(`/?google_temp_token=${tempToken}`);
+      // Token w fragmencie URL (#), NIE w query stringu: fragment nigdy nie jest
+      // wysyłany przez przeglądarkę do serwera przy kolejnym żądaniu (np. GET /),
+      // więc żywy token sesji nie trafia do logów morgan('dev') (logującego pełny
+      // URL żądania) ani do nagłówka Referer/historii przeglądarki.
+      return res.redirect(`/#google_temp_token=${tempToken}`);
     }
 
     const permanentToken = await createPermanentSession(user.id);
-    res.redirect(`/?google_token=${permanentToken}`);
+    res.redirect(`/#google_token=${permanentToken}`);
   } catch (err) {
     console.error('[GOOGLE LOGIN CALLBACK ERROR]', err.message);
     res.redirect(isLinkFlow ? '/?tab=settings&google_link_error=exchange_failed' : '/?google_error=exchange_failed');

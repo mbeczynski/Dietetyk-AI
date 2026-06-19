@@ -107,7 +107,6 @@ W katalogu `/opt/dietetyk-ai/backend/.env` utwórz konfigurację dla backendu:
 PORT=3000
 GEMINI_API_KEY=twój_klucz_api_gemini
 GEMINI_MODEL=gemini-1.5-flash
-SYNC_TOKEN=twoje_bezpieczne_haslo_synchronizacji
 APP_PASSWORD=dietetyk-admin
 ```
 Katalog `./data` musi być zapisywalny dla uid 1000 (`chown -R 1000:1000 ./data`) -

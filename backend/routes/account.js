@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { authenticator } = require('otplib');
 const QRCode = require('qrcode');
 const { sendWeeklySummaryForUser, sendDailySummaryForUser, sendMonthlySummaryForUser } = require('../services/summaries');
@@ -216,7 +217,7 @@ router.post('/api/user/setup-2fa', async (req, res) => {
     const secret = authenticator.generateSecret();
     await db.run(`UPDATE users SET totp_secret = ? WHERE id = ?`, [secret, req.user.id]);
 
-    const tempToken = 'temp_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+    const tempToken = 'temp_' + crypto.randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
     await db.run(`

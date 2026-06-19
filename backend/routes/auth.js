@@ -10,7 +10,7 @@ const { getAppConfig, generateOAuthState, verifyOAuthState } = require('../servi
 
 // Pomocnicza funkcja do tworzenia stałego tokenu sesji (7 dni) - używana też przez logowanie Google
 async function createPermanentSession(userId) {
-  const permanentToken = 'sess_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+  const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
   await db.run(`
     INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
@@ -165,7 +165,7 @@ router.get('/api/auth/google/callback', async (req, res) => {
       // użytkownik sam nie ustawi hasła w Ustawieniach.
       const randomPassword = crypto.randomBytes(24).toString('hex');
       const passwordHash = await bcrypt.hash(randomPassword, 10);
-      const syncToken = 'sync_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+      const syncToken = 'sync_' + crypto.randomBytes(24).toString('hex');
 
       let baseUsername = (profile.email ? profile.email.split('@')[0] : profile.name || 'user').replace(/[^a-zA-Z0-9_.-]/g, '') || 'user';
       let username = baseUsername;
@@ -200,7 +200,7 @@ router.get('/api/auth/google/callback', async (req, res) => {
 
     // Respektujemy 2FA, jeśli użytkownik je wcześniej włączył (logowanie Google nie omija 2FA)
     if (user.totp_enabled === 1) {
-      const tempToken = 'temp_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+      const tempToken = 'temp_' + crypto.randomBytes(24).toString('hex');
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
       await db.run(`
         INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
@@ -247,7 +247,7 @@ router.post('/api/login', async (req, res) => {
 
     // Sprawdź czy wymuszona jest zmiana hasła
     if (user.force_password_change === 1) {
-      const tempToken = 'temp_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+      const tempToken = 'temp_' + crypto.randomBytes(24).toString('hex');
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
       await db.run(`
@@ -263,7 +263,7 @@ router.post('/api/login', async (req, res) => {
 
     if (user.totp_enabled === 1) {
       // Generowanie tymczasowego tokenu (ważnego 5 minut)
-      const tempToken = 'temp_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+      const tempToken = 'temp_' + crypto.randomBytes(24).toString('hex');
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
       await db.run(`
@@ -292,7 +292,7 @@ router.post('/api/login', async (req, res) => {
             await db.run(`UPDATE users SET totp_secret = ? WHERE id = ?`, [secret, user.id]);
           }
 
-          const tempToken = 'temp_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+          const tempToken = 'temp_' + crypto.randomBytes(24).toString('hex');
           const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
           await db.run(`
@@ -313,7 +313,7 @@ router.post('/api/login', async (req, res) => {
       }
 
       // Logowanie bezpośrednie bez 2FA (wymuszenie wyłączone lub konto młodsze niż 24h)
-      const permanentToken = 'sess_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+      const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
       await db.run(`
@@ -326,7 +326,7 @@ router.post('/api/login', async (req, res) => {
       });
     } else {
       // Bezpośrednie generowanie stałego tokenu sesji dla testowego konta admina (MFA wyłączone)
-      const permanentToken = 'sess_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+      const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
       await db.run(`
@@ -386,7 +386,7 @@ router.post('/api/verify-2fa-setup', async (req, res) => {
     await db.run(`UPDATE users SET totp_enabled = 1, force_2fa = 0 WHERE id = ?`, [session.user_id]);
 
     // Wygeneruj stały token sesji (ważny 7 dni)
-    const permanentToken = 'sess_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+    const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
     await db.run(`
@@ -443,7 +443,7 @@ router.post('/api/login-2fa', async (req, res) => {
     await loginAttempts.recordSuccess(req.ip, tempToken);
 
     // Wygeneruj stały token sesji (ważny 7 dni)
-    const permanentToken = 'sess_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+    const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
     await db.run(`
@@ -522,7 +522,7 @@ router.post('/api/change-password-forced', async (req, res) => {
           secret: secret
         });
       } else {
-        const permanentToken = 'sess_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+        const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
         await db.run(`
@@ -590,7 +590,7 @@ router.post('/api/register-invitation', async (req, res) => {
       WHERE id = ?
     `, [username, passwordHash, secret, user.id]);
 
-    const permanentToken = 'sess_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+    const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
     await db.run(`
@@ -629,7 +629,7 @@ router.post('/api/register-public', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const secret = authenticator.generateSecret();
-    const syncToken = 'sync_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+    const syncToken = 'sync_' + crypto.randomBytes(24).toString('hex');
 
     const result = await db.run(`
       INSERT INTO users (username, password_hash, sync_token, totp_enabled, email, role, status, totp_secret)
@@ -648,7 +648,7 @@ router.post('/api/register-public', async (req, res) => {
       await db.run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (?, ?, ?)`, [result.id, s.key, s.value]);
     }
 
-    const permanentToken = 'sess_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+    const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
     await db.run(`

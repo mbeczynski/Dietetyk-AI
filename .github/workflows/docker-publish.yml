@@ -59,8 +59,15 @@ jobs:
               - 'frontend/**'
               - 'docker/frontend.Dockerfile'
 
-  build-backend:
-    name: Build i push obrazu (backend)
+  # Testy/audyt bezpieczeństwa backendu - osobny job, ZANIM zaczniemy budować
+  # i publikować obraz Docker. Wcześniej audyt był jednym ze stepów wewnątrz
+  # joba budującego obraz - błąd audytu i błąd builda lądowały w tym samym
+  # miejscu, co utrudniało odczytanie, co faktycznie nie przeszło. Rozdzielenie
+  # na osobny job daje też gwarancję, że obraz NIGDY nie zostanie zbudowany
+  # i wypchnięty z niezweryfikowanych zależności (build-backend rusza tylko,
+  # gdy ten job zakończy się sukcesem - patrz `needs`/`if` poniżej).
+  test-backend:
+    name: Testy i audyt bezpieczeństwa (backend)
     needs: changes
     if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -68,20 +75,42 @@ jobs:
       - name: Checkout kodu
         uses: actions/checkout@v5
 
-      # Skan podatności zależności npm. Działa tutaj (w CI), a nie lokalnie
-      # w środowisku deweloperskim/sandboksie, bo CI ma realny dostęp do
-      # rejestru npm. audit-level=high - nie blokujemy builda za drobne/niskie
-      # podatności, ale wysokie/krytyczne mają od razu wstrzymać publikację obrazu.
       - name: Ustawienie Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
+      # Osobny step tylko do wygenerowania package-lock.json (potrzebnego
+      # `npm audit`) - nie instalujemy pełnego node_modules, bo go tu nie
+      # potrzebujemy (obraz Docker instaluje zależności sam, w swoim builderze).
+      - name: Instalacja zależności (lockfile)
+        working-directory: ./backend
+        run: npm install --package-lock-only
+
+      # Skan podatności zależności npm. Działa tutaj (w CI), a nie lokalnie
+      # w środowisku deweloperskim/sandboksie, bo CI ma realny dostęp do
+      # rejestru npm. audit-level=high - nie blokujemy za drobne/niskie
+      # podatności, ale wysokie/krytyczne mają od razu wstrzymać pipeline.
+      # --omit=dev - audytujemy tylko zależności produkcyjne. devDependencies
+      # (nodemon tutaj, vite/esbuild w joby frontendu) nigdy nie trafiają do
+      # obrazu Docker (backend.Dockerfile robi `npm ci --only=production`,
+      # frontend.Dockerfile kopiuje tylko zbudowane pliki statyczne) - bez tego
+      # flaga audit-level=high blokowała publikację obrazu za podatności
+      # w narzędziach build-time, które nigdy nie działają na produkcji.
       - name: npm audit (backend)
         working-directory: ./backend
-        run: |
-          npm install --package-lock-only
-          npm audit --audit-level=high
+        run: npm audit --audit-level=high --omit=dev
+
+  build-backend:
+    name: Build i push obrazu (backend)
+    needs: [changes, test-backend]
+    if: |
+      (needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch') &&
+      needs.test-backend.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kodu
+        uses: actions/checkout@v5
 
       - name: Logowanie do GitHub Container Registry
         uses: docker/login-action@v4
@@ -113,8 +142,10 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
-  build-frontend:
-    name: Build i push obrazu (frontend)
+  # Analogiczny, osobny job audytu dla frontendu - patrz komentarz przy
+  # test-backend powyżej (te samo uzasadnienie rozdzielenia od builda).
+  test-frontend:
+    name: Testy i audyt bezpieczeństwa (frontend)
     needs: changes
     if: needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -127,11 +158,24 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Instalacja zależności (lockfile)
+        working-directory: ./frontend
+        run: npm install --package-lock-only
+
       - name: npm audit (frontend)
         working-directory: ./frontend
-        run: |
-          npm install --package-lock-only
-          npm audit --audit-level=high
+        run: npm audit --audit-level=high --omit=dev
+
+  build-frontend:
+    name: Build i push obrazu (frontend)
+    needs: [changes, test-frontend]
+    if: |
+      (needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch') &&
+      needs.test-frontend.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kodu
+        uses: actions/checkout@v5
 
       - name: Logowanie do GitHub Container Registry
         uses: docker/login-action@v4

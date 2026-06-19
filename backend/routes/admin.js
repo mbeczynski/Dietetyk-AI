@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { requireAdmin } = require('../middleware/auth');
 const { sendMailgunEmail } = require('../services/mailgun');
 
@@ -131,10 +132,12 @@ router.post('/api/admin/invite', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Użytkownik o tym adresie e-mail już istnieje.' });
     }
 
-    const token = 'inv_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
-    const tempUsername = 'pending_' + Math.random().toString(36).substring(2, 8);
-    const dummyPassword = await bcrypt.hash(Math.random().toString(36), 10);
-    const syncToken = 'sync_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+    // invitation_token jest jedyną rzeczą stojącą między e-mailem zaproszenia
+    // a utworzeniem konta (potencjalnie z rolą admin) - musi być nieprzewidywalny.
+    const token = 'inv_' + crypto.randomBytes(24).toString('hex');
+    const tempUsername = 'pending_' + crypto.randomBytes(6).toString('hex');
+    const dummyPassword = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+    const syncToken = 'sync_' + crypto.randomBytes(24).toString('hex');
 
     await db.run(`
       INSERT INTO users (username, password_hash, sync_token, totp_enabled, email, role, status, invitation_token)

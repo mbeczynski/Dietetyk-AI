@@ -9,3 +9,6 @@ backend/public
 .vscode
 backend/.env
 backend/dietetyk.db
+# Skrypty testowe/deweloperskie - nie są uruchamiane w produkcji, a zawierają
+# przykładowe dane logowania, więc nie powinny trafiać do obrazu Docker.
+backend/test-*.js

@@ -950,30 +950,64 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </span>
           </div>
           
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '1.8rem', fontWeight: '800', color: '#fff', letterSpacing: '-0.02em' }}>
-                {weight} <span style={{ fontSize: '1rem', fontWeight: '500', color: 'rgba(255,255,255,0.4)' }}>kg</span>
-              </span>
-              <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>Bieżąca waga</span>
-            </div>
+          {(() => {
+            const fatMass = (weight > 0 && fatRatio > 0) ? Math.round((weight * fatRatio / 100) * 10) / 10 : 0;
+            const fatPercentage = fatRatio || 0;
+            const musclePercentage = (weight > 0 && muscleMass > 0) ? Math.round((muscleMass / weight) * 100 * 10) / 10 : 0;
+            const otherMass = (weight > 0) ? Math.max(0, Math.round((weight - muscleMass - fatMass) * 10) / 10) : 0;
+            const otherPercentage = (weight > 0) ? Math.max(0, Math.round((otherMass / weight) * 100 * 10) / 10) : 0;
+            const leanBodyMassPct = fatRatio > 0 ? 100 - fatRatio : 100;
 
-            <div style={{ display: 'flex', gap: '20px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                <span style={{ fontSize: '1.2rem', fontWeight: '700', color: '#38bdf8' }}>
-                  {fatRatio}%
-                </span>
-                <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>Tłuszcz</span>
-              </div>
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '24px', margin: '8px 0' }}>
+                {/* Main weight ring */}
+                <div style={{ position: 'relative', width: 92, height: 92, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <RenderProgressCircle size={92} strokeWidth={8} percentage={leanBodyMassPct} color="#38bdf8" />
+                  <div style={{ position: 'absolute', textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>
+                      {weight > 0 ? weight : '--'}
+                    </div>
+                    <div style={{ fontSize: '0.65rem', color: 'rgba(255, 255, 255, 0.4)', textTransform: 'uppercase', marginTop: '2px' }}>
+                      kg
+                    </div>
+                  </div>
+                </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                <span style={{ fontSize: '1.2rem', fontWeight: '700', color: '#34d399' }}>
-                  {muscleMass} <span style={{ fontSize: '0.8rem', fontWeight: '500' }}>kg</span>
-                </span>
-                <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>Mięśnie</span>
+                {/* Body Composition breakdown */}
+                <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '2px' }}>
+                      <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Mięśnie</span>
+                      <span style={{ fontWeight: '700' }}>{muscleMass > 0 ? `${muscleMass} kg` : '--'} ({musclePercentage}%)</span>
+                    </div>
+                    <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', background: '#34d399', width: `${musclePercentage}%` }}></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '2px' }}>
+                      <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Tłuszcz</span>
+                      <span style={{ fontWeight: '700' }}>{fatMass > 0 ? `${fatMass} kg` : '--'} ({fatPercentage}%)</span>
+                    </div>
+                    <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', background: '#fbbf24', width: `${fatPercentage}%` }}></div>
+                    </div>
+                  </div>
+                  {otherMass > 0 && (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '2px' }}>
+                        <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Inne (woda, kości)</span>
+                        <span style={{ fontWeight: '700' }}>{otherMass} kg ({otherPercentage}%)</span>
+                      </div>
+                      <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', background: '#64748b', width: `${otherPercentage}%` }}></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
+            );
+          })()}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>
@@ -1006,6 +1040,9 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           {renderWeightCompositionChart(historyData)}
         </div>
 
+      </div>
+
+      <div className="dashboard-column">
         {/* ODŻYWIANIE (NUTRITION) */}
         <div className="premium-card">
           <div className="premium-title-row">
@@ -1059,9 +1096,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="dashboard-column">
         {/* ENERGIA I STRES */}
         <div className="premium-card">
           <div className="premium-title-row">

@@ -1066,6 +1066,17 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.energy-stres-box > div {
+  min-width: 0; /* drugi blok (sparkline) miał domyślny min-width:auto i mógł
+    wypychać pierwszy poza kartę na wąskich ekranach */
+}
+
+.energy-stres-substats {
+  flex-wrap: wrap;
 }
 
 .energy-stres-score {
@@ -1279,7 +1290,14 @@ header {
 
 .premium-grid-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr) zamiast samego 1fr: domyślny minimalny rozmiar kolumny
+     siatki to "auto" (min-content), czyli kolumna nie skurczy się poniżej
+     szerokości najdłuższego niełamliwego fragmentu treści karty (np. tekstu
+     stopki typu "W zakresie 13,3-14"). Na wąskich ekranach (telefon) to
+     wypychało drugą kolumnę poza viewport - całość była po prostu przycinana,
+     bo na <body> jest overflow-x: hidden. minmax(0, 1fr) pozwala kolumnie
+     skurczyć się do dostępnej szerokości, a tekst w karcie zawija się normalnie. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
   width: 100%;
 }
@@ -1292,6 +1310,7 @@ header {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0; /* pozwala karcie skurczyć się do szerokości kolumny grida (zob. premium-grid-2) */
 }
 
 .daily-goal-title {
@@ -1367,6 +1386,7 @@ header {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0; /* pozwala karcie skurczyć się do szerokości kolumny grida (zob. premium-grid-2) */
 }
 
 .trend-health-title {
@@ -1398,7 +1418,7 @@ header {
 
 .trend-range-bar {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
   gap: 6px;
   margin: 6px 0;
 }
@@ -1441,6 +1461,9 @@ header {
   font-size: 0.75rem;
   font-weight: 600;
   margin-top: 2px;
+  min-width: 0;
+  flex-wrap: wrap;
+  word-break: break-word;
 }
 
 .trend-health-footer.success {

@@ -60,33 +60,6 @@ const SleepStageBar = ({ label, durationText, percentage, typicalStart, typicalE
   );
 };
 
-// Micro Sparkline Generator (SVG)
-const renderSparkline = (dataPoints) => {
-  if (!dataPoints || dataPoints.length === 0) return null;
-  const width = 80;
-  const height = 18;
-  const min = Math.min(...dataPoints);
-  const max = Math.max(...dataPoints);
-  const range = max - min || 1;
-  
-  const points = dataPoints.map((val, idx) => {
-    const x = (idx / (dataPoints.length - 1)) * width;
-    const y = height - ((val - min) / range) * height;
-    return `${x},${y}`;
-  }).join(' ');
-  
-  return (
-    <svg width={width} height={height}>
-      <polyline
-        fill="none"
-        stroke="#10b981"
-        strokeWidth="1.5"
-        points={points}
-      />
-    </svg>
-  );
-};
-
 const getWorkoutIcon = (type) => {
   const t = type.toLowerCase();
   if (t.includes('run') || t.includes('bieg')) return '🏃';
@@ -498,9 +471,6 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     return `${hours}h ${mins}m`;
   };
 
-  // Sparkline data (simulated stress curve over the day)
-  const stressPoints = [12, 14, 11, 15, 23, 29, 21, 16, 12, 8, 4, 9, 14, 15, 17, 20];
-
   return (
     <div className="premium-dashboard-container">
       
@@ -897,24 +867,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: '700' }}>+{batteryPct - 33}%</span>
             <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)' }}>| 0%</span>
           </div>
-
-          {/* Stress & HRV / RHR stats */}
-          <div className="energy-stres-box">
-            <div>
-              <div className="energy-stres-score">20</div>
-              <div style={{ fontSize: '0.65rem', color: 'rgba(255, 255, 255, 0.4)', marginTop: '4px' }}>
-                Zaktualizowano: 05:18
-              </div>
-              <div className="energy-stres-substats">
-                <span className="energy-stres-substat-green">29 Max</span>
-                <span className="energy-stres-substat-blue">4 Min</span>
-                <span className="energy-stres-substat-cyan">15 Avg</span>
-              </div>
-            </div>
-            <div>
-              {renderSparkline(stressPoints)}
-            </div>
-          </div>
+          {/* Sekcja poziomu stresu została usunięta - dane (wynik stresu, wykres
+              z ostatnich godzin) nie były nigdzie zbierane przez backend i były
+              w 100% zaszywane na sztywno w kodzie, mimo że wyglądały jak realny
+              odczyt z urządzenia. Wraca, gdy będzie realne źródło tych danych. */}
         </div>
 
         {/* TRENDY ZDROWOTNE */}
@@ -938,51 +894,54 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               footerText={hrv >= 48 ? "Wysoki > 48" : "Niski < 48"} 
               status="success" 
             />
-            <TrendCard 
-              title="Poziom tlenu we krwi" 
-              valueText="98,4" 
-              unitText="%" 
-              activeSegment="right" 
-              color="blue" 
-              footerText="Wysoki > 97,8" 
-              status="success" 
+            <TrendCard
+              title="Spoczynkowe tętno"
+              valueText={String(rhr)}
+              unitText="bpm"
+              activeSegment={rhr < 61 ? "left" : "middle"}
+              color="blue"
+              footerText={rhr < 61 ? "Niski < 61" : "Wysoki > 61"}
+              status="success"
             />
-            <TrendCard 
-              title="Spoczynkowe tętno" 
-              valueText={String(rhr)} 
-              unitText="bpm" 
-              activeSegment={rhr < 61 ? "left" : "middle"} 
-              color="blue" 
-              footerText={rhr < 61 ? "Niski < 61" : "Wysoki > 61"} 
-              status="success" 
-            />
-            <TrendCard 
-              title="Częstość oddechów" 
-              valueText="13,8" 
-              unitText="rpm" 
-              activeSegment="middle" 
-              color="green" 
-              footerText="W zakresie 13,3-14" 
-              status="success" 
-            />
-            <TrendCard 
-              title="Słuch" 
-              valueText="52" 
-              unitText="dB" 
-              activeSegment="left" 
-              color="blue" 
-              footerText="Niski < 55" 
-              status="success" 
-            />
-            <TrendCard 
-              title="Temperatura nadgarstka" 
-              valueText="35,4" 
-              unitText="°C" 
-              activeSegment="left" 
-              color="orange" 
-              footerText="Niski < 35,6" 
-              status="warning" 
-            />
+            {/* Karta "Słuch" pozostaje usunięta na życzenie użytkownika - Oura nie ma
+                mikrofonu, a Apple Watch/AirPods nie są jeszcze obsługiwane. Poniższe
+                3 karty pokazują się tylko, gdy backend faktycznie ma dla nich realną
+                wartość (Gen 3+ Oura dla SpO2, Apple Watch Series 8+/Ultra z włączoną
+                metryką "Wrist Temperature" w Health Auto Export dla temperatury) -
+                w przeciwnym razie karta jest po prostu niewidoczna, bez fałszywych zer. */}
+            {summary.respiratory_rate != null && (
+              <TrendCard
+                title="Częstość oddechów"
+                valueText={String(summary.respiratory_rate)}
+                unitText="odd/min"
+                activeSegment={summary.respiratory_rate < 12 ? "left" : summary.respiratory_rate > 20 ? "right" : "middle"}
+                color="blue"
+                footerText={summary.respiratory_rate >= 12 && summary.respiratory_rate <= 20 ? "Norma 12-20" : "Poza normą 12-20"}
+                status={summary.respiratory_rate >= 12 && summary.respiratory_rate <= 20 ? "success" : "warning"}
+              />
+            )}
+            {summary.spo2_percentage != null && (
+              <TrendCard
+                title="Poziom tlenu we krwi"
+                valueText={String(summary.spo2_percentage)}
+                unitText="%"
+                activeSegment={summary.spo2_percentage >= 98 ? "right" : summary.spo2_percentage >= 95 ? "middle" : "left"}
+                color="blue"
+                footerText={summary.spo2_percentage >= 95 ? "Prawidłowy ≥ 95%" : "Niski < 95%"}
+                status={summary.spo2_percentage >= 95 ? "success" : "warning"}
+              />
+            )}
+            {summary.wrist_temperature != null && (
+              <TrendCard
+                title="Temperatura nadgarstka"
+                valueText={String(summary.wrist_temperature)}
+                unitText="°C"
+                activeSegment="middle"
+                color="blue"
+                footerText="Pomiar nocny (Apple Watch)"
+                status="success"
+              />
+            )}
           </div>
         </div>
 

@@ -49,6 +49,9 @@ router.get('/api/dashboard', async (req, res) => {
       hrv: null,
       rhr: null,
       temperature_deviation: null,
+      respiratory_rate: null,
+      spo2_percentage: null,
+      wrist_temperature: null,
       weight: null,
       fat_ratio: null,
       muscle_mass: null,
@@ -77,6 +80,9 @@ router.get('/api/dashboard', async (req, res) => {
     let displayHrv = health.hrv;
     let displayRhr = health.rhr;
     let displayTempDev = health.temperature_deviation;
+    let displayRespiratoryRate = health.respiratory_rate;
+    let displaySpo2 = health.spo2_percentage;
+    let displayWristTemperature = health.wrist_temperature;
     let displayActiveMinutes = health.active_minutes;
 
     if (displayWeight === null) {
@@ -127,6 +133,18 @@ router.get('/api/dashboard', async (req, res) => {
     if (displayTempDev === null) {
       const row = await db.get(`SELECT temperature_deviation FROM health_metrics WHERE user_id = ? AND temperature_deviation IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
       if (row) displayTempDev = row.temperature_deviation;
+    }
+    if (displayRespiratoryRate === null) {
+      const row = await db.get(`SELECT respiratory_rate FROM health_metrics WHERE user_id = ? AND respiratory_rate IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
+      if (row) displayRespiratoryRate = row.respiratory_rate;
+    }
+    if (displaySpo2 === null) {
+      const row = await db.get(`SELECT spo2_percentage FROM health_metrics WHERE user_id = ? AND spo2_percentage IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
+      if (row) displaySpo2 = row.spo2_percentage;
+    }
+    if (displayWristTemperature === null) {
+      const row = await db.get(`SELECT wrist_temperature FROM health_metrics WHERE user_id = ? AND wrist_temperature IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
+      if (row) displayWristTemperature = row.wrist_temperature;
     }
     // displayActiveMinutes: brak dociągania z poprzednich dni - patrz komentarz powyżej.
 
@@ -221,6 +239,20 @@ Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego p
       }
     }
 
+    // Realne treningi z danego dnia (zsynchronizowane przez webhook Apple Health,
+    // patrz routes/appleHealth.js) - wcześniej to pole było zawsze zaszyte na sztywno
+    // jako pusta lista, mimo że apka faktycznie zbiera te dane od dawna.
+    const workoutRows = await db.all(
+      `SELECT workout_type, duration_minutes, active_calories
+       FROM apple_health_workouts WHERE user_id = ? AND date = ? ORDER BY updated_at DESC`,
+      [req.user.id, date]
+    );
+    const workouts = workoutRows.map(w => ({
+      type: w.workout_type || 'Trening',
+      duration_mins: Math.round(w.duration_minutes || 0),
+      calories: Math.round(w.active_calories || 0)
+    }));
+
     res.json({
       date,
       summary: {
@@ -242,7 +274,7 @@ Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego p
         eaten_carbs: totalEaten.carbs,
         eaten_fat: totalEaten.fat,
         steps: displaySteps || 0,
-        workouts: [],
+        workouts,
         last_sync: health.last_sync,
         sleep_score: displaySleepScore,
         sleep_duration: displaySleepDuration,
@@ -252,6 +284,9 @@ Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego p
         hrv: displayHrv,
         rhr: displayRhr,
         temperature_deviation: displayTempDev,
+        respiratory_rate: displayRespiratoryRate,
+        spo2_percentage: displaySpo2,
+        wrist_temperature: displayWristTemperature,
         weight: displayWeight,
         fat_ratio: displayFatRatio,
         muscle_mass: displayMuscleMass,

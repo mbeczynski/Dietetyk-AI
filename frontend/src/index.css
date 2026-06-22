@@ -748,6 +748,15 @@ header {
   gap: 10px;
 }
 
+.code-block > span {
+  /* Flex-child ma domyślnie min-width: auto, więc nie skurczy się poniżej
+     szerokości całego (nieprzerywalnego bez tej reguły) URL-a webhooka -
+     ten sam mechanizm co naprawiony wcześniej .premium-grid-2. min-width: 0
+     pozwala span'owi skurczyć się do dostępnej szerokości, a word-break:
+     break-all (już ustawione powyżej) faktycznie zaczyna łamać tekst. */
+  min-width: 0;
+}
+
 .btn-copy {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-glass);

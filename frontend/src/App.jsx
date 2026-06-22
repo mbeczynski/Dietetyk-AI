@@ -1231,7 +1231,7 @@ export default function App() {
             >
               ✕
             </button>
-            <h3 className="card-title" style={{ marginBottom: '16px' }}>📜 Regulamin Serwisu i Polityka Privacidad</h3>
+            <h3 className="card-title" style={{ marginBottom: '16px' }}>📜 Regulamin Serwisu i Polityka Prywatności</h3>
             <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: '1.6', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <p><strong>1. Postanowienia ogólne</strong><br />
               Aplikacja Dietetyk AI (zwana dalej „Serwisem”) jest osobistym asystentem żywieniowym i treningowym. Korzystanie z Serwisu wymaga akceptacji niniejszego Regulaminu.</p>

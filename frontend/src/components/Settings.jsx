@@ -1022,7 +1022,10 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               <button type="submit" className="btn-primary" disabled={isSavingProfile} style={{ width: '100%' }}>
                 {isSavingProfile ? 'Zapisywanie...' : 'Zapisz profil'}
               </button>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+              {/* minmax(0, 1fr) zamiast samego 1fr - bez tego kolumna nie skurczy się
+                  poniżej szerokości tekstu przycisku (np. "Wyślij tygodniowe") na
+                  wąskich ekranach, ten sam mechanizm co naprawiony .premium-grid-2 */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '10px' }}>
                 <button
                   type="button"
                   className="btn-secondary"

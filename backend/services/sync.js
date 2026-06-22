@@ -75,6 +75,21 @@ async function syncOura(userId) {
     }
     const readData = await readRes.json();
 
+    // Dobowe SpO2 (Oura Gen 3+) - osobny endpoint, NIE część odpowiedzi /sleep.
+    // Dla pierścionków starszych niż Gen 3 Oura po prostu zwraca pustą tablicę
+    // `data` (nie błąd 4xx) - wtedy spo2_percentage zostaje null dla każdej daty.
+    const spo2Res = await fetch(`https://api.ouraring.com/v2/usercollection/daily_spo2?start_date=${startDate}&end_date=${endDate}`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    let spo2Data = null;
+    if (spo2Res.ok) {
+      spo2Data = await spo2Res.json();
+    } else {
+      // Celowo nie przerywamy całej synchronizacji błędem SpO2 - to dodatkowa,
+      // nieobowiązkowa metryka. Logujemy i kontynuujemy bez niej.
+      console.warn(`[SYNC OURA] Pominięto SpO2 (Status ${spo2Res.status}) - kontynuuję bez tej metryki.`);
+    }
+
     const metricsByDate = {};
     for (let i = 0; i <= 7; i++) {
       const d = new Date();
@@ -92,7 +107,9 @@ async function syncOura(userId) {
         hrv: null,
         rhr: null,
         temperature_deviation: null,
-        active_minutes: null
+        active_minutes: null,
+        respiratory_rate: null,
+        spo2_percentage: null
       };
     }
 
@@ -105,6 +122,21 @@ async function syncOura(userId) {
           metricsByDate[dateStr].sleep_rem = item.rem_sleep_duration ? Math.round((item.rem_sleep_duration / 3600) * 10) / 10 : null;
           metricsByDate[dateStr].rhr = item.lowest_heart_rate || null;
           metricsByDate[dateStr].hrv = item.average_hrv || null;
+          // `average_breath` - mimo że dokumentacja Oury (i niektóre opisy third-party)
+          // nazywają to pole "breaths/second", realne wartości w odpowiedziach API
+          // (np. 12.1, 12.4) są w oczywisty sposób oddechami/MINUTĘ (norma snu to
+          // 12-20/min) - prawdopodobnie błąd w dokumentacji, nie w danych. Zapisujemy
+          // wartość bez konwersji, zaokrągloną do 1 miejsca po przecinku.
+          metricsByDate[dateStr].respiratory_rate = item.average_breath ? Math.round(item.average_breath * 10) / 10 : null;
+        }
+      });
+    }
+
+    if (spo2Data && spo2Data.data) {
+      spo2Data.data.forEach(item => {
+        const dateStr = item.day;
+        if (metricsByDate[dateStr] && item.spo2_percentage && typeof item.spo2_percentage.average === 'number') {
+          metricsByDate[dateStr].spo2_percentage = Math.round(item.spo2_percentage.average * 10) / 10;
         }
       });
     }
@@ -164,9 +196,10 @@ async function syncOura(userId) {
           INSERT INTO health_metrics (
             user_id, date, steps, active_calories, total_calories_burned,
             sleep_score, sleep_duration, sleep_deep, sleep_rem,
-            readiness_score, hrv, rhr, temperature_deviation, active_minutes, activity_source, last_sync
+            readiness_score, hrv, rhr, temperature_deviation, active_minutes,
+            respiratory_rate, spo2_percentage, activity_source, last_sync
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(user_id, date) DO UPDATE SET
             steps = CASE WHEN activity_source = 'apple' AND COALESCE(steps, 0) > 0 THEN steps ELSE COALESCE(excluded.steps, steps) END,
             active_calories = CASE WHEN activity_source = 'apple' AND COALESCE(active_calories, 0) > 0 THEN active_calories ELSE COALESCE(excluded.active_calories, active_calories) END,
@@ -180,6 +213,8 @@ async function syncOura(userId) {
             rhr = COALESCE(excluded.rhr, rhr),
             temperature_deviation = COALESCE(excluded.temperature_deviation, temperature_deviation),
             active_minutes = CASE WHEN activity_source = 'apple' AND COALESCE(active_minutes, 0) > 0 THEN active_minutes ELSE COALESCE(excluded.active_minutes, active_minutes) END,
+            respiratory_rate = COALESCE(excluded.respiratory_rate, respiratory_rate),
+            spo2_percentage = COALESCE(excluded.spo2_percentage, spo2_percentage),
             activity_source = CASE
               WHEN activity_source = 'apple' AND (
                 COALESCE(steps, 0) > 0 OR COALESCE(active_calories, 0) > 0
@@ -203,6 +238,7 @@ async function syncOura(userId) {
           // dopasowanych danych aktywności na tę datę zerowała już zapisaną,
           // prawdziwą wartość minut aktywności z poprzedniej synchronizacji.
           metrics.active_minutes,
+          metrics.respiratory_rate, metrics.spo2_percentage,
           activitySource,
           lastSyncTime
         ]);

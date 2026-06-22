@@ -51,14 +51,33 @@ function toKcal(qty, units) {
   return qty;
 }
 
+// Health Auto Export może wysyłać temperaturę w stopniach F (jeśli telefon ma
+// regionalne jednostki US) albo C - zawsze konwertujemy do °C.
+function toCelsius(qty, units) {
+  const u = (units || '').toLowerCase();
+  if (u === 'degf' || u === 'fahrenheit' || u === '°f' || u === 'f') {
+    return (qty - 32) * (5 / 9);
+  }
+  return qty;
+}
+
 // Mapowanie nazw metryk Health Auto Export -> nasze pola w health_metrics.
 // `field` to nasz wewnętrzny bucket (patrz `byDate` poniżej), nie nazwa kolumny SQL 1:1 -
 // total_calories_burned liczymy jako suma active_calories + basal_calories.
+// `mode: 'last'` (w przeciwieństwie do domyślnego sumowania) - dla temperatury
+// nadgarstka NIE sumujemy kolejnych wpisów z tego samego dnia (to jeden pomiar
+// nocny, nie wartość kumulatywna jak kroki/kalorie) - bierzemy ostatnią wartość
+// z paczki danych.
 const METRIC_FIELD_MAP = {
   step_count: { field: 'steps', convert: (qty) => qty },
   active_energy: { field: 'active_calories', convert: toKcal },
   basal_energy_burned: { field: 'basal_calories', convert: toKcal },
-  apple_exercise_time: { field: 'active_minutes', convert: (qty) => qty }
+  apple_exercise_time: { field: 'active_minutes', convert: (qty) => qty },
+  // Wymaga włączenia metryki "Wrist Temperature" w automatyzacji Health Auto
+  // Export na telefonie (domyślnie wyłączona) - dostępna tylko z Apple Watch
+  // Series 8+/Ultra. Inna wartość niż Oura `temperature_deviation` (tam to
+  // odchylenie od bazowej, tu wartość absolutna w °C).
+  wrist_temperature: { field: 'wrist_temperature', convert: toCelsius, mode: 'last' }
 };
 
 router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
@@ -124,11 +143,13 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
 
           const dateStr = dateObjToLocalDateString(parsedDate);
           if (!byDate[dateStr]) {
-            byDate[dateStr] = { steps: null, active_calories: null, basal_calories: null, active_minutes: null };
+            byDate[dateStr] = { steps: null, active_calories: null, basal_calories: null, active_minutes: null, wrist_temperature: null };
           }
           const bucket = byDate[dateStr];
           const converted = handler.convert(qty, metric.units);
-          bucket[handler.field] = (bucket[handler.field] || 0) + converted;
+          bucket[handler.field] = handler.mode === 'last'
+            ? converted
+            : (bucket[handler.field] || 0) + converted;
           matchedEntries++;
         }
       }
@@ -163,15 +184,24 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           durationMinutes = durationSec / 60;
         }
 
+        // `workout.name` to typ treningu z UI apki (np. "Running", "Functional
+        // Strength Training") - patrz potwierdzony kształt obiektu treningu w
+        // komentarzu nad tym handlerem. Zapisujemy go, żeby Dashboard mógł pokazać
+        // sekcję "Ostatnia aktywność" z realną nazwą/ikoną, a nie pustą listą.
+        const workoutType = typeof workout.name === 'string' && workout.name.trim()
+          ? workout.name.trim()
+          : null;
+
         await db.run(`
-          INSERT INTO apple_health_workouts (user_id, workout_id, date, active_calories, duration_minutes, updated_at)
-          VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
+          INSERT INTO apple_health_workouts (user_id, workout_id, date, active_calories, duration_minutes, workout_type, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
           ON CONFLICT(user_id, workout_id) DO UPDATE SET
             date = excluded.date,
             active_calories = excluded.active_calories,
             duration_minutes = excluded.duration_minutes,
+            workout_type = excluded.workout_type,
             updated_at = excluded.updated_at
-        `, [user.id, String(workout.id), dateStr, activeCaloriesKcal, durationMinutes]);
+        `, [user.id, String(workout.id), dateStr, activeCaloriesKcal, durationMinutes, workoutType]);
 
         workoutAffectedDates.add(dateStr);
         matchedWorkouts++;
@@ -184,7 +214,7 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           [user.id, dateStr]
         );
         if (!byDate[dateStr]) {
-          byDate[dateStr] = { steps: null, active_calories: null, basal_calories: null, active_minutes: null };
+          byDate[dateStr] = { steps: null, active_calories: null, basal_calories: null, active_minutes: null, wrist_temperature: null };
         }
         byDate[dateStr].active_calories = sums && sums.total_calories !== null ? sums.total_calories : 0;
         byDate[dateStr].active_minutes = sums && sums.total_minutes !== null ? sums.total_minutes : 0;
@@ -209,6 +239,7 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
         ? Math.round(m.active_calories + m.basal_calories)
         : null;
       const activeMinutes = m.active_minutes !== null ? Math.round(m.active_minutes) : null;
+      const wristTemperature = m.wrist_temperature !== null ? Math.round(m.wrist_temperature * 10) / 10 : null;
 
       // Apple Health jest teraz źródłem autorytatywnym dla aktywności - ZAWSZE
       // nadpisujemy (bez CASE/warunku), w przeciwieństwie do poprzedniej logiki, która
@@ -216,16 +247,17 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       // konkretny payload nie dotyczy (np. steps z automatyzacji Treningi, która ich
       // nie wysyła), nie zostało wyzerowane, a zachowało dotychczasową wartość.
       await db.run(`
-        INSERT INTO health_metrics (user_id, date, steps, active_calories, total_calories_burned, active_minutes, activity_source, last_sync)
-        VALUES (?, ?, ?, ?, ?, ?, 'apple', ?)
+        INSERT INTO health_metrics (user_id, date, steps, active_calories, total_calories_burned, active_minutes, wrist_temperature, activity_source, last_sync)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'apple', ?)
         ON CONFLICT(user_id, date) DO UPDATE SET
           steps = COALESCE(excluded.steps, steps),
           active_calories = COALESCE(excluded.active_calories, active_calories),
           total_calories_burned = COALESCE(excluded.total_calories_burned, total_calories_burned),
           active_minutes = COALESCE(excluded.active_minutes, active_minutes),
+          wrist_temperature = COALESCE(excluded.wrist_temperature, wrist_temperature),
           activity_source = 'apple',
           last_sync = excluded.last_sync
-      `, [user.id, dateStr, steps, activeCalories, totalCalories, activeMinutes, lastSyncTime]);
+      `, [user.id, dateStr, steps, activeCalories, totalCalories, activeMinutes, wristTemperature, lastSyncTime]);
 
       savedDates.push(dateStr);
     }

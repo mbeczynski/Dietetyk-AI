@@ -373,6 +373,33 @@ const initDb = async () => {
     await run("ALTER TABLE health_metrics ADD COLUMN activity_source TEXT DEFAULT NULL");
   } catch (e) {}
 
+  // Migracja: częstość oddechów ze snu (Oura, pole average_breath z endpointu
+  // /v2/usercollection/sleep, który już i tak wywołujemy w sync.js - wcześniej to
+  // pole było ignorowane). Karta "Częstość oddechów" na Dashboardzie wcześniej
+  // pokazywała zaszytą na sztywno wartość "13,8" - teraz pokazuje to realne pole.
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN respiratory_rate REAL DEFAULT NULL");
+  } catch (e) {}
+
+  // Migracja: dobowe SpO2 z Oury (endpoint /v2/usercollection/daily_spo2, NOWE
+  // zapytanie w sync.js - dostępne tylko dla pierścionków Gen 3, dla starszych
+  // modeli pole zostanie NULL). Karta "Poziom tlenu we krwi" wcześniej pokazywała
+  // zaszytą na sztywno wartość "98,4".
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN spo2_percentage REAL DEFAULT NULL");
+  } catch (e) {}
+
+  // Migracja: absolutna temperatura nadgarstka z Apple Watch (Health Auto Export,
+  // metryka "Wrist Temperature" -> name: "wrist_temperature", patrz
+  // routes/appleHealth.js). UWAGA: to jest inna wartość niż Oura
+  // `temperature_deviation` (odchylenie od bazowej, nie wartość absolutna) -
+  // dostępna tylko z Apple Watch Series 8+/Ultra i tylko jeśli użytkownik włączy tę
+  // metrykę w automatyzacji Health Auto Export na telefonie. Karta "Temperatura
+  // nadgarstka" wcześniej pokazywała zaszytą na sztywno wartość "35,4".
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN wrist_temperature REAL DEFAULT NULL");
+  } catch (e) {}
+
   // Domyślny cel wody (ml) dla istniejącego konta admina/Marcina, jeśli jeszcze nie ustawiony
   await run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (1, 'target_water_ml', '2500')`);
 
@@ -400,6 +427,16 @@ const initDb = async () => {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
+
+  // Migracja: typ treningu (np. "Running", "Functional Strength Training" - pole
+  // `name` z payloadu Health Auto Export, patrz routes/appleHealth.js). Dodane po
+  // tym, jak audyt funkcjonalny wykazał, że /api/dashboard zawsze zwracał pustą
+  // listę `workouts: []` na sztywno, mimo że ta tabela faktycznie zbiera treningi -
+  // bez typu treningu sekcja "Ostatnia aktywność" na Dashboardzie nie mogłaby
+  // pokazać sensownej ikony/etykiety (getWorkoutIcon/typ w Dashboard.jsx).
+  try {
+    await run("ALTER TABLE apple_health_workouts ADD COLUMN workout_type TEXT DEFAULT NULL");
+  } catch (e) {}
 
   // 8. Tabela Pomiarów Obwodów Ciała (body_measurements)
   await run(`

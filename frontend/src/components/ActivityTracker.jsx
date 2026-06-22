@@ -166,10 +166,14 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
         }
       });
       if (res.ok) {
+        setMeasurementMessage({ type: '', text: '' });
         fetchMeasurements();
+      } else {
+        setMeasurementMessage({ type: 'error', text: 'Nie udało się usunąć pomiaru.' });
       }
     } catch (err) {
       console.error('Błąd usuwania pomiaru:', err);
+      setMeasurementMessage({ type: 'error', text: 'Błąd połączenia z serwerem.' });
     }
   };
 
@@ -389,7 +393,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' }}>
                 <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', display: 'block' }}>Gotowość (Readiness)</span>
                   <strong style={{ fontSize: '1.4rem', color: '#c084fc' }}>
@@ -677,7 +681,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '10px' }}>
               <div className="input-group" style={{ marginBottom: 0 }}>
                 <label className="input-label" style={{ fontSize: '0.75rem' }}>Klatka (cm)</label>
                 <input
@@ -719,7 +723,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px', alignItems: 'flex-end' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2fr)', gap: '12px', alignItems: 'flex-end' }}>
               <div className="input-group" style={{ marginBottom: 0 }}>
                 <label className="input-label" style={{ fontSize: '0.75rem' }}>Udo (cm)</label>
                 <input

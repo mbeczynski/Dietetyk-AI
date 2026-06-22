@@ -14,7 +14,20 @@ async function requireAuth(req, res, next) {
     req.path === '/auth/withings/callback' ||
     req.path === '/auth/google-fit/callback' ||
     req.path === '/auth/google' ||
-    req.path === '/auth/google/callback'
+    req.path === '/auth/google/callback' ||
+    // Trasy INICJUJĄCE połączenie z Oura/Withings/Google Fit oraz linkowanie konta
+    // Google (frontend wywołuje je przez window.location.href, bo tylko nawigacja
+    // najwyższego poziomu może przekierować przeglądarkę do ekranu zgody dostawcy
+    // OAuth - fetch() z nagłówkiem Authorization nie da takiego przekierowania).
+    // Token trafia więc do nich przez ?token= w query, NIE przez nagłówek Bearer.
+    // Każda z tych 4 tras sama waliduje req.query.token względem tabeli sessions
+    // (patrz routes/integrations.js i routes/auth.js) - nie korzystają z req.user,
+    // więc wymaganie tu nagłówka Authorization tylko je blokowało (regresja
+    // wprowadzona razem z usunięciem ogólnego fallbacku query.token powyżej).
+    req.path === '/auth/oura' ||
+    req.path === '/auth/withings' ||
+    req.path === '/auth/google-fit' ||
+    req.path === '/auth/google/link'
   ) {
     return next();
   }

@@ -341,6 +341,42 @@ router.get('/api/dashboard', async (req, res) => {
         // Imię (jeśli ustawione w Ustawieniach) ma priorytet nad loginem technicznym -
         // o to prosił użytkownik: AI ma się zwracać po imieniu, nie po nazwie konta.
         const displayName = req.user.first_name || req.user.username;
+
+        // Pomiary i posiłki z wczoraj do kontekstu porównawczego dla AI
+        const yesterdayDate = shiftDate(date, -1);
+        const yesterdayMealRows = await db.all(
+          `SELECT calories, protein, carbs, fat, raw_text FROM meals WHERE user_id = ? AND date = ?`,
+          [req.user.id, yesterdayDate]
+        );
+        let yesterdayTotalEaten = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+        yesterdayMealRows.forEach(r => {
+          yesterdayTotalEaten.calories += r.calories || 0;
+          yesterdayTotalEaten.protein += r.protein || 0;
+          yesterdayTotalEaten.carbs += r.carbs || 0;
+          yesterdayTotalEaten.fat += r.fat || 0;
+        });
+        yesterdayTotalEaten.protein = Math.round(yesterdayTotalEaten.protein * 10) / 10;
+        yesterdayTotalEaten.carbs = Math.round(yesterdayTotalEaten.carbs * 10) / 10;
+        yesterdayTotalEaten.fat = Math.round(yesterdayTotalEaten.fat * 10) / 10;
+
+        const yesterdayHealth = await db.get(
+          `SELECT active_calories, steps FROM health_metrics WHERE user_id = ? AND date = ?`,
+          [req.user.id, yesterdayDate]
+        ) || { active_calories: 0, steps: 0 };
+
+        // Pobranie trendów historycznych z bazy danych dla AI
+        const last7DaysNutrition = await aggregateNutrition(req.user.id, shiftDate(date, -7), shiftDate(date, -1));
+        const last30DaysNutrition = await aggregateNutrition(req.user.id, shiftDate(date, -30), shiftDate(date, -1));
+        
+        const weightHistory = await db.all(
+          `SELECT date, weight, fat_ratio, muscle_mass FROM health_metrics WHERE user_id = ? AND weight IS NOT NULL ORDER BY date DESC LIMIT 7`,
+          [req.user.id]
+        );
+        const sleepHistory = await db.all(
+          `SELECT date, sleep_score, readiness_score FROM health_metrics WHERE user_id = ? AND (sleep_score IS NOT NULL OR readiness_score IS NOT NULL) ORDER BY date DESC LIMIT 7`,
+          [req.user.id]
+        );
+
         const advicePrompt = `
 Jesteś profesjonalnym, przyjaznym dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
 Przeanalizuj dzisiejszy bilans użytkownika ${displayName} dla dnia ${date}:
@@ -366,10 +402,27 @@ Dane gotowości, snu (Oura) i składu ciała (Withings):
 Lista dzisiejszych posiłków:
 ${meals.map(m => `- ${m.raw_text} (${m.calories} kcal, B:${m.protein}g, W:${m.carbs}g, T:${m.fat}g)`).join('\n') || 'Brak wprowadzonych posiłków'}
 
+Dla kontekstu historycznego, oto dane z wczoraj (${yesterdayDate}):
+- Łącznie zjedzone wczoraj: ${yesterdayTotalEaten.calories} kcal (Białko: ${yesterdayTotalEaten.protein}g, Węgle: ${yesterdayTotalEaten.carbs}g, Tłuszcz: ${yesterdayTotalEaten.fat}g)
+- Aktywne kalorie spalone wczoraj: ${yesterdayHealth.active_calories || 0} kcal
+- Wykonane kroki wczoraj: ${yesterdayHealth.steps || 0}
+- Lista wczorajszych posiłków:
+${yesterdayMealRows.map(m => `- ${m.raw_text} (${m.calories} kcal, B:${m.protein}g, W:${m.carbs}g, T:${m.fat}g)`).join('\n') || 'Brak posiłków wczoraj'}
+
+Trendy i historia z bazy danych użytkownika:
+- Średnie odżywianie z ostatnich 7 dni: ${last7DaysNutrition.avg ? `${last7DaysNutrition.avg.calories} kcal (B: ${last7DaysNutrition.avg.protein}g, W: ${last7DaysNutrition.avg.carbs}g, T: ${last7DaysNutrition.avg.fat}g) na ${last7DaysNutrition.days_logged} dni logowania` : 'brak danych'}
+- Średnie odżywianie z ostatnich 30 dni: ${last30DaysNutrition.avg ? `${last30DaysNutrition.avg.calories} kcal (B: ${last30DaysNutrition.avg.protein}g, W: ${last30DaysNutrition.avg.carbs}g, T: ${last30DaysNutrition.avg.fat}g) na ${last30DaysNutrition.days_logged} dni logowania` : 'brak danych'}
+- Historia pomiarów wagi i składu ciała (ostatnie wpisy):
+${weightHistory.map(w => `- ${w.date}: ${w.weight} kg (tłuszcz: ${w.fat_ratio || '-'}%, mięśnie: ${w.muscle_mass || '-'} kg)`).join('\n') || 'brak danych w bazie'}
+- Ostatnia jakość snu i gotowości Oura:
+${sleepHistory.map(s => `- ${s.date}: Sen ${s.sleep_score || '-'}, Gotowość ${s.readiness_score || '-'}`).join('\n') || 'brak danych w bazie'}
+
 Napisz krótką, spersonalizowaną poradę dietetyczno-treningową (maksymalnie 4-5 zdań). Skup się na:
 1. Analizie intensywności wysiłku i stref kardio po treningu na bazie aktywnych kalorii oraz parametrów serca (RHR, HRV) - oceń, czy trening sprzyjał tlenowemu spalaniu tłuszczu (strefa spalania tłuszczu, niska intensywność) czy wszedł w wyższe strefy beztlenowe/kardio.
 2. Sugerowaniu precyzyjnych zmian w diecie na bazie dzisiejszych posiłków i treningu (np. zalecenie dorzucenia większej ilości białka w celu wsparcia regeneracji włókien mięśniowych po ciężkim wysiłku beztlenowym lub redukcji węglowodanów w dni o niskim wysiłku aerobowym).
-3. Uwzględnieniu gotowości Oura i trendów wagi/mięśni/tłuszczu z Withings.
+3. Porównaniu dzisiejszego odżywiania i aktywności z wczorajszymi. Jeśli wczorajsza dieta nie była optymalna (np. za mało białka w stosunku do celu, zbyt mało kcal po dużym treningu lub nadmiar kalorii przy braku ruchu), wskaż to konstruktywnie użytkownikowi i doradź korektę (np. "Twoje wczorajsze posiłki nie dostarczyły wystarczającej ilości białka, dlatego dzisiaj upewnij się, że dodasz do menu chudy twaróg lub odżywkę...").
+4. Udostępnieniu wniosków z trendu wagi i składu ciała z ostatnich pomiarów Withings oraz jakości snu i regeneracji z Oura (zwróć uwagę, czy obecny trend przybliża użytkownika do celu w dłuższej perspektywie 7/30 dni).
+
 Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego po imieniu (${displayName}) co najmniej raz. Bądź konkretny, motywujący i merytoryczny.
 `;
 

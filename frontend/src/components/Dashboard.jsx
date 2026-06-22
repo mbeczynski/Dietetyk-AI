@@ -312,6 +312,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const fatRatio = summary.fat_ratio ?? 0;
   const muscleMass = summary.muscle_mass ?? 0;
 
+  // BMI - liczone wyłącznie z realnego wzrostu użytkownika (Ustawienia -> Wzrost).
+  // Brak fałszywego domyślnego wzrostu 1.80m i brak fałszywego fallbacku "24.5".
+  // Gdy nie ma wagi lub wzrostu, BMI po prostu nie jest pokazywane.
+  const heightCm = summary.height_cm ?? null;
+  const bmiValue = (weight > 0 && heightCm)
+    ? Math.round((weight / ((heightCm / 100) * (heightCm / 100))) * 10) / 10
+    : null;
+  const bmiCategory = bmiValue === null
+    ? null
+    : bmiValue < 18.5 ? 'Niedowaga'
+    : bmiValue < 25 ? 'W normie'
+    : bmiValue < 30 ? 'Nadwaga'
+    : 'Otyłość';
+
   // Kalkulacja stref tętna (Karvonen) na bazie RHR z Oura
   const userMaxHr = 190; // Domyślny Max HR (odpowiednik wieku ~30 lat)
   const hrReserve = userMaxHr - rhr;
@@ -347,8 +361,37 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   // Aktualne obciążenie na suwaku (np. wysiłek)
   const currentLoadPos = Math.max(Math.min(effortScore, 100), 5); // min 5% dla widoczności suwaka
   
-  // Bateria body battery
-  const batteryPct = Math.round(Math.min(Math.max(readinessScore + 18, 50), 99));
+  // Bateria energii - realny algorytm, bez sztucznych przesunięć.
+  // Punkt startowy: readinessScore (realny wynik regeneracji z Oura/Apple Health).
+  // Rozładowanie: proporcjonalne do dzisiejszych aktywnych kalorii względem celu
+  // aktywności użytkownika (im więcej wysiłku względem celu, tym większy spadek -
+  // analogicznie do "Body Battery" w urządzeniach typu Garmin, ale z realnych danych).
+  // Brak readinessScore (brak synchronizacji urządzenia) = brak baterii, nie zgadujemy.
+  const targetActiveCaloriesForBattery = summary.target_active_calories || 500;
+  const batteryDepletion = readinessScore > 0
+    ? Math.round(Math.min(activeCalories / targetActiveCaloriesForBattery, 1) * 20)
+    : 0;
+  const batteryPct = readinessScore > 0
+    ? Math.max(Math.min(readinessScore - batteryDepletion, 100), 0)
+    : null;
+
+  // Porównanie z wczorajszym dniem - liczone z realnej historii (historyData),
+  // tym samym algorytmem co dzisiejsza bateria. Brak danych za wczoraj = brak etykiety.
+  const sortedHistoryForBattery = [...historyData].sort((a, b) => a.date.localeCompare(b.date));
+  const todayHistoryIdx = selectedDate
+    ? sortedHistoryForBattery.findIndex(d => d.date === selectedDate)
+    : -1;
+  const yesterdayHistoryRow = todayHistoryIdx > 0 ? sortedHistoryForBattery[todayHistoryIdx - 1] : null;
+  let yesterdayBatteryPct = null;
+  if (yesterdayHistoryRow && yesterdayHistoryRow.readiness_score > 0) {
+    const yReadiness = yesterdayHistoryRow.readiness_score;
+    const yActiveCalories = yesterdayHistoryRow.active_calories || 0;
+    const yDepletion = Math.round(Math.min(yActiveCalories / targetActiveCaloriesForBattery, 1) * 20);
+    yesterdayBatteryPct = Math.max(Math.min(yReadiness - yDepletion, 100), 0);
+  }
+  const batteryDelta = (batteryPct !== null && yesterdayBatteryPct !== null)
+    ? batteryPct - yesterdayBatteryPct
+    : null;
   
   // Lista ostatnich aktywności - tylko rzeczywiste treningi z bazy.
   // Gdy brak treningów, lista jest pusta (patrz pusty stan w renderze).
@@ -776,10 +819,16 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>
-              <span>Szacowany wskaźnik BMI</span>
-              <span style={{ color: '#34d399', fontWeight: '600' }}>
-                {weight ? (Math.round((weight / (1.80 * 1.80)) * 10) / 10) : 24.5} (W normie)
-              </span>
+              <span>Wskaźnik BMI</span>
+              {bmiValue !== null ? (
+                <span style={{ color: '#34d399', fontWeight: '600' }}>
+                  {bmiValue} ({bmiCategory})
+                </span>
+              ) : (
+                <span style={{ color: 'rgba(255,255,255,0.3)', fontWeight: '500' }}>
+                  Brak danych (ustaw wzrost w Ustawieniach)
+                </span>
+              )}
             </div>
           </div>
           {renderWeightCompositionChart(historyData)}
@@ -848,24 +897,35 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <span className="premium-title-info">ⓘ</span>
           </div>
           
-          {/* Battery segments */}
+          {/* Battery segments - realny algorytm (readinessScore - rozładowanie aktywnością) */}
           <div className="energy-battery-row">
             <span style={{ fontSize: '1rem' }}>🔋</span>
             <div className="energy-battery-container">
               {Array.from({ length: 28 }).map((_, idx) => {
-                const filledSegmentsCount = Math.round((batteryPct / 100) * 28);
+                const filledSegmentsCount = batteryPct !== null ? Math.round((batteryPct / 100) * 28) : 0;
                 const isFilled = idx < filledSegmentsCount;
                 return (
-                  <div 
-                    key={idx} 
+                  <div
+                    key={idx}
                     className={`energy-battery-segment ${isFilled ? 'filled' : ''}`}
                   ></div>
                 );
               })}
             </div>
-            <span className="energy-battery-pct">{batteryPct}%</span>
-            <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: '700' }}>+{batteryPct - 33}%</span>
-            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)' }}>| 0%</span>
+            {batteryPct !== null ? (
+              <>
+                <span className="energy-battery-pct">{batteryPct}%</span>
+                {batteryDelta !== null ? (
+                  <span style={{ fontSize: '0.75rem', color: batteryDelta >= 0 ? '#10b981' : '#f87171', fontWeight: '700' }}>
+                    {batteryDelta >= 0 ? '+' : ''}{batteryDelta}% vs wczoraj
+                  </span>
+                ) : (
+                  <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)' }}>Brak danych z wczoraj</span>
+                )}
+              </>
+            ) : (
+              <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)' }}>Brak danych (czekam na synchronizację)</span>
+            )}
           </div>
           {/* Sekcja poziomu stresu została usunięta - dane (wynik stresu, wykres
               z ostatnich godzin) nie były nigdzie zbierane przez backend i były

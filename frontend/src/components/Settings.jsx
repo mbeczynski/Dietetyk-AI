@@ -8,6 +8,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     target_fat: 80,
     bmr: 1800,
     target_water_ml: 2500,
+    height_cm: '',
     oura_client_id: '',
     oura_client_secret: '',
     withings_client_id: '',
@@ -207,7 +208,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    const numericFields = ['target_calories', 'target_protein', 'target_carbs', 'target_fat', 'bmr', 'target_water_ml'];
+    const numericFields = ['target_calories', 'target_protein', 'target_carbs', 'target_fat', 'bmr', 'target_water_ml', 'height_cm'];
     setSettings(prev => ({
       ...prev,
       [name]: numericFields.includes(name) ? Number(value) : value
@@ -773,10 +774,27 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 required
               />
             </div>
+
+            <div className="input-group">
+              <label className="input-label">Wzrost (cm)**</label>
+              <input
+                type="number"
+                name="height_cm"
+                className="input-field"
+                value={settings.height_cm}
+                onChange={handleInputChange}
+                min="0"
+                placeholder="np. 178"
+                title="Potrzebny do wyliczenia rzeczywistego BMI na Pulpicie."
+              />
+            </div>
           </div>
-          
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '16px' }}>
+
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
             * BMR (Podstawowa przemiana materii) służy do wyliczania całkowitego dziennego spalania: Całkowite spalanie = BMR + Aktywne kalorie ze zintegrowanych sensorów.
+          </p>
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '16px' }}>
+            ** Wzrost jest opcjonalny, ale bez niego BMI na Pulpicie nie będzie wyliczane (nie zgadujemy go za Ciebie).
           </p>
 
           <button type="submit" className="btn-primary" disabled={isSaving}>

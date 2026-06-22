@@ -265,6 +265,7 @@ Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego p
         target_sleep_duration: isNaN(settings.target_sleep_duration) || !settings.target_sleep_duration ? 7.2 : settings.target_sleep_duration,
         target_active_minutes: isNaN(settings.target_active_minutes) || !settings.target_active_minutes ? 30 : settings.target_active_minutes,
         target_water_ml: isNaN(settings.target_water_ml) || !settings.target_water_ml ? 2500 : settings.target_water_ml,
+        height_cm: isNaN(settings.height_cm) || !settings.height_cm || settings.height_cm <= 0 ? null : settings.height_cm,
         bmr,
         calories_eaten: totalEaten.calories,
         calories_burned_active: activeCalories,

@@ -69,6 +69,7 @@ const getWorkoutIcon = (type) => {
   if (t.includes('strength') || t.includes('siłownia') || t.includes('ciężar')) return '🏋️';
   if (t.includes('cardio') || t.includes('aerob')) return '⚡';
   if (t.includes('yoga') || t.includes('joga')) return '🧘';
+  if (t.includes('box') || t.includes('boks') || t.includes('walka')) return '🥊';
   return '💪';
 };
 

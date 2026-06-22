@@ -82,4 +82,121 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
       }
     }
   });
+
+  test('Obsługa treningów Apple Health (Dynamiczne rozciąganie, filtrowanie i ikona bokserska)', async ({ page, request }) => {
+    // 1. Połącz się z bazą danych, aby wyciągnąć sync_token użytkownika admin
+    const sqlite3 = require('../backend/node_modules/sqlite3').verbose();
+    const path = require('path');
+    const dbPath = path.join(__dirname, '../backend/dietetyk.db');
+    const db = new sqlite3.Database(dbPath);
+    
+    const getSyncToken = () => {
+      return new Promise((resolve, reject) => {
+        db.get("SELECT sync_token FROM users WHERE username = 'admin'", (err, row) => {
+          if (err) reject(err);
+          else resolve(row ? row.sync_token : null);
+        });
+      });
+    };
+    
+    const syncToken = await getSyncToken();
+    expect(syncToken).not.toBeNull();
+    db.close();
+
+    // 2. Dodaj dwa treningi (Boks i Bieg) na dzisiejszy dzień przez webhook Apple Health
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${d}`;
+    
+    // Wczorajsza data do testu filtrowania
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    const yY = yesterday.getFullYear();
+    const yM = String(yesterday.getMonth() + 1).padStart(2, '0');
+    const yD = String(yesterday.getDate()).padStart(2, '0');
+    const yesterdayDateStr = `${yY}-${yM}-${yD}`;
+    
+    const startStrBox = `${dateStr} 10:00:00 +0200`;
+    const startStrRun = `${dateStr} 15:30:00 +0200`;
+
+    // Wyślij żądanie POST pod webhook synchronizacji Apple Health
+    const response = await request.post(`/api/integrations/apple-health/${syncToken}`, {
+      data: {
+        data: {
+          workouts: [
+            {
+              id: 'playwright-test-box-1',
+              name: 'Box',
+              start: startStrBox,
+              end: `${dateStr} 11:00:00 +0200`,
+              duration: 3600, // 60 minut
+              activeEnergyBurned: {
+                qty: 650,
+                units: 'kcal'
+              }
+            },
+            {
+              id: 'playwright-test-run-1',
+              name: 'Running',
+              start: startStrRun,
+              end: `${dateStr} 16:00:00 +0200`,
+              duration: 1800, // 30 minut
+              activeEnergyBurned: {
+                qty: 400,
+                units: 'kcal'
+              }
+            }
+          ]
+        }
+      }
+    });
+
+    expect(response.ok()).toBe(true);
+    const responseJson = await response.json();
+    expect(responseJson.status).toBe('ok');
+
+    // 3. Przeładuj stronę i upewnij się, że jesteśmy zalogowani
+    await page.goto('/');
+    await expect(page.locator('.logo-text')).toContainText('Dietetyk AI');
+
+    // Znajdź sekcję "Trening"
+    const trainingCard = page.locator('.premium-card:has-text("Trening ⓘ")');
+    await expect(trainingCard).toBeVisible();
+
+    // Sprawdź czy oba treningi są wyświetlone
+    const workoutsList = trainingCard.locator('.premium-workout-card');
+    await expect(workoutsList).toHaveCount(2);
+
+    // Box -> 60 min, 650 kcal, ikona 🥊
+    const boxCard = trainingCard.locator('.premium-workout-card:has-text("Box")');
+    await expect(boxCard).toBeVisible();
+    await expect(boxCard.locator('.premium-workout-icon-box')).toContainText('🥊');
+    await expect(boxCard).toContainText('60 min');
+    await expect(boxCard).toContainText('650 kcal');
+
+    // Running -> 30 min, 400 kcal, ikona 🏃
+    const runCard = trainingCard.locator('.premium-workout-card:has-text("Running")');
+    await expect(runCard).toBeVisible();
+    await expect(runCard.locator('.premium-workout-icon-box')).toContainText('🏃');
+    await expect(runCard).toContainText('30 min');
+    await expect(runCard).toContainText('400 kcal');
+
+    // 4. Zweryfikuj filtrowanie daty: przełącz na wczorajszą datę i upewnij się, że te treningi NIE są tam wyświetlane.
+    const dateInput = page.locator('.date-input');
+    await dateInput.fill(yesterdayDateStr);
+    await page.waitForTimeout(500); // krótka pauza na aktualizację stanu bazy
+
+    const yesterdayBox = trainingCard.locator('.premium-workout-card:has-text("Box")');
+    await expect(yesterdayBox).not.toBeVisible();
+    
+    const yesterdayRun = trainingCard.locator('.premium-workout-card:has-text("Running")');
+    await expect(yesterdayRun).not.toBeVisible();
+
+    // Przywróć dzisiejszą datę
+    await dateInput.fill(dateStr);
+    await page.waitForTimeout(500);
+  });
 });
+

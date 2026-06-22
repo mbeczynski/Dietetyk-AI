@@ -226,6 +226,26 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
                     </span>
                   </div>
 
+                  {(meal.fiber != null || meal.sugar != null || meal.sodium != null) && (
+                    <div className="meal-nutrition-chips" style={{ marginTop: '-4px' }}>
+                      {meal.fiber != null && (
+                        <span className="nutrition-chip" style={{ background: 'rgba(132, 204, 22, 0.12)', color: '#84cc16' }}>
+                          Błonnik: {Math.round(meal.fiber * 10) / 10}g
+                        </span>
+                      )}
+                      {meal.sugar != null && (
+                        <span className="nutrition-chip" style={{ background: 'rgba(244, 114, 182, 0.12)', color: '#f472b6' }}>
+                          Cukry: {Math.round(meal.sugar * 10) / 10}g
+                        </span>
+                      )}
+                      {meal.sodium != null && (
+                        <span className="nutrition-chip" style={{ background: 'rgba(96, 165, 250, 0.12)', color: '#60a5fa' }}>
+                          Sód: {Math.round(meal.sodium)}mg
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {meal.dietician_comment && (
                     <p className="meal-comment">
                       <strong>Dietetyk AI:</strong> {meal.dietician_comment}

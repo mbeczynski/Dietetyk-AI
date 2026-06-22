@@ -62,6 +62,9 @@ Struktura JSON:
       "protein": (liczba - gramy białka),
       "carbs": (liczba - gramy węglowodanów),
       "fat": (liczba - gramy tłuszczu),
+      "fiber": (liczba - gramy błonnika, szacunkowo na podstawie składników posiłku),
+      "sugar": (liczba - gramy cukrów prostych, szacunkowo na podstawie składników posiłku),
+      "sodium": (liczba - miligramy sodu, szacunkowo na podstawie składników posiłku),
       "food_items": [
         {
           "name": "nazwa zidentyfikowanego składnika (np. jajko sadzone, ziemniaki gotowane, pierś z kurczaka)",
@@ -91,6 +94,9 @@ Struktura JSON:
   "protein": (liczba - gramy białka),
   "carbs": (liczba - gramy węglowodanów),
   "fat": (liczba - gramy tłuszczu),
+  "fiber": (liczba - gramy błonnika, szacunkowo na podstawie składników posiłku),
+  "sugar": (liczba - gramy cukrów prostych, szacunkowo na podstawie składników posiłku),
+  "sodium": (liczba - miligramy sodu, szacunkowo na podstawie składników posiłku),
   "food_items": [
     {
       "name": "nazwa składnika (np. jajko, chleb pszenny)",
@@ -143,10 +149,11 @@ Struktura JSON:
     for (const m of mealsToInsert) {
       const mealDescription = (imagePart ? (m.name || rawText || 'Posiłek ze zdjęcia') : (m.name || rawText));
 
-      // Zapisz posiłek w bazie
+      // Zapisz posiłek w bazie (błonnik/cukry/sód jako NULL, jeśli AI ich nie
+      // oszacowało - bez fabrykowania zer, zgodnie z ustaloną zasadą projektu)
       const result = await db.run(`
-        INSERT INTO meals (user_id, date, raw_text, calories, protein, carbs, fat, analysis_json, image_base64)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO meals (user_id, date, raw_text, calories, protein, carbs, fat, fiber, sugar, sodium, analysis_json, image_base64)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         req.user.id,
         targetDate,
@@ -155,6 +162,9 @@ Struktura JSON:
         m.protein || 0,
         m.carbs || 0,
         m.fat || 0,
+        m.fiber !== undefined && m.fiber !== null ? m.fiber : null,
+        m.sugar !== undefined && m.sugar !== null ? m.sugar : null,
+        m.sodium !== undefined && m.sodium !== null ? m.sodium : null,
         JSON.stringify(m),
         image || null
       ]);

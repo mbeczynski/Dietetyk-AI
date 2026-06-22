@@ -370,9 +370,139 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
     );
   };
 
+  // Wykres wielu serii na jednej, wspólnej osi Y (np. fazy snu w godzinach) -
+  // analogiczny do renderLineChart/renderDualAxisChart powyżej, ale dla N serii
+  // współdzielących skalę, więc nie ma sensu osobna skala per seria.
+  const renderMultiLineChart = (data, series) => {
+    const validData = data.filter(d => series.some(s => d[s.key] !== null && d[s.key] !== undefined));
+    if (validData.length === 0) {
+      return (
+        <div style={{ height: '180px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
+          Brak danych historycznych do wyrenderowania wykresu.
+        </div>
+      );
+    }
+
+    const width = 500;
+    const height = 180;
+    const padding = 35;
+
+    const allValues = [];
+    series.forEach(s => {
+      validData.forEach(d => {
+        if (d[s.key] !== null && d[s.key] !== undefined) allValues.push(d[s.key]);
+      });
+    });
+    const sharedMin = allValues.length ? Math.max(0, Math.min(...allValues) - 0.3) : 0;
+    const sharedMax = allValues.length ? Math.max(...allValues) + 0.3 : 1;
+
+    const seriesPoints = series.map(s => {
+      const seriesData = validData.filter(d => d[s.key] !== null && d[s.key] !== undefined);
+      const points = seriesData.map((d, index) => {
+        const x = padding + (seriesData.length > 1 ? (index / (seriesData.length - 1)) * (width - 2 * padding) : (width - 2 * padding) / 2);
+        const y = height - padding - ((d[s.key] - sharedMin) / (sharedMax - sharedMin || 1)) * (height - 2 * padding);
+        return { x, y, val: d[s.key] };
+      });
+      const dPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+      return { ...s, points, dPath };
+    });
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', fontSize: '0.78rem', marginBottom: '8px', flexWrap: 'wrap' }}>
+          {series.map(s => (
+            <span key={s.key} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '12px', height: '3px', background: s.color, borderRadius: '2px', display: 'inline-block' }}></span>
+              <span style={{ color: 'var(--text-muted)' }}>{s.label}</span>
+            </span>
+          ))}
+        </div>
+        <svg width="100%" height="180" viewBox={`0 0 ${width} ${height}`} style={{ overflow: 'visible' }}>
+          <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke="rgba(255,255,255,0.03)" />
+          <line x1={padding} y1={(height) / 2} x2={width - padding} y2={(height) / 2} stroke="rgba(255,255,255,0.03)" />
+          <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="rgba(255,255,255,0.08)" />
+
+          <text x={padding - 8} y={padding + 4} fill="var(--text-dim)" fontSize="9" textAnchor="end">{sharedMax.toFixed(1)}h</text>
+          <text x={padding - 8} y={height - padding + 4} fill="var(--text-dim)" fontSize="9" textAnchor="end">{sharedMin.toFixed(1)}h</text>
+
+          {seriesPoints.map(s => (
+            <path key={`path-${s.key}`} d={s.dPath} fill="none" stroke={s.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          ))}
+          {seriesPoints.map(s => s.points.map((p, i) => (
+            <circle key={`${s.key}-${i}`} cx={p.x} cy={p.y} r="3" fill={s.color} stroke="#0f111a" strokeWidth="1.5" />
+          )))}
+
+          {validData.filter((_, i) => i === 0 || i === validData.length - 1 || (validData.length > 5 && i === Math.floor(validData.length / 2))).map((p, i) => {
+            const x = padding + (validData.indexOf(p) / (validData.length - 1 || 1)) * (width - 2 * padding);
+            return (
+              <text key={`x-${i}`} x={x} y={height - 10} fill="var(--text-dim)" fontSize="9" textAnchor="middle">
+                {p.date.slice(5)}
+              </text>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  };
+
+  // Prognoza trendu wagi na podstawie regresji liniowej z danych historycznych
+  const computeWeightForecast = (data, daysAhead) => {
+    const validData = data
+      .filter(d => d.weight !== null && d.weight !== undefined && d.date)
+      .map(d => ({ date: d.date, weight: d.weight }))
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+    if (validData.length < 5) return null;
+
+    // Dzień 0 = data pierwszego pomiaru, oś X w dniach
+    const baseTime = new Date(validData[0].date).getTime();
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const points = validData.map(d => ({
+      x: (new Date(d.date).getTime() - baseTime) / msPerDay,
+      y: d.weight
+    }));
+
+    const n = points.length;
+    const sumX = points.reduce((s, p) => s + p.x, 0);
+    const sumY = points.reduce((s, p) => s + p.y, 0);
+    const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
+    const sumXX = points.reduce((s, p) => s + p.x * p.x, 0);
+    const denominator = n * sumXX - sumX * sumX;
+    if (denominator === 0) return null;
+
+    const slope = (n * sumXY - sumX * sumY) / denominator;
+    const intercept = (sumY - slope * sumX) / n;
+
+    const lastX = points[points.length - 1].x;
+    const forecastX = lastX + daysAhead;
+    const forecastWeight = slope * forecastX + intercept;
+    const currentWeight = validData[validData.length - 1].weight;
+    const deltaPerWeek = slope * 7;
+
+    return {
+      forecastWeight: Math.round(forecastWeight * 10) / 10,
+      currentWeight,
+      deltaPerWeek: Math.round(deltaPerWeek * 100) / 100,
+      daysAhead
+    };
+  };
+
+  const weightForecast = computeWeightForecast(historyData, 30);
+
+  // Fazy snu w czasie - "lekki sen" nie jest zapisywany jako osobna kolumna,
+  // wyliczamy go z realnych danych (całkowity czas snu minus głęboki i REM)
+  // zamiast fabrykować wartość - jeśli któregoś ze składników brakuje, light
+  // pozostaje null i po prostu nie rysujemy go dla tego dnia.
+  const sleepPhaseData = historyData.map(d => {
+    const hasAllPhases = d.sleep_duration != null && d.sleep_deep != null && d.sleep_rem != null;
+    const light = hasAllPhases ? Math.max(0, d.sleep_duration - d.sleep_deep - d.sleep_rem) : null;
+    return { ...d, sleep_light: light };
+  });
+  const hasSleepPhaseData = sleepPhaseData.some(d => d.sleep_deep != null || d.sleep_rem != null);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      
+
       {/* 1. Kafelki wskaźników z sensorów (Gotowość, Sen, Skład Ciała) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
         
@@ -623,6 +753,24 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
           ) : (
             renderDualAxisChart(historyData, 'weight', 'fat_ratio', '#38bdf8', '#fbbf24', 'Waga ciała', 'Tkanka tłuszczowa')
           )}
+          {!isLoadingHistory && weightForecast && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '14px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                📐 Prognoza (regresja liniowa) na {weightForecast.daysAhead} dni:
+              </span>
+              <span style={{ fontSize: '0.85rem', fontWeight: '700', color: weightForecast.deltaPerWeek < 0 ? '#34d399' : weightForecast.deltaPerWeek > 0 ? '#f87171' : '#fff' }}>
+                ~{weightForecast.forecastWeight} kg
+                <span style={{ fontSize: '0.7rem', fontWeight: '500', color: 'var(--text-dim)', marginLeft: '6px' }}>
+                  ({weightForecast.deltaPerWeek > 0 ? '+' : ''}{weightForecast.deltaPerWeek} kg/tydz.)
+                </span>
+              </span>
+            </div>
+          )}
+          {!isLoadingHistory && !weightForecast && historyData.length > 0 && (
+            <p style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', textAlign: 'center' }}>
+              Za mało danych do prognozy trendu wagi (min. 5 pomiarów).
+            </p>
+          )}
         </div>
 
         {/* Wykres 2: Przyrost Mięśni (Masa mięśniowa w kg) */}
@@ -637,6 +785,29 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
             </div>
           ) : (
             renderLineChart(historyData, 'muscle_mass', '#34d399', 'Masa mięśniowa (kg)')
+          )}
+        </div>
+
+        {/* Wykres 3: Fazy Snu (Głęboki / REM / Lekki) */}
+        <div className="glass-card">
+          <h3 className="card-title" style={{ marginBottom: '4px' }}>😴 Wykres 3: Fazy Snu</h3>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginBottom: '16px' }}>
+            Trend długości faz snu w godzinach (Oura) z ostatnich 30 dni.
+          </p>
+          {isLoadingHistory ? (
+            <div style={{ height: '180px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)' }}>
+              Ładowanie wykresu...
+            </div>
+          ) : hasSleepPhaseData ? (
+            renderMultiLineChart(sleepPhaseData, [
+              { key: 'sleep_deep', color: '#7c3aed', label: 'Głęboki' },
+              { key: 'sleep_rem', color: '#38bdf8', label: 'REM' },
+              { key: 'sleep_light', color: '#fbbf24', label: 'Lekki' }
+            ])
+          ) : (
+            <div style={{ height: '180px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
+              Brak danych o fazach snu - wymaga synchronizacji z Oura.
+            </div>
           )}
         </div>
 

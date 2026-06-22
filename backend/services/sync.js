@@ -90,6 +90,19 @@ async function syncOura(userId) {
       console.warn(`[SYNC OURA] Pominięto SpO2 (Status ${spo2Res.status}) - kontynuuję bez tej metryki.`);
     }
 
+    // Realny poziom stresu (endpoint /v2/usercollection/daily_stress) - dostępny
+    // tylko dla pierścionków z tą funkcją, dla starszych modeli `data` jest puste
+    // (nie błąd 4xx). Tak jak SpO2, brak tej metryki nie przerywa synchronizacji.
+    const stressRes = await fetch(`https://api.ouraring.com/v2/usercollection/daily_stress?start_date=${startDate}&end_date=${endDate}`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    let stressData = null;
+    if (stressRes.ok) {
+      stressData = await stressRes.json();
+    } else {
+      console.warn(`[SYNC OURA] Pominięto poziom stresu (Status ${stressRes.status}) - kontynuuję bez tej metryki.`);
+    }
+
     const metricsByDate = {};
     for (let i = 0; i <= 7; i++) {
       const d = new Date();
@@ -109,7 +122,13 @@ async function syncOura(userId) {
         temperature_deviation: null,
         active_minutes: null,
         respiratory_rate: null,
-        spo2_percentage: null
+        spo2_percentage: null,
+        distance_meters: null,
+        sedentary_minutes: null,
+        low_activity_minutes: null,
+        stress_high_minutes: null,
+        stress_recovery_minutes: null,
+        stress_summary: null
       };
     }
 
@@ -158,6 +177,14 @@ async function syncOura(userId) {
           metricsByDate[dateStr].active_calories = item.active_calories || 0;
           metricsByDate[dateStr].total_calories = item.total_calories || 0;
           metricsByDate[dateStr].active_minutes = Math.round(((item.medium_activity_time || 0) + (item.high_activity_time || 0)) / 60) || 0;
+          // Dystans - Oura zwraca "ekwiwalent dystansu pieszego" w metrach (uwzględnia
+          // też inną aktywność przeliczoną na kroki/dystans, nie tylko czysty chodzony
+          // dystans GPS) - najlepsze dostępne realne pole dystansu z tego API.
+          metricsByDate[dateStr].distance_meters = item.equivalent_walking_distance || null;
+          // Rozbicie dnia wg intensywności (sekundy -> minuty) - uzupełnia istniejące
+          // active_minutes (medium+high) o resztę dnia.
+          metricsByDate[dateStr].sedentary_minutes = item.sedentary_time != null ? Math.round(item.sedentary_time / 60) : null;
+          metricsByDate[dateStr].low_activity_minutes = item.low_activity_time != null ? Math.round(item.low_activity_time / 60) : null;
         }
       });
     }
@@ -168,6 +195,17 @@ async function syncOura(userId) {
         if (metricsByDate[dateStr]) {
           metricsByDate[dateStr].readiness_score = item.score || null;
           metricsByDate[dateStr].temperature_deviation = item.temperature?.deviation || null;
+        }
+      });
+    }
+
+    if (stressData && stressData.data) {
+      stressData.data.forEach(item => {
+        const dateStr = item.day;
+        if (metricsByDate[dateStr]) {
+          metricsByDate[dateStr].stress_high_minutes = item.stress_high != null ? Math.round((item.stress_high / 60) * 10) / 10 : null;
+          metricsByDate[dateStr].stress_recovery_minutes = item.recovery_high != null ? Math.round((item.recovery_high / 60) * 10) / 10 : null;
+          metricsByDate[dateStr].stress_summary = item.day_summary || null;
         }
       });
     }
@@ -197,9 +235,11 @@ async function syncOura(userId) {
             user_id, date, steps, active_calories, total_calories_burned,
             sleep_score, sleep_duration, sleep_deep, sleep_rem,
             readiness_score, hrv, rhr, temperature_deviation, active_minutes,
-            respiratory_rate, spo2_percentage, activity_source, last_sync
+            respiratory_rate, spo2_percentage, distance_meters, sedentary_minutes,
+            low_activity_minutes, stress_high_minutes, stress_recovery_minutes,
+            stress_summary, activity_source, last_sync
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(user_id, date) DO UPDATE SET
             steps = CASE WHEN activity_source = 'apple' AND COALESCE(steps, 0) > 0 THEN steps ELSE COALESCE(excluded.steps, steps) END,
             active_calories = CASE WHEN activity_source = 'apple' AND COALESCE(active_calories, 0) > 0 THEN active_calories ELSE COALESCE(excluded.active_calories, active_calories) END,
@@ -215,6 +255,12 @@ async function syncOura(userId) {
             active_minutes = CASE WHEN activity_source = 'apple' AND COALESCE(active_minutes, 0) > 0 THEN active_minutes ELSE COALESCE(excluded.active_minutes, active_minutes) END,
             respiratory_rate = COALESCE(excluded.respiratory_rate, respiratory_rate),
             spo2_percentage = COALESCE(excluded.spo2_percentage, spo2_percentage),
+            distance_meters = CASE WHEN activity_source = 'apple' AND COALESCE(distance_meters, 0) > 0 THEN distance_meters ELSE COALESCE(excluded.distance_meters, distance_meters) END,
+            sedentary_minutes = COALESCE(excluded.sedentary_minutes, sedentary_minutes),
+            low_activity_minutes = COALESCE(excluded.low_activity_minutes, low_activity_minutes),
+            stress_high_minutes = COALESCE(excluded.stress_high_minutes, stress_high_minutes),
+            stress_recovery_minutes = COALESCE(excluded.stress_recovery_minutes, stress_recovery_minutes),
+            stress_summary = COALESCE(excluded.stress_summary, stress_summary),
             activity_source = CASE
               WHEN activity_source = 'apple' AND (
                 COALESCE(steps, 0) > 0 OR COALESCE(active_calories, 0) > 0
@@ -239,6 +285,8 @@ async function syncOura(userId) {
           // prawdziwą wartość minut aktywności z poprzedniej synchronizacji.
           metrics.active_minutes,
           metrics.respiratory_rate, metrics.spo2_percentage,
+          metrics.distance_meters, metrics.sedentary_minutes, metrics.low_activity_minutes,
+          metrics.stress_high_minutes, metrics.stress_recovery_minutes, metrics.stress_summary,
           activitySource,
           lastSyncTime
         ]);
@@ -352,7 +400,8 @@ async function syncGoogleFit(userId) {
       body: JSON.stringify({
         aggregateBy: [
           { dataTypeName: 'com.google.step_count.delta' },
-          { dataTypeName: 'com.google.calories.expended' }
+          { dataTypeName: 'com.google.calories.expended' },
+          { dataTypeName: 'com.google.distance.delta' }
         ],
         bucketByTime: { durationMillis: 86400000 },
         startTimeMillis: String(startTimeMillis),
@@ -378,6 +427,7 @@ async function syncGoogleFit(userId) {
 
       let steps = 0;
       let calories = 0;
+      let distance = 0;
       (bucket.dataset || []).forEach(ds => {
         (ds.point || []).forEach(point => {
           const val = point.value && point.value[0];
@@ -386,26 +436,30 @@ async function syncGoogleFit(userId) {
             steps += val.intVal || 0;
           } else if (ds.dataSourceId && ds.dataSourceId.includes('calories')) {
             calories += val.fpVal || 0;
+          } else if (ds.dataSourceId && ds.dataSourceId.includes('distance')) {
+            distance += val.fpVal || 0;
           }
         });
       });
       calories = Math.round(calories);
+      distance = Math.round(distance);
 
-      if (steps > 0 || calories > 0) {
+      if (steps > 0 || calories > 0 || distance > 0) {
         // Ten sam wzorzec ochrony kolumn co w syncOura: Apple Health (jeśli ma realne
         // dane > 0 dla tej daty) ma priorytet; Google Fit i Oura są równorzędne źródła.
         await db.run(`
-          INSERT INTO health_metrics (user_id, date, steps, active_calories, activity_source, last_sync)
-          VALUES (?, ?, ?, ?, 'google_fit', ?)
+          INSERT INTO health_metrics (user_id, date, steps, active_calories, distance_meters, activity_source, last_sync)
+          VALUES (?, ?, ?, ?, ?, 'google_fit', ?)
           ON CONFLICT(user_id, date) DO UPDATE SET
             steps = CASE WHEN activity_source = 'apple' AND COALESCE(steps, 0) > 0 THEN steps ELSE COALESCE(excluded.steps, steps) END,
             active_calories = CASE WHEN activity_source = 'apple' AND COALESCE(active_calories, 0) > 0 THEN active_calories ELSE COALESCE(excluded.active_calories, active_calories) END,
+            distance_meters = CASE WHEN activity_source = 'apple' AND COALESCE(distance_meters, 0) > 0 THEN distance_meters ELSE COALESCE(excluded.distance_meters, distance_meters) END,
             activity_source = CASE
               WHEN activity_source = 'apple' AND (COALESCE(steps, 0) > 0 OR COALESCE(active_calories, 0) > 0) THEN activity_source
               ELSE COALESCE(excluded.activity_source, activity_source)
             END,
             last_sync = excluded.last_sync
-        `, [userId, dateStr, steps || null, calories || null, lastSyncTime]);
+        `, [userId, dateStr, steps || null, calories || null, distance || null, lastSyncTime]);
       }
     }
     return { success: true };

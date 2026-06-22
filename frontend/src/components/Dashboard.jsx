@@ -149,6 +149,11 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const [customWaterAmount, setCustomWaterAmount] = useState('');
   const [waterMessage, setWaterMessage] = useState('');
 
+  // Porównanie odżywiania tydzień/miesiąc i bilans kaloryczny narastająco
+  const [nutritionComparison, setNutritionComparison] = useState(null);
+  const [calorieBalance, setCalorieBalance] = useState(null);
+  const [isLoadingComparison, setIsLoadingComparison] = useState(false);
+
   useEffect(() => {
     const fetchHistory = async () => {
       if (!sessionToken) return;
@@ -169,6 +174,31 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     };
     fetchHistory();
   }, [sessionToken, summary.last_sync]);
+
+  useEffect(() => {
+    const fetchComparisonAndBalance = async () => {
+      if (!sessionToken) return;
+      setIsLoadingComparison(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const [comparisonRes, balanceRes] = await Promise.all([
+          fetch(`/api/dashboard/nutrition-comparison${dateParam}`, {
+            headers: { 'Authorization': `Bearer ${sessionToken}` }
+          }),
+          fetch(`/api/dashboard/calorie-balance${dateParam}`, {
+            headers: { 'Authorization': `Bearer ${sessionToken}` }
+          })
+        ]);
+        if (comparisonRes.ok) setNutritionComparison(await comparisonRes.json());
+        if (balanceRes.ok) setCalorieBalance(await balanceRes.json());
+      } catch (err) {
+        console.error('Błąd pobierania porównania/bilansu kalorycznego:', err);
+      } finally {
+        setIsLoadingComparison(false);
+      }
+    };
+    fetchComparisonAndBalance();
+  }, [sessionToken, selectedDate]);
 
   const renderWeightCompositionChart = (data) => {
     let validData = data.filter(d => 
@@ -392,7 +422,49 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const batteryDelta = (batteryPct !== null && yesterdayBatteryPct !== null)
     ? batteryPct - yesterdayBatteryPct
     : null;
-  
+
+  // Ostatnia synchronizacja i źródło danych aktywności - pole `last_sync` było już
+  // od dawna pobierane z backendu, ale nigdzie nie wyświetlane użytkownikowi.
+  const lastSyncDate = summary.last_sync ? new Date(summary.last_sync) : null;
+  const formatRelativeSync = (date) => {
+    if (!date || isNaN(date.getTime())) return null;
+    const diffMin = Math.round((Date.now() - date.getTime()) / 60000);
+    if (diffMin < 1) return 'przed chwilą';
+    if (diffMin < 60) return `${diffMin} min temu`;
+    const diffHours = Math.round(diffMin / 60);
+    if (diffHours < 24) return `${diffHours} godz. temu`;
+    return `${Math.round(diffHours / 24)} dni temu`;
+  };
+  const lastSyncLabel = formatRelativeSync(lastSyncDate);
+  const activitySourceLabels = { apple: '🍏 Apple Health', oura: '💍 Oura Ring', google_fit: '🟢 Google Fit' };
+  const activitySourceLabel = summary.activity_source ? (activitySourceLabels[summary.activity_source] || summary.activity_source) : null;
+
+  // Dystans i rozbicie aktywności dnia (Oura daily_activity / Google Fit / Apple Health) -
+  // liczniki dzienne, zerujące się każdego dnia tak jak kroki (patrz backend dashboard.js).
+  const distanceMeters = summary.distance_meters || 0;
+  const distanceKm = Math.round((distanceMeters / 1000) * 10) / 10;
+  const sedentaryMinutes = summary.sedentary_minutes || 0;
+  const lowActivityMinutes = summary.low_activity_minutes || 0;
+  const hasActivityBreakdown = distanceMeters > 0 || sedentaryMinutes > 0 || lowActivityMinutes > 0 || activeMinutes > 0;
+
+  // Realny poziom stresu z Oury (endpoint daily_stress) - w przeciwieństwie do wcześniej
+  // usuniętej, w 100% fałszywej sekcji, ta karta pojawia się TYLKO gdy backend faktycznie
+  // ma realne dane (pierścionek z funkcją pomiaru stresu).
+  const stressHighMinutes = summary.stress_high_minutes;
+  const stressRecoveryMinutes = summary.stress_recovery_minutes;
+  const stressSummary = summary.stress_summary;
+  const hasStressData = stressHighMinutes != null || stressRecoveryMinutes != null || stressSummary != null;
+  const stressSummaryLabels = { restored: 'Zregenerowany', normal: 'Normalny', stressful: 'Stresujący' };
+
+  // Ostatni zapisany pomiar obwodów ciała - pełny CRUD i wykres trendu jest już w
+  // ActivityTracker, tu tylko skrót najnowszej wartości na głównym Dashboardzie.
+  const latestBodyMeasurement = summary.latest_body_measurement || null;
+
+  // Streaki celów - liczone przez backend wyłącznie na bazie historii już zapisanej
+  // w bazie (meals + health_metrics), zero nowych integracji (punkt 9 z analizy).
+  const calorieStreakDays = summary.calorie_streak_days || 0;
+  const sleepStreakDays = summary.sleep_streak_days || 0;
+
   // Lista ostatnich aktywności - tylko rzeczywiste treningi z bazy.
   // Gdy brak treningów, lista jest pusta (patrz pusty stan w renderze).
   const activities = (summary.workouts && summary.workouts.length > 0)
@@ -538,6 +610,17 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         </button>
       </div>
 
+      {/* STATUS SYNCHRONIZACJI - dane już dawno zbierane (last_sync, activity_source),
+          ale wcześniej nigdzie nie ujawnione użytkownikowi. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', padding: '0 4px', marginTop: '-6px', marginBottom: '4px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
+        <span>
+          {lastSyncLabel ? `🔄 Zsynchronizowano: ${lastSyncLabel}` : '🔄 Brak jeszcze synchronizacji'}
+        </span>
+        {activitySourceLabel && (
+          <span>· Źródło aktywności: {activitySourceLabel}</span>
+        )}
+      </div>
+
       {/* KOLUMNY DASHBOARDU DLA ZAPEWNIENIA MASONRY / BRAKU CZARNYCH PRZESTRZENI */}
       <div className="dashboard-column">
         {/* POTRÓJNE RINGI: SEN, REGENERACJA, WYSIŁEK */}
@@ -594,6 +677,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               Ustaw cele
             </span>
           </div>
+          {(calorieStreakDays > 0 || sleepStreakDays > 0) && (
+            <div style={{ display: 'flex', gap: '8px', padding: '0 4px', flexWrap: 'wrap' }}>
+              {calorieStreakDays > 0 && (
+                <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#fbbf24', background: 'rgba(251,191,36,0.1)', padding: '4px 10px', borderRadius: '999px' }}>
+                  🔥 {calorieStreakDays} {calorieStreakDays === 1 ? 'dzień' : 'dni'} z rzędu w celu kalorycznym
+                </span>
+              )}
+              {sleepStreakDays > 0 && (
+                <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#38bdf8', background: 'rgba(56,189,248,0.1)', padding: '4px 10px', borderRadius: '999px' }}>
+                  😴 {sleepStreakDays} {sleepStreakDays === 1 ? 'dzień' : 'dni'} z rzędu z celem snu
+                </span>
+              )}
+            </div>
+          )}
           <div className="premium-grid-2">
             <DailyGoalCard 
               title="Kroki" 
@@ -633,6 +730,67 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               barType={waterPct < 30 ? "red" : "gradient"}
             />
           </div>
+        </div>
+
+        {/* PORÓWNANIE TYDZIEŃ/MIESIĄC I BILANS KALORYCZNY NARASTAJĄCO */}
+        <div className="premium-card">
+          <div className="premium-title-row">
+            <span className="premium-title">📊 Porównanie i bilans</span>
+          </div>
+          {isLoadingComparison ? (
+            <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)', padding: '10px 0' }}>
+              Wczytywanie...
+            </div>
+          ) : (
+            <>
+              {nutritionComparison && (nutritionComparison.week.current.avg || nutritionComparison.month.current.avg) ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                  {[
+                    { label: 'Tydzień', data: nutritionComparison.week },
+                    { label: 'Miesiąc', data: nutritionComparison.month }
+                  ].map(({ label, data }) => (
+                    data.current.avg && (
+                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                          {label} · śr. {data.current.avg.calories} kcal/dzień
+                        </span>
+                        <span style={{
+                          fontWeight: '700',
+                          color: data.calories_change_pct == null ? 'rgba(255,255,255,0.4)' : data.calories_change_pct > 0 ? '#f87171' : data.calories_change_pct < 0 ? '#34d399' : '#fff'
+                        }}>
+                          {data.calories_change_pct == null ? 'brak danych do porównania' : `${data.calories_change_pct > 0 ? '+' : ''}${data.calories_change_pct}% vs poprzedni okres`}
+                        </span>
+                      </div>
+                    )
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0' }}>
+                  Brak danych - dodaj więcej posiłków, aby zobaczyć porównanie
+                </div>
+              )}
+
+              {calorieBalance && (calorieBalance.week.days_with_data > 0 || calorieBalance.month.days_with_data > 0) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '10px' }}>
+                  {[
+                    { label: '7 dni', data: calorieBalance.week },
+                    { label: '30 dni', data: calorieBalance.month }
+                  ].map(({ label, data }) => (
+                    data.days_with_data > 0 && (
+                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                          Bilans {label} vs cel ({data.days_with_data} {data.days_with_data === 1 ? 'dzień' : 'dni'} z danymi)
+                        </span>
+                        <span style={{ fontWeight: '700', color: data.balance_vs_target > 0 ? '#f87171' : data.balance_vs_target < 0 ? '#34d399' : '#fff' }}>
+                          {data.balance_vs_target > 0 ? '+' : ''}{Math.round(data.balance_vs_target)} kcal
+                        </span>
+                      </div>
+                    )
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* LICZNIK WODY - szybkie dodawanie */}
@@ -830,6 +988,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 </span>
               )}
             </div>
+            {latestBodyMeasurement && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
+                <span>Ostatni pomiar obwodów ({latestBodyMeasurement.date})</span>
+                <span style={{ color: 'rgba(255,255,255,0.7)', fontWeight: '600', textAlign: 'right' }}>
+                  {[
+                    latestBodyMeasurement.waist != null && `Pas: ${latestBodyMeasurement.waist}cm`,
+                    latestBodyMeasurement.chest != null && `Klatka: ${latestBodyMeasurement.chest}cm`,
+                    latestBodyMeasurement.hips != null && `Biodra: ${latestBodyMeasurement.hips}cm`,
+                    latestBodyMeasurement.biceps != null && `Biceps: ${latestBodyMeasurement.biceps}cm`,
+                    latestBodyMeasurement.thigh != null && `Udo: ${latestBodyMeasurement.thigh}cm`
+                  ].filter(Boolean).join(' · ') || 'Brak wypełnionych pól'}
+                </span>
+              </div>
+            )}
           </div>
           {renderWeightCompositionChart(historyData)}
         </div>
@@ -927,10 +1099,82 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)' }}>Brak danych (czekam na synchronizację)</span>
             )}
           </div>
-          {/* Sekcja poziomu stresu została usunięta - dane (wynik stresu, wykres
-              z ostatnich godzin) nie były nigdzie zbierane przez backend i były
-              w 100% zaszywane na sztywno w kodzie, mimo że wyglądały jak realny
-              odczyt z urządzenia. Wraca, gdy będzie realne źródło tych danych. */}
+          {/* Realny poziom stresu (Oura /v2/usercollection/daily_stress) - wcześniej ta
+              sekcja była tu usunięta, bo była w 100% zaszywana na sztywno bez żadnego
+              realnego źródła danych. Wraca tylko wtedy, gdy backend faktycznie ma dla
+              niej dane (pierścionek Oura z funkcją pomiaru stresu) - inaczej jest po
+              prostu niewidoczna, bez fałszywych wartości. */}
+          {hasStressData && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}>😮‍💨 Poziom stresu (Oura)</span>
+                {stressSummary && (
+                  <span style={{ fontSize: '0.75rem', fontWeight: '700', color: stressSummary === 'stressful' ? '#f87171' : stressSummary === 'restored' ? '#34d399' : '#fbbf24' }}>
+                    {stressSummaryLabels[stressSummary] || stressSummary}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '1rem', fontWeight: '700', color: '#f87171' }}>
+                    {stressHighMinutes != null ? `${stressHighMinutes} min` : '-'}
+                  </span>
+                  <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)' }}>Stres dzisiaj</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '1rem', fontWeight: '700', color: '#34d399' }}>
+                    {stressRecoveryMinutes != null ? `${stressRecoveryMinutes} min` : '-'}
+                  </span>
+                  <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)' }}>Regeneracja dzisiaj</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* DYSTANS I AKTYWNOŚĆ DNIA - dane z Oury (equivalent_walking_distance,
+            sedentary/low_activity_time), Google Fit (distance.delta) albo Apple Health
+            (walking_running_distance) - wcześniej pobierane przez integracje, ale
+            nieujawnione w /api/dashboard. */}
+        <div className="premium-card">
+          <div className="premium-title-row">
+            <span className="premium-title">🏃 Dystans i aktywność dnia</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '1.6rem', fontWeight: '800', color: '#fff' }}>
+                {distanceKm > 0 ? distanceKm : '-'} <span style={{ fontSize: '0.9rem', fontWeight: '500', color: 'rgba(255,255,255,0.4)' }}>km</span>
+              </span>
+              <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>Dystans dzisiaj</span>
+            </div>
+          </div>
+          {hasActivityBreakdown ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>🔥 Aktywne minuty</span>
+                <span style={{ fontWeight: '700' }}>{activeMinutes} min</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>🚶 Niska intensywność</span>
+                <span style={{ fontWeight: '700' }}>{lowActivityMinutes} min</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>🪑 Bezruch</span>
+                <span style={{ fontWeight: '700' }}>{sedentaryMinutes} min</span>
+              </div>
+              {(activeMinutes > 0 || lowActivityMinutes > 0 || sedentaryMinutes > 0) && (
+                <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', marginTop: '4px', background: 'rgba(255,255,255,0.05)' }}>
+                  {activeMinutes > 0 && <div style={{ background: '#ef4444', flex: activeMinutes }}></div>}
+                  {lowActivityMinutes > 0 && <div style={{ background: '#fbbf24', flex: lowActivityMinutes }}></div>}
+                  {sedentaryMinutes > 0 && <div style={{ background: 'rgba(255,255,255,0.15)', flex: sedentaryMinutes }}></div>}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0' }}>
+              Brak danych - czekam na synchronizację
+            </div>
+          )}
         </div>
 
         {/* TRENDY ZDROWOTNE */}

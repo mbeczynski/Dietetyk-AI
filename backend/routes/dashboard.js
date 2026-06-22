@@ -4,6 +4,77 @@ const db = require('../db');
 const { getLocalDateString } = require('../utils/dates');
 const { genAI, generateContentWithFallback } = require('../config');
 
+// Przesunięcie daty (string YYYY-MM-DD) o N dni - czysta arytmetyka kalendarzowa
+// przez Date.UTC (jak w istniejącym subtractDay), żeby uniknąć błędów strefy
+// czasowej. deltaDays może być ujemne (w tył) lub dodatnie (w przód).
+const shiftDate = (dateStr, deltaDays) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + deltaDays);
+  return dt.toISOString().split('T')[0];
+};
+
+// Agregacja odżywiania (kalorie/makro) dla zakresu dat - używana do porównań
+// tydzień/miesiąc (punkt 10 z analizy dashboardu). Średnie liczone WYŁĄCZNIE
+// po dniach, w których faktycznie zapisano posiłki (days_logged) - dzielenie
+// przez całą długość okresu zaniżałoby średnią przy nieregularnym logowaniu.
+async function aggregateNutrition(userId, startDate, endDate) {
+  const rows = await db.all(
+    `SELECT date, SUM(calories) AS calories, SUM(protein) AS protein, SUM(carbs) AS carbs, SUM(fat) AS fat
+     FROM meals WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date`,
+    [userId, startDate, endDate]
+  );
+  const daysLogged = rows.length;
+  const totals = rows.reduce((acc, r) => {
+    acc.calories += r.calories || 0;
+    acc.protein += r.protein || 0;
+    acc.carbs += r.carbs || 0;
+    acc.fat += r.fat || 0;
+    return acc;
+  }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  const avg = daysLogged > 0 ? {
+    calories: Math.round(totals.calories / daysLogged),
+    protein: Math.round((totals.protein / daysLogged) * 10) / 10,
+    carbs: Math.round((totals.carbs / daysLogged) * 10) / 10,
+    fat: Math.round((totals.fat / daysLogged) * 10) / 10
+  } : null;
+  return { start: startDate, end: endDate, days_logged: daysLogged, totals, avg };
+}
+
+// Bilans kaloryczny narastająco dla zakresu dat (punkt 11 z analizy dashboardu).
+// Liczony tylko po dniach z zapisanymi posiłkami - dni bez logów nie psują
+// bilansu zerami.
+async function aggregateCalorieBalance(userId, startDate, endDate, targetCalories, bmr) {
+  const mealRows = await db.all(
+    `SELECT date, SUM(calories) AS calories FROM meals WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date`,
+    [userId, startDate, endDate]
+  );
+  const healthRows = await db.all(
+    `SELECT date, active_calories FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ?`,
+    [userId, startDate, endDate]
+  );
+  const activeByDate = new Map(healthRows.map(r => [r.date, r.active_calories || 0]));
+
+  const daysWithData = mealRows.length;
+  let totalEaten = 0;
+  let totalBurned = 0;
+  mealRows.forEach(r => {
+    totalEaten += r.calories || 0;
+    totalBurned += bmr + (activeByDate.get(r.date) || 0);
+  });
+
+  return {
+    start: startDate,
+    end: endDate,
+    days_with_data: daysWithData,
+    target_calories: targetCalories,
+    total_eaten: totalEaten,
+    total_burned: daysWithData > 0 ? totalBurned : 0,
+    balance_vs_burned: daysWithData > 0 ? totalEaten - totalBurned : null,
+    balance_vs_target: daysWithData > 0 ? totalEaten - (targetCalories * daysWithData) : null
+  };
+}
+
 router.get('/api/dashboard', async (req, res) => {
   const date = req.query.date || getLocalDateString();
   try {
@@ -56,8 +127,15 @@ router.get('/api/dashboard', async (req, res) => {
       fat_ratio: null,
       muscle_mass: null,
       active_minutes: 0,
+      distance_meters: 0,
+      sedentary_minutes: 0,
+      low_activity_minutes: 0,
+      stress_high_minutes: null,
+      stress_recovery_minutes: null,
+      stress_summary: null,
       water_ml: 0,
       last_sync: null,
+      activity_source: null,
       ai_advice: null,
       ai_advice_generated_at: null
     };
@@ -84,6 +162,17 @@ router.get('/api/dashboard', async (req, res) => {
     let displaySpo2 = health.spo2_percentage;
     let displayWristTemperature = health.wrist_temperature;
     let displayActiveMinutes = health.active_minutes;
+    // Dystans i rozbicie aktywności (sedentary/low) to liczniki dzienne jak kroki -
+    // celowo NIE są dociągane z poprzednich dni (patrz komentarz powyżej).
+    let displayDistanceMeters = health.distance_meters;
+    let displaySedentaryMinutes = health.sedentary_minutes;
+    let displayLowActivityMinutes = health.low_activity_minutes;
+    // Stres (Oura daily_stress) to wynik liczony raz dziennie, tak jak gotowość/sen -
+    // dociągamy ostatnią dostępną wartość, jeśli dzisiejsza synchronizacja jeszcze nie
+    // nadeszła (patrz analogiczna logika dla displayReadinessScore poniżej).
+    let displayStressHighMinutes = health.stress_high_minutes;
+    let displayStressRecoveryMinutes = health.stress_recovery_minutes;
+    let displayStressSummary = health.stress_summary;
 
     if (displayWeight === null) {
       const row = await db.get(`SELECT weight FROM health_metrics WHERE user_id = ? AND weight IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
@@ -146,12 +235,76 @@ router.get('/api/dashboard', async (req, res) => {
       const row = await db.get(`SELECT wrist_temperature FROM health_metrics WHERE user_id = ? AND wrist_temperature IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
       if (row) displayWristTemperature = row.wrist_temperature;
     }
-    // displayActiveMinutes: brak dociągania z poprzednich dni - patrz komentarz powyżej.
+    // displayActiveMinutes / displayDistanceMeters / displaySedentaryMinutes /
+    // displayLowActivityMinutes: brak dociągania z poprzednich dni - patrz komentarz powyżej.
+    if (displayStressHighMinutes === null) {
+      const row = await db.get(`SELECT stress_high_minutes FROM health_metrics WHERE user_id = ? AND stress_high_minutes IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
+      if (row) displayStressHighMinutes = row.stress_high_minutes;
+    }
+    if (displayStressRecoveryMinutes === null) {
+      const row = await db.get(`SELECT stress_recovery_minutes FROM health_metrics WHERE user_id = ? AND stress_recovery_minutes IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
+      if (row) displayStressRecoveryMinutes = row.stress_recovery_minutes;
+    }
+    if (displayStressSummary === null) {
+      const row = await db.get(`SELECT stress_summary FROM health_metrics WHERE user_id = ? AND stress_summary IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
+      if (row) displayStressSummary = row.stress_summary;
+    }
+
+    // Ostatni zapisany pomiar obwodów ciała (niezależnie od wybranego dnia dashboardu) -
+    // główny Dashboard wcześniej nie pokazywał nawet ostatniej wartości, mimo że pełny
+    // CRUD + wykres trendu już istnieje w ActivityTracker.jsx.
+    const latestBodyMeasurement = await db.get(
+      `SELECT date, chest, waist, hips, biceps, thigh FROM body_measurements WHERE user_id = ? ORDER BY date DESC LIMIT 1`,
+      [req.user.id]
+    );
 
     const activeCalories = displayActiveCalories || 0;
     const bmr = settings.bmr || 1800;
     const totalBurned = displayTotalCaloriesBurned || (bmr + activeCalories);
     const netCalories = totalEaten.calories - totalBurned;
+
+    // Streaki celów (kalorie, sen) - liczone wyłącznie na bazie historii już zapisanej
+    // w bazie (meals + health_metrics), zero nowych integracji (punkt 9 z analizy
+    // dashboardu). Liczymy od WCZORAJ w dół względem przeglądanej daty (dzisiejszy/
+    // przeglądany dzień może być jeszcze niedokończony - nie wszystkie posiłki czy sen
+    // muszą być już zarejestrowane), przerywając na pierwszym dniu, który nie trafia
+    // w cel, albo na pierwszej "dziurze" w danych (brak wpisu = przerwana passa).
+    const subtractDay = (dateStr) => {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      dt.setUTCDate(dt.getUTCDate() - 1);
+      return dt.toISOString().split('T')[0];
+    };
+    const computeStreak = (valuesByDate, referenceDateStr, meetsGoal, maxDays = 90) => {
+      let streak = 0;
+      let cursor = subtractDay(referenceDateStr);
+      for (let i = 0; i < maxDays; i++) {
+        if (!valuesByDate.has(cursor) || !meetsGoal(valuesByDate.get(cursor))) break;
+        streak++;
+        cursor = subtractDay(cursor);
+      }
+      return streak;
+    };
+
+    const calorieRows = await db.all(
+      `SELECT date, SUM(calories) AS total_calories FROM meals WHERE user_id = ? GROUP BY date ORDER BY date DESC LIMIT 90`,
+      [req.user.id]
+    );
+    const calorieMap = new Map(calorieRows.map(r => [r.date, r.total_calories]));
+    // "Trafienie" w cel kaloryczny = bilans w rozsądnym paśmie wokół celu (+/-15%), nie
+    // dokładnie do kalorii - inaczej streak byłby praktycznie niemożliwy do utrzymania.
+    const targetCaloriesForStreak = settings.target_calories || 2000;
+    const calorieStreakDays = computeStreak(calorieMap, date, (total) =>
+      total >= targetCaloriesForStreak * 0.85 && total <= targetCaloriesForStreak * 1.15
+    );
+
+    const sleepRows = await db.all(
+      `SELECT date, sleep_duration FROM health_metrics WHERE user_id = ? AND sleep_duration IS NOT NULL ORDER BY date DESC LIMIT 90`,
+      [req.user.id]
+    );
+    const sleepMap = new Map(sleepRows.map(r => [r.date, r.sleep_duration]));
+    const targetSleepForStreak = isNaN(settings.target_sleep_duration) || !settings.target_sleep_duration ? 7.2 : settings.target_sleep_duration;
+    const sleepStreakDays = computeStreak(sleepMap, date, (duration) => duration >= targetSleepForStreak);
 
     // Generowanie porady od Dietetyka AI na bazie dzisiejszych danych (opcjonalne/throttled co 30 min)
     let aiAdvice = "Zmień swoje integracje w profilu i dodaj dzisiejsze posiłki, aby otrzymać wskazówki od AI.";
@@ -292,9 +445,19 @@ Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego p
         fat_ratio: displayFatRatio,
         muscle_mass: displayMuscleMass,
         active_minutes: displayActiveMinutes || 0,
+        distance_meters: displayDistanceMeters || 0,
+        sedentary_minutes: displaySedentaryMinutes || 0,
+        low_activity_minutes: displayLowActivityMinutes || 0,
+        stress_high_minutes: displayStressHighMinutes,
+        stress_recovery_minutes: displayStressRecoveryMinutes,
+        stress_summary: displayStressSummary,
         water_ml: health.water_ml || 0,
         has_oura: !!hasOuraRow,
-        has_withings: !!hasWithingsRow
+        has_withings: !!hasWithingsRow,
+        activity_source: health.activity_source || null,
+        latest_body_measurement: latestBodyMeasurement || null,
+        calorie_streak_days: calorieStreakDays,
+        sleep_streak_days: sleepStreakDays
       },
       meals,
       aiAdvice
@@ -303,6 +466,73 @@ Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego p
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd pobierania danych dashboardu.' });
+  }
+});
+
+// Porównanie odżywiania tydzień/miesiąc - bieżący okres (ostatnie 7/30 dni
+// licząc do wybranej daty) vs poprzedni okres tej samej długości.
+router.get('/api/dashboard/nutrition-comparison', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+
+    const weekCurrentStart = shiftDate(today, -6);
+    const weekPreviousEnd = shiftDate(weekCurrentStart, -1);
+    const weekPreviousStart = shiftDate(weekPreviousEnd, -6);
+
+    const monthCurrentStart = shiftDate(today, -29);
+    const monthPreviousEnd = shiftDate(monthCurrentStart, -1);
+    const monthPreviousStart = shiftDate(monthPreviousEnd, -29);
+
+    const [weekCurrent, weekPrevious, monthCurrent, monthPrevious] = await Promise.all([
+      aggregateNutrition(req.user.id, weekCurrentStart, today),
+      aggregateNutrition(req.user.id, weekPreviousStart, weekPreviousEnd),
+      aggregateNutrition(req.user.id, monthCurrentStart, today),
+      aggregateNutrition(req.user.id, monthPreviousStart, monthPreviousEnd)
+    ]);
+
+    const pctChange = (curr, prev) => {
+      if (curr == null || prev == null || prev === 0) return null;
+      return Math.round(((curr - prev) / prev) * 1000) / 10;
+    };
+
+    res.json({
+      date: today,
+      week: {
+        current: weekCurrent,
+        previous: weekPrevious,
+        calories_change_pct: pctChange(weekCurrent.avg?.calories, weekPrevious.avg?.calories)
+      },
+      month: {
+        current: monthCurrent,
+        previous: monthPrevious,
+        calories_change_pct: pctChange(monthCurrent.avg?.calories, monthPrevious.avg?.calories)
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania porównania odżywiania.' });
+  }
+});
+
+// Bilans kaloryczny narastająco za ostatnie 7 i 30 dni względem celu.
+router.get('/api/dashboard/calorie-balance', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
+    const settings = {};
+    settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
+    const targetCalories = isNaN(settings.target_calories) || !settings.target_calories ? 2000 : settings.target_calories;
+    const bmr = isNaN(settings.bmr) || !settings.bmr ? 1800 : settings.bmr;
+
+    const [week, month] = await Promise.all([
+      aggregateCalorieBalance(req.user.id, shiftDate(today, -6), today, targetCalories, bmr),
+      aggregateCalorieBalance(req.user.id, shiftDate(today, -29), today, targetCalories, bmr)
+    ]);
+
+    res.json({ date: today, week, month });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania bilansu kalorycznego.' });
   }
 });
 

@@ -220,6 +220,19 @@ const initDb = async () => {
     console.log('[DB MIGRATE] Dodano kolumnę user_id do tabeli meals.');
   } catch (e) {}
 
+  // Migracja: mikroskładniki posiłków (błonnik, cukry, sód) - rozszerzony prompt AI
+  // (routes/meals.js) zwraca te pola dodatkowo do kalorii/makro. Mogą być NULL dla
+  // starszych posiłków przeanalizowanych przed tą zmianą.
+  try {
+    await run(`ALTER TABLE meals ADD COLUMN fiber REAL DEFAULT NULL`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE meals ADD COLUMN sugar REAL DEFAULT NULL`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE meals ADD COLUMN sodium REAL DEFAULT NULL`);
+  } catch (e) {}
+
   // Przypisanie starych posiłków bez user_id do Marcina
   await run(`UPDATE meals SET user_id = 1 WHERE user_id IS NULL OR user_id = 0`);
 
@@ -398,6 +411,40 @@ const initDb = async () => {
   // nadgarstka" wcześniej pokazywała zaszytą na sztywno wartość "35,4".
   try {
     await run("ALTER TABLE health_metrics ADD COLUMN wrist_temperature REAL DEFAULT NULL");
+  } catch (e) {}
+
+  // Migracja: dystans (metry) - z Oury (equivalent_walking_distance), Google Fit
+  // (distance.delta) albo Apple Health (walking_running_distance, webhook). Brane
+  // z tego samego źródła co reszta aktywności (priorytet Apple > Oura/Google Fit,
+  // patrz activity_source).
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN distance_meters REAL DEFAULT NULL");
+  } catch (e) {}
+
+  // Migracja: rozbicie dnia na minuty wg intensywności aktywności (Oura
+  // daily_activity: high/medium/low_activity_time, sedentary_time - w sekundach,
+  // zapisujemy po konwersji na minuty). Pozwala pokazać, jak wyglądał dzień, a nie
+  // tylko sumę "aktywnych minut". medium+high są już liczone razem jako
+  // active_minutes (patrz sync.js) - tu dodajemy tylko brakujące kategorie.
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN sedentary_minutes INTEGER DEFAULT NULL");
+  } catch (e) {}
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN low_activity_minutes INTEGER DEFAULT NULL");
+  } catch (e) {}
+
+  // Migracja: realny poziom stresu z Oury (endpoint /v2/usercollection/daily_stress,
+  // dostępny tylko dla pierścionków z tą funkcją - inaczej pola zostają NULL).
+  // To NIE jest powrót starej, zaszywanej na sztywno sekcji stresu (patrz komentarz
+  // przy jej usunięciu w Dashboard.jsx) - to realne dane z API Oury.
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN stress_high_minutes REAL DEFAULT NULL");
+  } catch (e) {}
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN stress_recovery_minutes REAL DEFAULT NULL");
+  } catch (e) {}
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN stress_summary TEXT DEFAULT NULL");
   } catch (e) {}
 
   // Domyślny cel wody (ml) dla istniejącego konta admina/Marcina, jeśli jeszcze nie ustawiony

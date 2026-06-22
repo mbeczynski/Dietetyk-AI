@@ -34,7 +34,11 @@ async function getUserSetting(userId, key) {
 
 // Bezpieczne generowanie i weryfikacja stanu OAuth (stateless)
 function generateOAuthState(userId, service = 'oura') {
-  const salt = Math.random().toString(36).substring(2);
+  // crypto.randomBytes (CSPRNG) zamiast Math.random() (PRNG nie-kryptograficzny,
+  // przewidywalny przy znajomości stanu generatora). Sam HMAC nadal chroni przed
+  // podrobieniem state bez znajomości OAUTH_STATE_SECRET, ale sól/nonce w przepływie
+  // anty-CSRF powinna być generowana kryptograficznie bezpiecznym generatorem.
+  const salt = crypto.randomBytes(16).toString('hex');
   const data = `${userId}:${service}:${salt}`;
   const hmac = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(data).digest('hex');
   return `${userId}:${service}:${salt}:${hmac}`;
@@ -42,14 +46,12 @@ function generateOAuthState(userId, service = 'oura') {
 
 function verifyOAuthState(state) {
   if (!state) return null;
+  // Aktualny format to zawsze 4 części (userId:service:salt:hmac) - generowany
+  // wyłącznie przez generateOAuthState powyżej. Usunięto martwą gałąź obsługującą
+  // stary, 3-częściowy format (userId:salt:hmac, z domyślnym service='oura') -
+  // żaden aktualny generator state już go nie tworzy.
   const parts = state.split(':');
-  if (parts.length === 3) {
-    const [userId, salt, hmac] = parts;
-    const expectedHmac = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(`${userId}:${salt}`).digest('hex');
-    if (hmac === expectedHmac) {
-      return { userId: parseInt(userId, 10), service: 'oura' };
-    }
-  } else if (parts.length === 4) {
+  if (parts.length === 4) {
     const [userId, service, salt, hmac] = parts;
     const expectedHmac = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(`${userId}:${service}:${salt}`).digest('hex');
     if (hmac === expectedHmac) {

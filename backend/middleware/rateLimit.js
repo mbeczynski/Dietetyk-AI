@@ -42,4 +42,49 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
-module.exports = { apiRateLimiter, WINDOW_MS, MAX_REQUESTS };
+// Dedykowany, ostrzejszy limiter per-użytkownik dla endpointów wysyłki e-maili
+// testowych podsumowań (send-weekly/daily/monthly-summary). Te endpointy
+// przyjmują dowolny `email` w body (zamierzona funkcja "wyślij testowy e-mail
+// na wskazany adres") - bez tego limitu zalogowany użytkownik mógłby w kółko
+// wysyłać e-maile na dowolny adres zewnętrzny, wykorzystując reputację/limit
+// konta Mailgun do spamu. Limit jest per-user_id (nie per-IP jak globalny
+// apiRateLimiter powyżej), bo to ten sam użytkownik wielokrotnie wywołujący
+// endpoint stanowi tu ryzyko, niezależnie od adresu IP.
+const SUMMARY_EMAIL_WINDOW_MS = 10 * 60 * 1000; // 10 minut
+const SUMMARY_EMAIL_MAX = 5;                    // maks. 5 wysyłek testowych / 10 min / użytkownik
+
+const summaryEmailHits = new Map(); // userId -> { count, windowStart }
+
+function summaryEmailLimiter(req, res, next) {
+  const userId = req.user && req.user.id;
+  if (!userId) return next(); // requireAuth powinien to wyłapać wcześniej; tu tylko defensywnie
+
+  const now = Date.now();
+  let rec = summaryEmailHits.get(userId);
+
+  if (!rec || (now - rec.windowStart) > SUMMARY_EMAIL_WINDOW_MS) {
+    rec = { count: 0, windowStart: now };
+  }
+
+  rec.count += 1;
+  summaryEmailHits.set(userId, rec);
+
+  if (rec.count > SUMMARY_EMAIL_MAX) {
+    const retryAfterSec = Math.ceil((rec.windowStart + SUMMARY_EMAIL_WINDOW_MS - now) / 1000);
+    res.set('Retry-After', String(Math.max(retryAfterSec, 1)));
+    return res.status(429).json({ error: 'Zbyt wiele wysłanych e-maili testowych. Spróbuj ponownie później.' });
+  }
+
+  next();
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, rec] of summaryEmailHits.entries()) {
+    if ((now - rec.windowStart) > SUMMARY_EMAIL_WINDOW_MS) {
+      summaryEmailHits.delete(userId);
+    }
+  }
+}, 10 * 60 * 1000);
+
+module.exports = { apiRateLimiter, WINDOW_MS, MAX_REQUESTS, summaryEmailLimiter };

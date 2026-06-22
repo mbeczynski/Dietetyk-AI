@@ -6,6 +6,14 @@ const crypto = require('crypto');
 const { authenticator } = require('otplib');
 const QRCode = require('qrcode');
 const { sendWeeklySummaryForUser, sendDailySummaryForUser, sendMonthlySummaryForUser } = require('../services/summaries');
+const { summaryEmailLimiter } = require('../middleware/rateLimit');
+
+// Prosta walidacja formatu e-maila (nie pełny RFC 5322 - to wystarcza, żeby
+// odrzucić oczywiście niepoprawne wartości zapisywane bezpośrednio do bazy /
+// używane jako adresat wysyłki Mailgun).
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Format godziny HH:MM (00-23 : 00-59), używany przy planowaniu wysyłki podsumowań.
+const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 router.get('/api/settings', async (req, res) => {
   try {
@@ -136,6 +144,13 @@ router.post('/api/user/profile', async (req, res) => {
       await db.run(`UPDATE users SET sync_token = ? WHERE id = ?`, [trimmedToken, req.user.id]);
     }
 
+    // Walidacja formatu e-maila - pole jest później używane jako domyślny
+    // adresat wysyłki Mailgun (podsumowania), więc oczywiście niepoprawna
+    // wartość nie powinna trafić do bazy.
+    if (email !== undefined && email !== '' && !EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ error: 'Niepoprawny format adresu e-mail.' });
+    }
+
     if (avatar !== undefined && email !== undefined) {
       await db.run(`UPDATE users SET avatar_base64 = ?, email = ? WHERE id = ?`, [avatar, email, req.user.id]);
     } else if (avatar !== undefined) {
@@ -164,13 +179,26 @@ router.post('/api/user/profile', async (req, res) => {
       `, [req.user.id, weekly_summary_enabled]);
     }
     if (weekly_summary_day !== undefined) {
+      // scheduler.js interpretuje weekly_summary_day jako dzień tygodnia 1-7
+      // (1=poniedziałek..7=niedziela, patrz currentDay w scheduler.js) - poza
+      // tym zakresem podsumowanie tygodniowe po prostu nigdy by się nie wysłało
+      // (currentDay === scheduledDay nigdy prawdziwe), co jest cichym, trudnym
+      // do zdiagnozowania zepsuciem funkcji, nie podatnością bezpieczeństwa -
+      // ale warto to odrzucić wprost na wejściu.
+      const dayNum = Number(weekly_summary_day);
+      if (!Number.isInteger(dayNum) || dayNum < 1 || dayNum > 7) {
+        return res.status(400).json({ error: 'Dzień tygodnia podsumowania musi być liczbą 1-7.' });
+      }
       await db.run(`
         INSERT INTO settings (user_id, key, value)
         VALUES (?, 'weekly_summary_day', ?)
         ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
-      `, [req.user.id, weekly_summary_day]);
+      `, [req.user.id, dayNum]);
     }
     if (weekly_summary_time !== undefined) {
+      if (!TIME_REGEX.test(weekly_summary_time)) {
+        return res.status(400).json({ error: 'Godzina podsumowania musi być w formacie HH:MM.' });
+      }
       await db.run(`
         INSERT INTO settings (user_id, key, value)
         VALUES (?, 'weekly_summary_time', ?)
@@ -186,13 +214,24 @@ router.post('/api/user/profile', async (req, res) => {
       `, [req.user.id, monthly_summary_enabled]);
     }
     if (monthly_summary_day !== undefined) {
+      // scheduler.js i tak przycina wartość do liczby dni w danym miesiącu
+      // (Math.min(monthlyScheduledDayRaw, daysInCurrentMonth)), ale jawne
+      // odrzucenie wartości spoza 1-31 na wejściu jest czytelniejsze niż
+      // poleganie wyłącznie na tym przycinaniu po stronie schedulera.
+      const monthDayNum = Number(monthly_summary_day);
+      if (!Number.isInteger(monthDayNum) || monthDayNum < 1 || monthDayNum > 31) {
+        return res.status(400).json({ error: 'Dzień miesiąca podsumowania musi być liczbą 1-31.' });
+      }
       await db.run(`
         INSERT INTO settings (user_id, key, value)
         VALUES (?, 'monthly_summary_day', ?)
         ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
-      `, [req.user.id, monthly_summary_day]);
+      `, [req.user.id, monthDayNum]);
     }
     if (monthly_summary_time !== undefined) {
+      if (!TIME_REGEX.test(monthly_summary_time)) {
+        return res.status(400).json({ error: 'Godzina podsumowania musi być w formacie HH:MM.' });
+      }
       await db.run(`
         INSERT INTO settings (user_id, key, value)
         VALUES (?, 'monthly_summary_time', ?)
@@ -330,9 +369,12 @@ router.post('/api/user/change-password', async (req, res) => {
   }
 });
 
-router.post('/api/user/send-weekly-summary', async (req, res) => {
+router.post('/api/user/send-weekly-summary', summaryEmailLimiter, async (req, res) => {
   try {
     const customEmail = req.body.email;
+    if (customEmail && !EMAIL_REGEX.test(customEmail)) {
+      return res.status(400).json({ error: 'Niepoprawny format adresu e-mail.' });
+    }
     await sendWeeklySummaryForUser(req.user.id, customEmail);
     res.json({
       success: true,
@@ -345,9 +387,12 @@ router.post('/api/user/send-weekly-summary', async (req, res) => {
 });
 
 // 6ii. Wysyłanie podsumowania codziennego na e-mail (Mailgun)
-router.post('/api/user/send-daily-summary', async (req, res) => {
+router.post('/api/user/send-daily-summary', summaryEmailLimiter, async (req, res) => {
   try {
     const customEmail = req.body.email;
+    if (customEmail && !EMAIL_REGEX.test(customEmail)) {
+      return res.status(400).json({ error: 'Niepoprawny format adresu e-mail.' });
+    }
     await sendDailySummaryForUser(req.user.id, customEmail);
     res.json({
       success: true,
@@ -360,9 +405,12 @@ router.post('/api/user/send-daily-summary', async (req, res) => {
 });
 
 // 6iii. Wysyłanie podsumowania miesięcznego na e-mail (Mailgun)
-router.post('/api/user/send-monthly-summary', async (req, res) => {
+router.post('/api/user/send-monthly-summary', summaryEmailLimiter, async (req, res) => {
   try {
     const customEmail = req.body.email;
+    if (customEmail && !EMAIL_REGEX.test(customEmail)) {
+      return res.status(400).json({ error: 'Niepoprawny format adresu e-mail.' });
+    }
     await sendMonthlySummaryForUser(req.user.id, customEmail);
     res.json({
       success: true,

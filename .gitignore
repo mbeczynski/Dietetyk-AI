@@ -45,3 +45,12 @@ HealthAutoExport_*/
 
 # Track package-lock.json regardless of global gitignore settings
 !package-lock.json
+
+# SQLite temporary files and backups
+backend/dietetyk.db-shm
+backend/dietetyk.db-wal
+backend/backups/
+
+# Playwright test artifacts
+test-results/
+playwright-report/

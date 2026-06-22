@@ -612,7 +612,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
 
       {/* STATUS SYNCHRONIZACJI - dane już dawno zbierane (last_sync, activity_source),
           ale wcześniej nigdzie nie ujawnione użytkownikowi. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', padding: '0 4px', marginTop: '-6px', marginBottom: '4px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
+      <div data-testid="status-sync-bar" style={{ gridColumn: 'span 2', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', padding: '0 4px', marginTop: '-6px', marginBottom: '4px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
         <span>
           {lastSyncLabel ? `🔄 Zsynchronizowano: ${lastSyncLabel}` : '🔄 Brak jeszcze synchronizacji'}
         </span>

@@ -414,8 +414,14 @@ export default function App() {
           handleLogout();
           setErrorMessage('Sesja wygasła. Zaloguj się ponownie.');
         } else {
-          const errData = await res.json();
-          setErrorMessage(errData.error || 'Błąd podczas analizowania posiłku.');
+          let errorMsg = 'Błąd podczas analizowania posiłku.';
+          try {
+            const errData = await res.json();
+            errorMsg = errData.error || errorMsg;
+          } catch (e) {
+            errorMsg = `Serwer zwrócił kod błędu ${res.status} (${res.statusText || 'Błąd połączenia/Limit czasu'}).`;
+          }
+          setErrorMessage(errorMsg);
         }
       }
     } catch (err) {

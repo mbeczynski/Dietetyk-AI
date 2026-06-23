@@ -78,6 +78,20 @@ async function generateContentWithFallback(promptText, isJson = false, imagePart
     } catch (err) {
       console.warn(`[AI WARNING] Model ${modelName} zgłosił błąd: ${err.message}`);
       lastError = err;
+      
+      // Jeśli błąd dotyczy niepoprawnego klucza API, braku uprawnień (400/403) lub ograniczeń projektu,
+      // nie ma sensu ponawiać próby dla innych modeli z tym samym kluczem.
+      const errText = err.message || '';
+      if (
+        err.status === 400 ||
+        err.status === 403 ||
+        errText.includes('API key not valid') ||
+        errText.includes('API_KEY_INVALID') ||
+        errText.includes('not found for API version')
+      ) {
+        console.error(`[AI ERROR] Krytyczny błąd klucza API. Przerywam próby dla innych modeli.`);
+        break;
+      }
     }
   }
 

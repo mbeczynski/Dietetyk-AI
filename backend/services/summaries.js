@@ -2,6 +2,7 @@ const db = require('../db');
 const { genAI, generateContentWithFallback } = require('../config');
 const { getLocalDateString } = require('../utils/dates');
 const { sendMailgunEmail } = require('./mailgun');
+const { getDefaultHealthMetrics } = require('../utils/defaultHealthMetrics');
 
 // ===== Wspólne funkcje pomocnicze (wydzielone z duplikacji w 3 funkcjach poniżej) =====
 
@@ -35,7 +36,12 @@ async function getUserSettings(userId) {
 
 // Agregacja statystyk żywieniowo-zdrowotnych z zakresu dni (używana przez raport tygodniowy i miesięczny)
 function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
+  // UWAGA: totalFiber/totalSugar/totalSodium MUSZĄ być zadeklarowane (let) PRZED forEach
+  // poniżej, który ich używa - wcześniej deklaracja była niżej w funkcji, więc każde
+  // wywołanie dla niepustej listy posiłków rzucało ReferenceError (Temporal Dead Zone),
+  // co wyłączało całe raporty tygodniowe/miesięczne dla każdego użytkownika z posiłkami.
   let totalEatenCal = 0, totalProtein = 0, totalCarbs = 0, totalFat = 0;
+  let totalFiber = 0, totalSugar = 0, totalSodium = 0;
   meals.forEach(m => {
     totalEatenCal += m.calories;
     totalProtein += m.protein;
@@ -56,7 +62,6 @@ function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
   let firstFatRatio = null, lastFatRatio = null;
   let firstMuscleMass = null, lastMuscleMass = null;
   let bpSystolicSum = 0, bpDiastolicSum = 0, bpCount = 0;
-  let totalFiber = 0, totalSugar = 0, totalSodium = 0;
   const supplementsLogged = [];
 
   const sortedHealthMetrics = [...healthMetrics].sort((a, b) => a.date.localeCompare(b.date));
@@ -441,24 +446,12 @@ async function sendDailySummaryForUser(userId, customEmail = null) {
   totalEaten.carbs = Math.round(totalEaten.carbs * 10) / 10;
   totalEaten.fat = Math.round(totalEaten.fat * 10) / 10;
 
-  // Dane zdrowotne z dzisiaj
-  const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [userId, date]) || {
-    steps: 0,
-    active_calories: 0,
-    total_calories_burned: 0,
-    sleep_score: null,
-    sleep_duration: null,
-    sleep_deep: null,
-    sleep_rem: null,
-    readiness_score: null,
-    hrv: null,
-    rhr: null,
-    temperature_deviation: null,
-    weight: null,
-    fat_ratio: null,
-    muscle_mass: null,
-    water_ml: 0
-  };
+  // Dane zdrowotne z dzisiaj. Wcześniej fallback (gdy brak wiersza health_metrics na
+  // dany dzień) był trzecią, niezsynchronizowaną kopią domyślnego obiektu (oprócz
+  // dashboard.js i chat.js, które już dawno przeszły na wspólny getDefaultHealthMetrics()) -
+  // ta kopia nie miała np. respiratory_rate, spo2_percentage czy ciśnienia tętniczego,
+  // co łatwo przeoczyć przy rozszerzaniu raportu o nowe metryki w przyszłości.
+  const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [userId, date]) || getDefaultHealthMetrics();
 
   const activeCalories = health.active_calories || 0;
   const totalBurned = health.total_calories_burned || (bmr + activeCalories);
@@ -485,6 +478,7 @@ Dane gotowości, snu (Oura) i składu ciała (Withings):
 - Parametry serca i temp: Tętno spoczynkowe: ${health.rhr || '-'} bpm, HRV: ${health.hrv || '-'} ms, Odchylenie temperatury ciała: ${health.temperature_deviation !== null ? health.temperature_deviation + ' °C' : 'brak'}
 - Wynik Gotowości (Readiness): ${health.readiness_score !== null ? health.readiness_score + '/100' : 'Brak danych'}
 - Skład Ciała: Waga: ${health.weight !== null ? health.weight + ' kg' : 'brak danych'}, Procent tłuszczu: ${health.fat_ratio !== null ? health.fat_ratio + '%' : 'brak danych'}, Masa mięśniowa: ${health.muscle_mass !== null ? health.muscle_mass + ' kg' : 'brak danych'}
+- Ciśnienie tętnicze: ${health.blood_pressure_systolic !== null && health.blood_pressure_systolic !== undefined ? health.blood_pressure_systolic + '/' + health.blood_pressure_diastolic + ' mmHg' : 'brak danych'}
 
 Lista dzisiejszych posiłków:
 ${meals.map(m => `- ${m.raw_text} (${m.calories} kcal, B:${m.protein}g, W:${m.carbs}g, T:${m.fat}g)`).join('\n') || 'Brak wprowadzonych posiłków'}

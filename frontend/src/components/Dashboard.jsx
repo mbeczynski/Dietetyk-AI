@@ -856,8 +856,11 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
           <div className="premium-title-row" style={{ padding: '0 4px' }}>
             <span className="premium-title" style={{ fontSize: '1.2rem' }}>Cele dzienne</span>
-            <span 
-              onClick={() => onNavigate && onNavigate('activity')} 
+            <span
+              onClick={() => onNavigate && onNavigate('activity')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate && onNavigate('activity'); } }}
+              role="button"
+              tabIndex={0}
               style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', cursor: 'pointer' }}
             >
               Ustaw cele
@@ -1352,7 +1355,42 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
         </div>
 
+        {/* CIŚNIENIE TĘTNICZE - dodane pod kartą snu na stronie głównej, na życzenie
+            użytkownika. Dane (blood_pressure_systolic/diastolic) pochodzą z tego samego
+            obiektu `summary` co sleepScore powyżej, więc nie wymaga to nowych zapytań API. */}
+        <div className="premium-card">
+          <div className="premium-title-row">
+            <span className="premium-title">🩺 Ciśnienie tętnicze</span>
+            <span className="premium-title-info">ⓘ</span>
+          </div>
 
+          {summary.blood_pressure_systolic !== null && summary.blood_pressure_systolic !== undefined ? (
+            (() => {
+              const sys = summary.blood_pressure_systolic;
+              const dia = summary.blood_pressure_diastolic;
+              let color = '#34d399';
+              let label = 'Optymalne';
+              if (sys >= 140 || dia >= 90) { color = '#f87171'; label = 'Wysokie'; }
+              else if (sys >= 130 || dia >= 80) { color = '#fbbf24'; label = 'Podwyższone'; }
+              else if (sys >= 120) { color = '#fbbf24'; label = 'Prawidłowe wysokie'; }
+              return (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', margin: '8px 0' }}>
+                  <span style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>
+                    {sys}/{dia}
+                  </span>
+                  <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)' }}>mmHg</span>
+                  <span style={{ fontSize: '0.8rem', fontWeight: '700', color, marginLeft: 'auto' }}>
+                    {label}
+                  </span>
+                </div>
+              );
+            })()
+          ) : (
+            <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.3)', margin: '8px 0' }}>
+              Brak danych (zsynchronizuj Withings, by zobaczyć pomiar ciśnienia)
+            </p>
+          )}
+        </div>
 
       </div>
 
@@ -1648,8 +1686,11 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
           <div className="premium-title-row" style={{ padding: '0 4px' }}>
             <span className="premium-title" style={{ fontSize: '1.2rem' }}>Trendy zdrowotne ⓘ</span>
-            <span 
-              onClick={() => onNavigate && onNavigate('trends')} 
+            <span
+              onClick={() => onNavigate && onNavigate('trends')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate && onNavigate('trends'); } }}
+              role="button"
+              tabIndex={0}
               style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', cursor: 'pointer' }}
             >
               Wykresy
@@ -1884,8 +1925,9 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                   Rozmowa z asystentem Dietetyk AI
                 </span>
               </div>
-              <button 
+              <button
                 onClick={() => setIsChatOpen(false)}
+                aria-label="Zamknij czat"
                 style={{
                   background: 'rgba(255,255,255,0.05)',
                   border: 'none',
@@ -1969,11 +2011,12 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 disabled={isSendingChat}
                 required
               />
-              <button 
-                type="submit" 
-                className="btn-primary" 
+              <button
+                type="submit"
+                className="btn-primary"
                 style={{ width: '45px', height: '42px', padding: 0, borderRadius: '12px' }}
                 disabled={isSendingChat}
+                aria-label="Wyślij wiadomość"
               >
                 ➔
               </button>

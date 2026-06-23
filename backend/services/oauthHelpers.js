@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const db = require('../db');
+const { fetchWithTimeout } = require('../utils/fetchWithTimeout');
 
 // Sekret do podpisywania (HMAC) parametru `state` w przepływie OAuth.
 // Wcześniej w razie braku APP_PASSWORD w środowisku kod po cichu używał
@@ -107,7 +108,7 @@ async function getOrRefreshToken(userId, service) {
       const clientSecret = await getUserSetting(userId, 'oura_client_secret');
       if (!clientId || !clientSecret) throw new Error('Brak Client ID lub Secret dla Oura.');
 
-      const response = await fetch('https://api.ouraring.com/oauth/token', {
+      const response = await fetchWithTimeout('https://api.ouraring.com/oauth/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -137,7 +138,7 @@ async function getOrRefreshToken(userId, service) {
       const clientSecret = await getUserSetting(userId, 'withings_client_secret');
       if (!clientId || !clientSecret) throw new Error('Brak Client ID lub Secret dla Withings.');
 
-      const response = await fetch('https://wbsapi.withings.net/v2/oauth2', {
+      const response = await fetchWithTimeout('https://wbsapi.withings.net/v2/oauth2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -175,7 +176,7 @@ async function getOrRefreshToken(userId, service) {
       const clientSecret = await getAppConfig('google_client_secret');
       if (!clientId || !clientSecret) throw new Error('Brak Client ID lub Secret dla Google (konfiguracja globalna).');
 
-      const response = await fetch('https://oauth2.googleapis.com/token', {
+      const response = await fetchWithTimeout('https://oauth2.googleapis.com/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({

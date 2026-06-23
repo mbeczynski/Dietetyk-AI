@@ -158,6 +158,7 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
                     fontWeight: 'bold'
                   }}
                   title="Usuń zdjęcie"
+                  aria-label="Usuń zdjęcie"
                 >
                   ✕
                 </button>
@@ -213,6 +214,7 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
                       className="btn-delete"
                       onClick={() => onDeleteMeal(meal.id)}
                       title="Usuń posiłek"
+                      aria-label="Usuń posiłek"
                     >
                       🗑️
                     </button>

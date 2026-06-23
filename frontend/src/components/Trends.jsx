@@ -143,15 +143,24 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     const currAvg = currValues.length > 0 ? currValues.reduce((a, b) => a + b, 0) / currValues.length : 0;
     const prevAvg = prevValues.length > 0 ? prevValues.reduce((a, b) => a + b, 0) / prevValues.length : 0;
 
+    // Gdy poprzedni tydzień nie ma żadnych danych (prevAvg === 0), dzielenie przez
+    // prevAvg dawałoby NaN/Infinity, więc wcześniej kod po prostu zostawiał pctChange=0 -
+    // co w renderComparisonPill wygląda identycznie jak "brak zmiany", mimo że w
+    // rzeczywistości użytkownik mógł właśnie zacząć aktywność po tygodniu przerwy
+    // (np. 0 -> 8000 kroków/dzień). Rozróżniamy te dwa przypadki przez isNewActivity.
     let pctChange = 0;
+    let isNewActivity = false;
     if (prevAvg > 0) {
       pctChange = Math.round(((currAvg - prevAvg) / prevAvg) * 100);
+    } else if (currAvg > 0) {
+      isNewActivity = true;
     }
 
     return {
       current: currValue,
       avg: currAvg,
-      pctChange
+      pctChange,
+      isNewActivity
     };
   };
 
@@ -184,7 +193,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
       <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '600' }}>{title}</span>
-          {stats.current !== null && renderComparisonPill(stats.pctChange)}
+          {stats.current !== null && renderComparisonPill(stats.pctChange, stats.isNewActivity)}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
@@ -335,7 +344,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
           <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '600' }}>{title}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {isWeight && stats.current !== null && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Śr. {formatFn(stats.avg)} {unit}</span>}
-            {stats.current !== null && renderComparisonPill(stats.pctChange)}
+            {stats.current !== null && renderComparisonPill(stats.pctChange, stats.isNewActivity)}
           </div>
         </div>
 
@@ -589,7 +598,15 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     );
   };
 
-  const renderComparisonPill = (pctChange) => {
+  const renderComparisonPill = (pctChange, isNewActivity = false) => {
+    if (isNewActivity) {
+      return (
+        <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(96, 165, 250, 0.12)', color: '#60a5fa', fontWeight: '600', display: 'inline-flex', alignItems: 'center' }}>
+          ✦ nowa aktywność (brak danych z poprzedniego tygodnia)
+        </span>
+      );
+    }
+
     if (pctChange === 0) {
       return (
         <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)', fontWeight: '600', display: 'inline-flex', alignItems: 'center' }}>

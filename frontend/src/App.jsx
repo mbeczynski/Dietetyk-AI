@@ -140,6 +140,10 @@ export default function App() {
   // (ochrona przed race condition przy szybkiej zmianie daty/sesji).
   const isCurrentRequestRef = useRef(true);
 
+  // Zbiór ID posiłków, dla których trwa już żądanie usunięcia - patrz komentarz w
+  // handleDeleteMeal (ochrona przed podwójnym kliknięciem wysyłającym duplikat DELETE).
+  const deletingMealIdsRef = useRef(new Set());
+
   // Pobierz dane przy załadowaniu i przy zmianie daty lub sesji
   useEffect(() => {
     // Ochrona przed race condition: jeśli użytkownik szybko zmieni datę,
@@ -472,8 +476,15 @@ export default function App() {
   };
 
   const handleDeleteMeal = async (id) => {
+    // Guard przed duplikatami: szybki podwójny klik (lub zawieszone potwierdzenie
+    // confirm() + ponowny klik) wysyłał dwa równoległe żądania DELETE dla tego samego
+    // posiłku - drugie zwracało błąd 404 (posiłek już usunięty), co pokazywało
+    // użytkownikowi niepotrzebny komunikat błędu mimo że usunięcie się powiodło.
+    if (deletingMealIdsRef.current.has(id)) return;
+
     if (!confirm('Czy na pewno chcesz usunąć ten posiłek?')) return;
-    
+
+    deletingMealIdsRef.current.add(id);
     try {
       const res = await fetch(`/api/meals/${id}`, {
         method: 'DELETE',
@@ -494,6 +505,8 @@ export default function App() {
     } catch (err) {
       console.error(err);
       setErrorMessage('Problem z połączeniem przy usuwaniu posiłku.');
+    } finally {
+      deletingMealIdsRef.current.delete(id);
     }
   };
 
@@ -1159,7 +1172,7 @@ export default function App() {
         )}
 
         {currentTab === 'setup' && (
-          <Settings syncToken={syncToken} sessionToken={sessionToken} userProfile={userProfile} onProfileUpdate={() => { fetchUserProfile(); fetchSyncToken(); fetchDashboardData(); }} />
+          <Settings syncToken={syncToken} sessionToken={sessionToken} userProfile={userProfile} onProfileUpdate={() => { fetchUserProfile(); fetchSyncToken(); fetchDashboardData(); }} onLogout={handleLogout} />
         )}
 
         {currentTab === 'admin' && userProfile.role === 'admin' && (

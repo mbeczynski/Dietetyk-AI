@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-export default function Settings({ syncToken, sessionToken, userProfile = { username: '', avatar_base64: '' }, onProfileUpdate }) {
+export default function Settings({ syncToken, sessionToken, userProfile = { username: '', avatar_base64: '' }, onProfileUpdate, onLogout }) {
   const [settings, setSettings] = useState({
     target_calories: 2500,
     target_protein: 150,
@@ -118,9 +118,18 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           ...prev,
           ...data
         }));
+      } else if (res.status === 401) {
+        // Wcześniej brak tej obsługi - wygasła sesja przy wejściu w Ustawienia
+        // kończyła się ciche pustymi/domyślnymi formularzami, bez wylogowania
+        // i bez informacji dla użytkownika, czemu nic się nie zapisuje.
+        if (onLogout) onLogout();
+        setMessage({ type: 'error', text: 'Sesja wygasła. Zaloguj się ponownie.' });
+      } else {
+        setMessage({ type: 'error', text: 'Nie udało się wczytać ustawień.' });
       }
     } catch (err) {
       console.error('Błąd pobierania ustawień:', err);
+      setMessage({ type: 'error', text: 'Błąd połączenia z serwerem podczas wczytywania ustawień.' });
     }
   };
 
@@ -640,8 +649,13 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     // odrębnego przycisku "Zapisz poświadczenia integracji" na dole formularza,
     // backend przy budowaniu URL-a OAuth czytał z bazy starą/pustą wartość -
     // stąd zgłoszony błąd z client_id=0 w adresie autoryzacji Withings.
+    // Przekierowanie do OAuth następuje TYLKO, jeśli zapis się powiódł - wcześniej
+    // window.location.href wykonywało się bezwarunkowo, więc np. wygasła sesja w
+    // trakcie zapisu (401) i tak przenosiła użytkownika do zewnętrznego dostawcy
+    // ze starymi/błędnymi danymi konfiguracyjnymi, co kończyło się niewyjaśnionym
+    // błędem autoryzacji po powrocie.
     try {
-      await fetch('/api/settings', {
+      const res = await fetch('/api/settings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -649,8 +663,15 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
         },
         body: JSON.stringify(settings)
       });
+      if (!res.ok) {
+        if (res.status === 401 && onLogout) onLogout();
+        setMessage({ type: 'error', text: 'Nie udało się zapisać poświadczeń integracji - połączenie przerwane.' });
+        return;
+      }
     } catch (err) {
       console.error('Błąd zapisu ustawień przed połączeniem:', err);
+      setMessage({ type: 'error', text: 'Błąd połączenia z serwerem - nie połączono z integracją.' });
+      return;
     }
     window.location.href = `${window.location.origin}/api/auth/${service}?token=${sessionToken}`;
   };
@@ -736,6 +757,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 className="input-field"
                 value={settings.target_calories}
                 onChange={handleInputChange}
+                min="500"
+                max="10000"
                 required
               />
             </div>
@@ -761,6 +784,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 className="input-field"
                 value={settings.target_protein}
                 onChange={handleInputChange}
+                min="0"
+                max="1000"
                 required
               />
             </div>
@@ -773,6 +798,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 className="input-field"
                 value={settings.target_carbs}
                 onChange={handleInputChange}
+                min="0"
+                max="1500"
                 required
               />
             </div>
@@ -785,6 +812,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 className="input-field"
                 value={settings.target_fat}
                 onChange={handleInputChange}
+                min="0"
+                max="500"
                 required
               />
             </div>
@@ -797,6 +826,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 className="input-field"
                 value={settings.target_water_ml}
                 onChange={handleInputChange}
+                min="0"
+                max="10000"
                 required
               />
             </div>

@@ -4,6 +4,7 @@ const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { getAppConfig, getUserSetting, generateOAuthState, verifyOAuthState, getVerifiedSessionByToken } = require('../services/oauthHelpers');
 const { syncOura, syncWithings, syncGoogleFit } = require('../services/sync');
+const { fetchWithTimeout } = require('../utils/fetchWithTimeout');
 
 router.get('/api/auth/oura', async (req, res) => {
   const { token } = req.query;
@@ -59,7 +60,7 @@ router.get('/api/auth/oura/callback', async (req, res) => {
       const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
       const redirectUri = `${base}${req.path}`; // dynamiczny matching: /api/auth/oura/callback
 
-      const response = await fetch('https://wbsapi.withings.net/v2/oauth2', {
+      const response = await fetchWithTimeout('https://wbsapi.withings.net/v2/oauth2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -109,7 +110,7 @@ router.get('/api/auth/oura/callback', async (req, res) => {
     const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
     const redirectUri = `${base}/api/auth/oura/callback`;
 
-    const response = await fetch('https://api.ouraring.com/oauth/token', {
+    const response = await fetchWithTimeout('https://api.ouraring.com/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -216,7 +217,7 @@ router.get('/api/auth/withings/callback', async (req, res) => {
     const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
     const redirectUri = `${base}${req.path}`;
 
-    const response = await fetch('https://wbsapi.withings.net/v2/oauth2', {
+    const response = await fetchWithTimeout('https://wbsapi.withings.net/v2/oauth2', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -328,7 +329,7 @@ router.get('/api/auth/google-fit/callback', async (req, res) => {
     const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
     const redirectUri = `${base}/api/auth/google-fit/callback`;
 
-    const response = await fetch('https://oauth2.googleapis.com/token', {
+    const response = await fetchWithTimeout('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({

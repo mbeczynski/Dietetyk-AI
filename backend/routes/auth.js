@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const loginAttempts = require('../services/loginAttempts');
 const logger = require('../services/logger');
 const { getAppConfig, generateOAuthState, verifyOAuthState, getVerifiedSessionByToken } = require('../services/oauthHelpers');
+const { fetchWithTimeout } = require('../utils/fetchWithTimeout');
 
 // Pomocnicza funkcja do tworzenia sesji (tymczasowej lub stałej) - wydzielona, bo ten
 // sam wzorzec (wygeneruj token, policz expires_at, wstaw wiersz do sessions) był
@@ -116,7 +117,7 @@ router.get('/api/auth/google/callback', async (req, res) => {
     const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
     const redirectUri = `${base}/api/auth/google/callback`;
 
-    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    const tokenRes = await fetchWithTimeout('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -134,7 +135,7 @@ router.get('/api/auth/google/callback', async (req, res) => {
     }
     const tokenData = await tokenRes.json();
 
-    const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    const userInfoRes = await fetchWithTimeout('https://www.googleapis.com/oauth2/v3/userinfo', {
       headers: { 'Authorization': `Bearer ${tokenData.access_token}` }
     });
     if (!userInfoRes.ok) {
@@ -538,6 +539,22 @@ router.post('/api/register-invitation', async (req, res) => {
   if (!token || !username || !password) {
     return res.status(400).json({ error: 'Wszystkie pola są wymagane.' });
   }
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Hasło musi mieć co najmniej 8 znaków.' });
+  }
+
+  // Endpointy rejestracji (w przeciwieństwie do /api/login, /api/login-2fa,
+  // /api/verify-2fa-setup) nie miały DEDYKOWANEJ ochrony przed automatycznym
+  // masowym tworzeniem kont z jednego IP - chronił je tylko ogólny apiRateLimiter
+  // (120 żądań/min). Reużywamy mechanizm loginAttempts (per-IP, nie per-username,
+  // bo przy rejestracji nazwa użytkownika jest inna przy każdej próbie) - każda
+  // próba rejestracji (niezależnie od wyniku) liczy się do limitu, w przeciwieństwie
+  // do logowania, gdzie tylko NIEUDANE próby się liczą.
+  const registerLockedMs = await loginAttempts.isLocked(req.ip, 'register_endpoint');
+  if (registerLockedMs > 0) {
+    return res.status(429).json({ error: `Za dużo prób rejestracji z tego adresu IP. Spróbuj ponownie za ${Math.ceil(registerLockedMs / 60000)} min.` });
+  }
+  await loginAttempts.recordFailure(req.ip, 'register_endpoint');
 
   try {
     const user = await db.get(`SELECT id FROM users WHERE invitation_token = ? AND status = 'pending'`, [token]);
@@ -576,6 +593,16 @@ router.post('/api/register-public', async (req, res) => {
   if (!username || !password) {
     return res.status(400).json({ error: 'Nazwa użytkownika i hasło są wymagane.' });
   }
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Hasło musi mieć co najmniej 8 znaków.' });
+  }
+
+  // Patrz komentarz w /api/register-invitation - ten sam mechanizm anty-spam per-IP.
+  const registerLockedMs = await loginAttempts.isLocked(req.ip, 'register_endpoint');
+  if (registerLockedMs > 0) {
+    return res.status(429).json({ error: `Za dużo prób rejestracji z tego adresu IP. Spróbuj ponownie za ${Math.ceil(registerLockedMs / 60000)} min.` });
+  }
+  await loginAttempts.recordFailure(req.ip, 'register_endpoint');
 
   try {
     const existingUsername = await db.get(`SELECT id FROM users WHERE username = ?`, [username]);

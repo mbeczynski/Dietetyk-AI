@@ -23,6 +23,8 @@ function getDefaultHealthMetrics() {
     weight: null,
     fat_ratio: null,
     muscle_mass: null,
+    blood_pressure_systolic: null,
+    blood_pressure_diastolic: null,
     active_minutes: 0,
     distance_meters: 0,
     sedentary_minutes: 0,

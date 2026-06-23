@@ -1,8 +1,13 @@
 function getLocalDateString() {
-  const d = new Date();
-  const tzOffset = d.getTimezoneOffset() * 60000; // offset w ms
-  const localISOTime = (new Date(d.getTime() - tzOffset)).toISOString().slice(0, 10);
-  return localISOTime;
+  // UWAGA: poprzednio liczone przez d.getTimezoneOffset() - czyli strefę czasową
+  // PROCESU NODE, nie aplikacji. Każda inna funkcja w tym pliku (timestampToDateString,
+  // dateObjToLocalDateString) świadomie wymusza Europe/Warsaw przez Intl.DateTimeFormat,
+  // bo aplikacja jest polska. Jeśli serwer/kontener działa w UTC (typowe dla hostingu),
+  // ta funkcja - używana jako "dzisiejsza data" w dashboardzie, czacie, harmonogramie
+  // podsumowań i synchronizacji - zwracała datę przesuniętą o godzinę różnicy strefowej
+  // w oknie ok. 22:00-23:59 czasu Europe/Warsaw (gdy w UTC to już następny dzień) lub
+  // 00:00-01:59 (gdy w UTC to jeszcze poprzedni dzień), rozjeżdżając się z resztą logiki dat.
+  return dateObjToLocalDateString(new Date());
 }
 
 // Formatowanie daty YYYY-MM-DD

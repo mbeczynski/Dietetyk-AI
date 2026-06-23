@@ -164,7 +164,20 @@ export default function AdminPanel({ sessionToken, onLogout }) {
         return;
       }
 
-      const data = await res.json();
+      // res.json() rzuca wyjątek, gdy odpowiedź nie jest JSON-em (np. błąd 500 zwrócony
+      // przez proxy/serwer jako strona HTML, a nie przez nasz handler Express) - wcześniej
+      // taki wyjątek leciał do catch(err) niżej i pokazywał "Błąd połączenia z serwerem",
+      // co jest mylące przy realnym błędzie 500 (operacja w bazie się nie powiodła), a nie
+      // przy faktycznym braku połączenia.
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        if (!res.ok) {
+          setUserActionMessage({ type: 'error', text: `Serwer zwrócił błąd (${res.status}) bez szczegółów.` });
+          return;
+        }
+      }
 
       if (res.ok) {
         setUserActionMessage({ type: 'success', text: data.message || 'Operacja wykonana pomyślnie!' });

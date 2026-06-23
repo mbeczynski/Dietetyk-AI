@@ -1,5 +1,5 @@
 #!/bin/bash
-# deploy_pull.sh
+# scripts/deploy_pull.sh
 #
 # Nowy, "profesjonalny" deployment: kod jest budowany i publikowany jako obrazy
 # Docker przez GitHub Actions (.github/workflows/docker-publish.yml) przy każdym
@@ -11,8 +11,8 @@
 # jeśli pakiety w ghcr.io są prywatne.
 #
 # Użycie (na serwerze, w katalogu z docker-compose.yml):
-#   chmod +x deploy_pull.sh
-#   ./deploy_pull.sh
+#   chmod +x scripts/deploy_pull.sh
+#   ./scripts/deploy_pull.sh
 
 set -e
 

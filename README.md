@@ -39,8 +39,8 @@ Aplikacja wspiera pełne szyfrowanie HTTPS (SSL Let's Encrypt) i jest przystosow
 ### Szybki start
 1. Nadaj uprawnienia do wykonania skryptu startowego i uruchom go:
    ```bash
-   chmod +x start.sh
-   ./start.sh
+   chmod +x scripts/start.sh
+   ./scripts/start.sh
    ```
 2. Skopiuj szablon środowiskowy i wklej swój klucz API z Google AI Studio w `backend/.env`:
    ```env

@@ -5,8 +5,8 @@ set -e
 
 echo "=== Dietetyk AI: Rozpoczęcie procesu budowania i uruchomienia ==="
 
-# Ścieżka bazowa projektu
-PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Ścieżka bazowa projektu (po przeniesieniu do folderu scripts/ idziemy o jeden katalog wyżej)
+PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
 echo "1. Budowanie Frontendu React..."
 cd "$PROJECT_ROOT/frontend"

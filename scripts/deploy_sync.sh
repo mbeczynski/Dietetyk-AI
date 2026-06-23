@@ -1,13 +1,13 @@
 #!/bin/bash
-# deploy_sync.sh
+# scripts/deploy_sync.sh
 #
 # Bezpieczna synchronizacja produkcji: przejście ze starego folderu (uruchomiony,
 # zawiera prawdziwe .env i data/) na nowy folder (świeżo sklonowany z gita,
 # najnowszy kod), bez utraty bazy danych / certyfikatów / konfiguracji.
 #
 # Uruchamiać NA SERWERZE (np. po `ssh root@185.201.112.104`):
-#   chmod +x deploy_sync.sh
-#   ./deploy_sync.sh
+#   chmod +x scripts/deploy_sync.sh
+#   ./scripts/deploy_sync.sh
 #
 # Skrypt zatrzymuje się (set -e) na pierwszym błędzie, więc nic nie "rozjedzie się"
 # w połowie. Cutover (krok 4) wymaga potwierdzenia [y/N] - do tego momentu stary

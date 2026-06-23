@@ -83,6 +83,11 @@ router.post('/api/water/add', requireAuth, async (req, res) => {
   if (!amount || isNaN(amount) || amount <= 0) {
     return res.status(400).json({ error: 'Ilość wody (amount_ml) musi być liczbą większą od zera.' });
   }
+  // Górny limit na pojedynczy wpis - bez tego błąd UI/integracji (np. pomylenie ml
+  // z litrami) mógłby dopisać absurdalną wartość do dziennego licznika wody.
+  if (amount > 5000) {
+    return res.status(400).json({ error: 'Nieprawidłowa ilość wody (maks. 5000 ml na wpis).' });
+  }
   try {
     await db.run(`
       INSERT INTO health_metrics (user_id, date, water_ml)

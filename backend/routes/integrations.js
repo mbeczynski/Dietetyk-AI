@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
-const { getAppConfig, getUserSetting, generateOAuthState, verifyOAuthState } = require('../services/oauthHelpers');
+const { getAppConfig, getUserSetting, generateOAuthState, verifyOAuthState, getVerifiedSessionByToken } = require('../services/oauthHelpers');
 const { syncOura, syncWithings, syncGoogleFit } = require('../services/sync');
 
 router.get('/api/auth/oura', async (req, res) => {
@@ -10,9 +10,9 @@ router.get('/api/auth/oura', async (req, res) => {
   if (!token) return res.status(401).send('Brak tokenu autoryzacji.');
 
   try {
-    const session = await db.get(`SELECT user_id, expires_at FROM sessions WHERE token = ?`, [token]);
-    if (!session || new Date(session.expires_at) < new Date()) {
-      return res.status(401).send('Sesja wygasła.');
+    const session = await getVerifiedSessionByToken(token);
+    if (!session) {
+      return res.status(401).send('Sesja wygasła lub wymaga weryfikacji 2FA.');
     }
 
     const clientId = await getUserSetting(session.user_id, 'oura_client_id');
@@ -168,9 +168,9 @@ router.get('/api/auth/withings', async (req, res) => {
   if (!token) return res.status(401).send('Brak tokenu autoryzacji.');
 
   try {
-    const session = await db.get(`SELECT user_id, expires_at FROM sessions WHERE token = ?`, [token]);
-    if (!session || new Date(session.expires_at) < new Date()) {
-      return res.status(401).send('Sesja wygasła.');
+    const session = await getVerifiedSessionByToken(token);
+    if (!session) {
+      return res.status(401).send('Sesja wygasła lub wymaga weryfikacji 2FA.');
     }
 
     const clientId = await getUserSetting(session.user_id, 'withings_client_id');
@@ -279,9 +279,9 @@ router.get('/api/auth/google-fit', async (req, res) => {
   if (!token) return res.status(401).send('Brak tokenu autoryzacji.');
 
   try {
-    const session = await db.get(`SELECT user_id, expires_at FROM sessions WHERE token = ?`, [token]);
-    if (!session || new Date(session.expires_at) < new Date()) {
-      return res.status(401).send('Sesja wygasła.');
+    const session = await getVerifiedSessionByToken(token);
+    if (!session) {
+      return res.status(401).send('Sesja wygasła lub wymaga weryfikacji 2FA.');
     }
 
     const clientId = await getAppConfig('google_client_id');

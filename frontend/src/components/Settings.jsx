@@ -46,6 +46,10 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   // Imię/nazwisko - AI dietetyk używa imienia, by zwracać się do użytkownika po imieniu
   const [firstNameInput, setFirstNameInput] = useState(userProfile.first_name || '');
   const [lastNameInput, setLastNameInput] = useState(userProfile.last_name || '');
+  // Rok urodzenia - opcjonalny, używany przez backend do wyliczenia realnego
+  // maksymalnego tętna (220 - wiek) w strefach kardio na Dashboardzie. Trzymany
+  // jako string w stanie inputu (pole number w JSX i tak je sparsuje przy zapisie).
+  const [birthYearInput, setBirthYearInput] = useState(userProfile.birth_year || '');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [isRegeneratingToken, setIsRegeneratingToken] = useState(false);
@@ -73,6 +77,9 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     }
     if (userProfile.last_name !== undefined) {
       setLastNameInput(userProfile.last_name || '');
+    }
+    if (userProfile.birth_year !== undefined) {
+      setBirthYearInput(userProfile.birth_year || '');
     }
     if (userProfile.weekly_summary_enabled !== undefined) {
       setWeeklySummaryEnabled(userProfile.weekly_summary_enabled);
@@ -436,6 +443,9 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           email: emailInput,
           first_name: firstNameInput,
           last_name: lastNameInput,
+          // Pusty input -> null (backend liczy HRmax z fallbackiem), a nie ''
+          // czy NaN z Number('').
+          birth_year: birthYearInput ? Number(birthYearInput) : null,
           weekly_summary_enabled: weeklySummaryEnabled ? '1' : '0',
           weekly_summary_day: String(weeklySummaryDay),
           weekly_summary_time: weeklySummaryTime,
@@ -880,9 +890,22 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                   maxLength={50}
                 />
               </div>
+              <div className="input-group" style={{ flex: '1 1 140px' }}>
+                <label className="input-label">Rok urodzenia</label>
+                <input
+                  type="number"
+                  className="input-field"
+                  value={birthYearInput}
+                  onChange={(e) => setBirthYearInput(e.target.value)}
+                  placeholder="np. 1990"
+                  min={1900}
+                  max={2025}
+                />
+              </div>
             </div>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '-8px 0 0' }}>
               Tego imienia AI dietetyk będzie używać, zwracając się do Ciebie w poradach.
+              Rok urodzenia jest opcjonalny - używany do obliczenia maksymalnego tętna w strefach kardio na Dashboardzie.
             </p>
 
             <div className="input-group">
@@ -1572,8 +1595,12 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               <div className="input-group" style={{ marginBottom: 0 }}>
                 <label className="input-label" style={{ fontSize: '0.8rem' }}>URL webhooka (wklej w apce Health Auto Export)</label>
                 <div className="code-block">
-                  <span>{appleHealthWebhookUrl}</span>
-                  <button type="button" className="btn-copy" onClick={handleCopyWebhookUrl}>
+                  {/* syncToken jeszcze nie przyszedł z backendu (fetchSyncToken w App.jsx) -
+                      pokazujemy informację o ładowaniu, a nie URL z puste/fałszywym tokenem. */}
+                  <span style={!appleHealthWebhookUrl ? { color: 'var(--text-dim)', fontStyle: 'italic' } : undefined}>
+                    {appleHealthWebhookUrl || 'Ładowanie tokenu...'}
+                  </span>
+                  <button type="button" className="btn-copy" onClick={handleCopyWebhookUrl} disabled={!appleHealthWebhookUrl}>
                     Kopiuj
                   </button>
                 </div>

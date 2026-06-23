@@ -62,6 +62,9 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
   };
 
   const getScoreClass = (score) => {
+    // score == null (brak oceny AI) nie powinien wyglądać jak "low" (źle oceniony
+    // posiłek) - to dwie różne sytuacje, więc dostają osobną klasę CSS.
+    if (score == null) return 'unrated';
     if (score >= 8) return 'high';
     if (score >= 5) return 'med';
     return 'low';
@@ -221,8 +224,11 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
                     <span className="nutrition-chip protein">B: {Math.round(meal.protein)}g</span>
                     <span className="nutrition-chip carbs">W: {Math.round(meal.carbs)}g</span>
                     <span className="nutrition-chip fat">T: {Math.round(meal.fat)}g</span>
+                    {/* health_rating == null (np. starszy wpis bez oceny AI) pokazuje
+                        "Brak oceny" - poprzednio || 5 fałszywie udawało ocenę 5/10
+                        zarówno dla null, jak i dla realnej, najniższej oceny 0. */}
                     <span className={`meal-score ${getScoreClass(meal.health_rating)}`}>
-                      Ocena: {meal.health_rating || 5}/10
+                      {meal.health_rating != null ? `Ocena: ${meal.health_rating}/10` : 'Brak oceny'}
                     </span>
                   </div>
 

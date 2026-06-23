@@ -86,7 +86,7 @@ router.post('/api/settings', async (req, res) => {
 // 6a. Pobranie profilu użytkownika (nazwa, email, avatar, rola i status 2FA)
 router.get('/api/user/profile', async (req, res) => {
   try {
-    const user = await db.get(`SELECT username, email, avatar_base64, role, totp_enabled, first_name, last_name, google_id FROM users WHERE id = ?`, [req.user.id]);
+    const user = await db.get(`SELECT username, email, avatar_base64, role, totp_enabled, first_name, last_name, google_id, birth_year FROM users WHERE id = ?`, [req.user.id]);
     if (!user) {
       return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
     }
@@ -110,6 +110,9 @@ router.get('/api/user/profile', async (req, res) => {
       role: user.role,
       first_name: user.first_name || '',
       last_name: user.last_name || '',
+      // birth_year to liczba (albo brak danych) - w odróżnieniu od first_name/last_name
+      // NIE zamieniamy braku wartości na pusty string, żeby front mógł rozróżnić "nie ustawiono"
+      birth_year: user.birth_year || null,
       totp_enabled: user.totp_enabled === 1,
       weekly_summary_enabled: summaryEnabledRow ? summaryEnabledRow.value === '1' : false,
       weekly_summary_day: summaryDayRow ? Number(summaryDayRow.value) : 1,
@@ -130,7 +133,7 @@ router.get('/api/user/profile', async (req, res) => {
 
 // 6b. Aktualizacja profilu użytkownika (avatar, email, syncToken)
 router.post('/api/user/profile', async (req, res) => {
-  const { avatar, email, syncToken, first_name, last_name, weekly_summary_enabled, weekly_summary_day, weekly_summary_time, monthly_summary_enabled, monthly_summary_day, monthly_summary_time } = req.body;
+  const { avatar, email, syncToken, first_name, last_name, birth_year, weekly_summary_enabled, weekly_summary_day, weekly_summary_time, monthly_summary_enabled, monthly_summary_day, monthly_summary_time } = req.body;
   try {
     if (syncToken !== undefined) {
       const trimmedToken = syncToken.trim();
@@ -169,6 +172,23 @@ router.post('/api/user/profile', async (req, res) => {
     if (last_name !== undefined) {
       const trimmedLastName = String(last_name).trim();
       await db.run(`UPDATE users SET last_name = ? WHERE id = ?`, [trimmedLastName || null, req.user.id]);
+    }
+
+    // Rok urodzenia - używany przez Dashboard do realnego wyliczenia HRmax (220 - wiek)
+    // w strefach kardio. Pusty string/null oznacza, że użytkownik czyści pole (np. nie
+    // chce podawać wieku) - w takim przypadku zapisujemy NULL, a front wraca do
+    // zahardkodowanego fallbacku. Inaczej wymagamy realnego, sensownego roku.
+    if (birth_year !== undefined) {
+      if (birth_year === '' || birth_year === null) {
+        await db.run(`UPDATE users SET birth_year = ? WHERE id = ?`, [null, req.user.id]);
+      } else {
+        const birthYearNum = Number(birth_year);
+        const isValidBirthYear = Number.isInteger(birthYearNum) && birthYearNum >= 1920 && birthYearNum <= new Date().getFullYear() - 5;
+        if (!isValidBirthYear) {
+          return res.status(400).json({ error: 'Nieprawidłowy rok urodzenia.' });
+        }
+        await db.run(`UPDATE users SET birth_year = ? WHERE id = ?`, [birthYearNum, req.user.id]);
+      }
     }
 
     if (weekly_summary_enabled !== undefined) {

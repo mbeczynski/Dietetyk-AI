@@ -32,6 +32,32 @@ async function getUserSetting(userId, key) {
   return row ? row.value : null;
 }
 
+// Weryfikacja tokenu sesji dla tras OAuth INICJUJĄCYCH połączenie (Oura/Withings/
+// Google Fit/Google link), które dostają token przez ?token= w query (nawigacja
+// najwyższego poziomu, nie fetch z nagłówkiem Authorization - patrz komentarz w
+// middleware/auth.js). Te trasy są na liście wyjątków requireAuth, więc same
+// odpowiadają za pełną weryfikację - wcześniej sprawdzały TYLKO ważność tokenu
+// sesji, NIE sprawdzając, czy użytkownik z włączonym 2FA faktycznie dokończył
+// weryfikację kodu (sesja tymczasowa z is_verified_2fa=0 i krótkim TTL mogła
+// teoretycznie zainicjować podłączenie konta zewnętrznego). Ta funkcja replikuje
+// dokładnie tę samą kontrolę, którą requireAuth stosuje dla tras za nagłówkiem
+// Authorization, więc obie ścieżki mają taki sam poziom bezpieczeństwa.
+async function getVerifiedSessionByToken(token) {
+  if (!token) return null;
+  const session = await db.get(`
+    SELECT s.user_id, s.expires_at, s.is_verified_2fa, u.totp_enabled
+    FROM sessions s
+    JOIN users u ON s.user_id = u.id
+    WHERE s.token = ?
+  `, [token]);
+
+  if (!session) return null;
+  if (new Date(session.expires_at) < new Date()) return null;
+  if (session.totp_enabled === 1 && session.is_verified_2fa === 0) return null;
+
+  return session;
+}
+
 // Bezpieczne generowanie i weryfikacja stanu OAuth (stateless)
 function generateOAuthState(userId, service = 'oura') {
   // crypto.randomBytes (CSPRNG) zamiast Math.random() (PRNG nie-kryptograficzny,
@@ -189,5 +215,6 @@ module.exports = {
   getUserSetting,
   generateOAuthState,
   verifyOAuthState,
-  getOrRefreshToken
+  getOrRefreshToken,
+  getVerifiedSessionByToken
 };

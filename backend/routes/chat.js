@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { getLocalDateString } = require('../utils/dates');
+const { getDefaultHealthMetrics } = require('../utils/defaultHealthMetrics');
 const { generateContentWithFallback } = require('../config');
 
 router.post('/api/chat', requireAuth, async (req, res) => {
@@ -24,23 +25,7 @@ router.post('/api/chat', requireAuth, async (req, res) => {
     const bmr = settings.bmr || 1800;
 
     // Pobierz dzisiejsze dane zdrowotne
-    const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, queryDate]) || {
-      steps: 0,
-      active_calories: 0,
-      total_calories_burned: 0,
-      sleep_score: null,
-      sleep_duration: null,
-      sleep_deep: null,
-      sleep_rem: null,
-      readiness_score: null,
-      hrv: null,
-      rhr: null,
-      temperature_deviation: null,
-      weight: null,
-      fat_ratio: null,
-      muscle_mass: null,
-      water_ml: 0
-    };
+    const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, queryDate]) || getDefaultHealthMetrics();
 
     const mealRows = await db.all(`SELECT * FROM meals WHERE user_id = ? AND date = ?`, [req.user.id, queryDate]);
     let totalEaten = { calories: 0, protein: 0, carbs: 0, fat: 0 };

@@ -147,6 +147,13 @@ const initDb = async () => {
     await run("ALTER TABLE users ADD COLUMN last_name TEXT");
   } catch (e) {}
 
+  // Migracja: rok urodzenia - pole opcjonalne, używane wyłącznie do realnego
+  // wyliczenia maksymalnego tętna (wzór 220 - wiek) na potrzeby stref kardio
+  // na Dashboardzie, zamiast zahardkodowanej stałej HRmax=190 (patrz routes/dashboard.js).
+  try {
+    await run("ALTER TABLE users ADD COLUMN birth_year INTEGER");
+  } catch (e) {}
+
 
   // 1a. Tabela globalnej konfiguracji (np. ustawienia Mailgun)
   await run(`

@@ -119,9 +119,17 @@ router.post('/api/admin/users/:id/force-password-change', requireAdmin, async (r
 });
 
 router.post('/api/admin/invite', requireAdmin, async (req, res) => {
-  const { email, role } = req.body;
+  const { email, role, confirm_admin } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'Adres e-mail jest wymagany.' });
+  }
+
+  // Wymuszenie wprost dodatkowego potwierdzenia (confirm_admin: true) przy roli admin -
+  // zabezpieczenie przed przypadkowym utworzeniem konta z uprawnieniami administratora
+  // przez błąd UI (np. domyślnie zaznaczony select) lub błędną integrację wysyłającą
+  // żądanie automatycznie.
+  if (role === 'admin' && confirm_admin !== true) {
+    return res.status(400).json({ error: 'Tworzenie konta z rolą administratora wymaga potwierdzenia (confirm_admin: true).' });
   }
 
   const roleToUse = role === 'admin' ? 'admin' : 'user';

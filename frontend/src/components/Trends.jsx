@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatHoursMins } from '../utils/format';
 
 export default function Trends({ selectedDate, sessionToken }) {
   const [historyData, setHistoryData] = useState([]);
@@ -34,20 +35,39 @@ export default function Trends({ selectedDate, sessionToken }) {
     return () => clearInterval(intervalId);
   }, [sessionToken, selectedDate]);
 
+  // Bezpieczna konwersja daty bez przesunięć strefy czasowej - new Date(selectedDate)
+  // parsuje "YYYY-MM-DD" jako UTC, więc w strefach na zachód od UTC d.setDate()
+  // mogło dać dzień przesunięty o -1 po toISOString().slice(0,10). new Date(Y, M-1, D)
+  // tworzy datę w lokalnej strefie, więc takiego przesunięcia nie ma (patrz Dashboard.jsx).
+  const selectedDateParts = selectedDate.split('-');
+  const selectedDateObj = new Date(
+    Number(selectedDateParts[0]),
+    Number(selectedDateParts[1]) - 1,
+    Number(selectedDateParts[2])
+  );
+
+  // toISOString() konwertuje do UTC, co samo w sobie mogłoby ponownie przesunąć
+  // dzień o -1 w strefach na zachód od UTC - kompensujemy offset przed konwersją,
+  // analogicznie do getLocalDateString() w App.jsx.
+  const toDateStr = (date) => {
+    const tzOffset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - tzOffset).toISOString().slice(0, 10);
+  };
+
   // Generowanie dni dla aktualnego tygodnia (ostatnie 7 dni kończące się na selectedDate)
   const currentWeekDays = [];
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(selectedDate);
+    const d = new Date(selectedDateObj);
     d.setDate(d.getDate() - i);
-    currentWeekDays.push(d.toISOString().slice(0, 10));
+    currentWeekDays.push(toDateStr(d));
   }
 
   // Generowanie dni dla poprzedniego tygodnia (7 dni przed aktualnym tygodniem)
   const prevWeekDays = [];
   for (let i = 13; i >= 7; i--) {
-    const d = new Date(selectedDate);
+    const d = new Date(selectedDateObj);
     d.setDate(d.getDate() - i);
-    prevWeekDays.push(d.toISOString().slice(0, 10));
+    prevWeekDays.push(toDateStr(d));
   }
 
   const getDayLabel = (dateStr) => {
@@ -120,11 +140,14 @@ export default function Trends({ selectedDate, sessionToken }) {
     };
   };
 
+  // Logika formatowania "Xh Ym" przeniesiona do utils/format.js (formatHoursMins),
+  // żeby nie duplikować jej w Dashboard.jsx/Trends.jsx/ActivityTracker.jsx.
+  // formatDuration zachowuje swoje dotychczasowe zachowanie dla 0/null/undefined
+  // ("0h 0m" - inaczej niż formatHoursMins, które zwraca '--'), żeby nie zmieniać
+  // wyglądu istniejących wykresów w tym pliku.
   const formatDuration = (hoursDecimal) => {
     if (hoursDecimal === null || hoursDecimal === undefined || hoursDecimal === 0) return '0h 0m';
-    const hours = Math.floor(hoursDecimal);
-    const mins = Math.round((hoursDecimal - hours) * 60);
-    return `${hours}h ${mins}m`;
+    return formatHoursMins(hoursDecimal);
   };
 
   // Renderowanie wykresu słupkowego (Kroki, Kalorie, Czas Snu)
@@ -251,9 +274,11 @@ export default function Trends({ selectedDate, sessionToken }) {
     const validVals = currentWeekVals.filter(v => v !== null && v !== undefined);
     const hasData = validVals.length > 0;
 
-    // Zakresy y-skalowania
-    const minVal = Math.min(...currentWeekVals.map(v => v || 9999), ...ticks, 1);
-    const maxVal = Math.max(...currentWeekVals.map(v => v || 0), ...ticks, 1);
+    // Zakresy y-skalowania - liczone z validVals (już odfiltrowanych z null/undefined,
+    // patrz wyżej), a nie z || 9999 / || 0, które myliłyby brak danych z realnym zerem
+    // (analogicznie do getMinMax w ActivityTracker.jsx).
+    const minVal = Math.min(...(validVals.length ? validVals : [0]), ...ticks, 1);
+    const maxVal = Math.max(...(validVals.length ? validVals : [0]), ...ticks, 1);
     const range = maxVal - minVal || 1;
 
     const svgWidth = 240;

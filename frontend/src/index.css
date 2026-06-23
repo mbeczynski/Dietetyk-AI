@@ -615,6 +615,8 @@ header {
 .meal-score.high { color: var(--color-secondary); }
 .meal-score.med { color: var(--color-orange); }
 .meal-score.low { color: #ef4444; }
+/* Brak oceny AI (np. starszy wpis) - neutralny szary, żeby nie wyglądało jak ocena "low" */
+.meal-score.unrated { color: rgba(255, 255, 255, 0.35); }
 
 /* Sekcja Apple Health i Aktywności */
 .activity-card {

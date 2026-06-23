@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getTemperatureStatus } from '../utils/health';
+import { formatHoursMins } from '../utils/format';
 
 // Progress Circle Helper Component (SVG)
 const RenderProgressCircle = ({ size = 80, strokeWidth = 6, percentage = 0, color = "#7c3aed" }) => {
@@ -61,7 +63,9 @@ const SleepStageBar = ({ label, durationText, percentage, typicalStart, typicalE
 };
 
 const getWorkoutIcon = (type) => {
-  const t = type.toLowerCase();
+  // type może nie przyjść z backendu (trening bez przypisanej kategorii) -
+  // bez fallbacku do '' aplikacja wywaliłaby się na .toLowerCase() na undefined.
+  const t = (type || '').toLowerCase();
   if (t.includes('run') || t.includes('bieg')) return '🏃';
   if (t.includes('walk') || t.includes('spacer') || t.includes('marsz')) return '🚶';
   if (t.includes('cycle') || t.includes('rower')) return '🚴';
@@ -440,6 +444,8 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const readinessScore = summary.readiness_score ?? 0;
 
   const steps = summary.steps || 0;
+  // activeCalories: 0 i "brak danych" są tu równoważne (brak treningu = 0 kalorii
+  // aktywnych), więc || 0 zostaje - w odróżnieniu od rhr/hrv poniżej.
   const activeCalories = summary.calories_burned_active || 0;
   const effortScore = activeCalories > 0 ? Math.round(Math.min((activeCalories / 800) * 100, 100)) : 0;
   const activeMinutes = summary.active_minutes || 0;
@@ -447,11 +453,15 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const sleepDurationHours = summary.sleep_duration ?? 0;
   const sleepDeepHours = summary.sleep_deep ?? 0;
   const sleepRemHours = summary.sleep_rem ?? 0;
+  // sleepAwakeMins nie jest jeszcze wyliczane z danych Oura (zawsze 0) - karta
+  // "Czas czuwania" jest dlatego ukrywana w renderze, żeby nie pokazywać fałszywego 0m.
   const sleepAwakeMins = 0;
   const sleepLightHours = Math.max(sleepDurationHours - sleepDeepHours - sleepRemHours - (sleepAwakeMins / 60), 0);
 
-  const rhr = summary.rhr || 0;
-  const hrv = summary.hrv || 0;
+  // rhr/hrv: 0 byłoby fizjologicznie nierealną wartością, więc tu (w odróżnieniu od
+  // np. steps) używamy ?? null, żeby odróżnić "brak danych" od realnego pomiaru.
+  const rhr = summary.rhr ?? null;
+  const hrv = summary.hrv ?? null;
 
   const weight = summary.weight ?? 0;
   const fatRatio = summary.fat_ratio ?? 0;
@@ -471,18 +481,25 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     : bmiValue < 30 ? 'Nadwaga'
     : 'Otyłość';
 
-  // Kalkulacja stref tętna (Karvonen) na bazie RHR z Oura
-  const userMaxHr = 190; // Domyślny Max HR (odpowiednik wieku ~30 lat)
-  const hrReserve = userMaxHr - rhr;
-  const hrZone1Min = Math.round(hrReserve * 0.5 + rhr);
-  const hrZone1Max = Math.round(hrReserve * 0.6 + rhr);
-  const hrZone2Min = Math.round(hrReserve * 0.6 + rhr);
-  const hrZone2Max = Math.round(hrReserve * 0.7 + rhr);
-  const hrZone3Min = Math.round(hrReserve * 0.7 + rhr);
-  const hrZone3Max = Math.round(hrReserve * 0.8 + rhr);
-  const hrZone4Min = Math.round(hrReserve * 0.8 + rhr);
-  const hrZone4Max = Math.round(hrReserve * 0.9 + rhr);
-  const hrZone5Min = Math.round(hrReserve * 0.9 + rhr);
+  // Kalkulacja stref tętna (Karvonen) na bazie RHR z Oura.
+  // userMaxHr: realne HRmax (220 - wiek) liczone przez backend z roku urodzenia
+  // użytkownika (Ustawienia -> Rok urodzenia). Fallback 190 (~wiek 30 lat) tylko
+  // gdy użytkownik nie podał roku urodzenia.
+  const userMaxHr = summary.user_max_hr || 190;
+  // rhr może być null (brak danych z Oura za ten dzień) - do samych obliczeń
+  // używamy lokalnego fallbacku 0, ale karta poniżej jest ukrywana, gdy rhr == null,
+  // żeby nie pokazywać stref wyliczonych z fałszywego RHR.
+  const rhrForZones = rhr ?? 0;
+  const hrReserve = userMaxHr - rhrForZones;
+  const hrZone1Min = Math.round(hrReserve * 0.5 + rhrForZones);
+  const hrZone1Max = Math.round(hrReserve * 0.6 + rhrForZones);
+  const hrZone2Min = Math.round(hrReserve * 0.6 + rhrForZones);
+  const hrZone2Max = Math.round(hrReserve * 0.7 + rhrForZones);
+  const hrZone3Min = Math.round(hrReserve * 0.7 + rhrForZones);
+  const hrZone3Max = Math.round(hrReserve * 0.8 + rhrForZones);
+  const hrZone4Min = Math.round(hrReserve * 0.8 + rhrForZones);
+  const hrZone4Max = Math.round(hrReserve * 0.9 + rhrForZones);
+  const hrZone5Min = Math.round(hrReserve * 0.9 + rhrForZones);
   
   // Odżywianie
   const targetCalories = summary.target_calories || 2000;
@@ -694,12 +711,8 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     }
   };
 
-  // Formatowanie minut do godzin/minut
-  const formatHoursMins = (hoursDecimal) => {
-    const hours = Math.floor(hoursDecimal);
-    const mins = Math.round((hoursDecimal - hours) * 60);
-    return `${hours}h ${mins}m`;
-  };
+  // formatHoursMins przeniesione do utils/format.js (import na górze pliku) -
+  // ta sama logika była duplikowana też w Trends.jsx i potencjalnie ActivityTracker.jsx.
 
   // Renderowanie porady AI jako Markdown (pogrubienia, listy punktowane).
   // dashboard.js prosi Gemini o odpowiedź w Markdown - bez tej konwersji
@@ -1298,14 +1311,19 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 typicalEnd={85} 
                 colorClass="light" 
               />
-              <SleepStageBar 
-                label="Czas czuwania" 
-                durationText={`${sleepAwakeMins} m`} 
-                percentage={Math.min((sleepAwakeMins / 90) * 100, 100)} 
-                typicalStart={10} 
-                typicalEnd={45} 
-                colorClass="awake" 
-              />
+              {/* "Czas czuwania" ukryty, gdy sleepAwakeMins jest hardcoded na 0
+                  (backend jeszcze nie liczy tej wartości z Oura) - pokazywanie
+                  fałszywego "0 m" sugerowałoby realny pomiar, którego nie mamy. */}
+              {sleepAwakeMins > 0 && (
+                <SleepStageBar
+                  label="Czas czuwania"
+                  durationText={`${sleepAwakeMins} m`}
+                  percentage={Math.min((sleepAwakeMins / 90) * 100, 100)}
+                  typicalStart={10}
+                  typicalEnd={45}
+                  colorClass="awake"
+                />
+              )}
             </div>
           </div>
         </div>
@@ -1595,22 +1613,25 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </span>
           </div>
           <div className="premium-grid-2" style={{ gap: '12px' }}>
-            <TrendCard 
-              title="Zmienność rytmu zatokowego" 
-              valueText={String(hrv)} 
-              unitText="ms" 
-              activeSegment={hrv >= 48 ? "right" : "middle"} 
-              color="blue" 
-              footerText={hrv >= 48 ? "Wysoki > 48" : "Niski < 48"} 
-              status="success" 
+            {/* hrv/rhr mogą być null (brak pomiaru z Oura za ten dzień) - karty pokazują
+                '--' i neutralny stan zamiast fałszywego "0 ms"/"0 bpm" i błędnych
+                porównań (null >= 48 czy null < 61 dałyby nielogiczne wyniki). */}
+            <TrendCard
+              title="Zmienność rytmu zatokowego"
+              valueText={hrv != null ? String(hrv) : '--'}
+              unitText="ms"
+              activeSegment={hrv != null && hrv >= 48 ? "right" : "middle"}
+              color="blue"
+              footerText={hrv == null ? "Brak danych" : hrv >= 48 ? "Wysoki > 48" : "Niski < 48"}
+              status="success"
             />
             <TrendCard
               title="Spoczynkowe tętno"
-              valueText={String(rhr)}
+              valueText={rhr != null ? String(rhr) : '--'}
               unitText="bpm"
-              activeSegment={rhr < 61 ? "left" : "middle"}
+              activeSegment={rhr != null && rhr < 61 ? "left" : "middle"}
               color="blue"
-              footerText={rhr < 61 ? "Niski < 61" : "Wysoki > 61"}
+              footerText={rhr == null ? "Brak danych" : rhr < 61 ? "Niski < 61" : "Wysoki > 61"}
               status="success"
             />
             {/* Karta "Słuch" pozostaje usunięta na życzenie użytkownika - Oura nie ma
@@ -1653,17 +1674,22 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 status="success"
               />
             )}
-            {summary.temperature_deviation != null && (
-              <TrendCard
-                title="Odchylenie temperatury"
-                valueText={`${summary.temperature_deviation > 0 ? '+' : ''}${summary.temperature_deviation.toFixed(2)}`}
-                unitText="°C"
-                activeSegment={summary.temperature_deviation > 0.5 ? "right" : summary.temperature_deviation < -0.5 ? "left" : "middle"}
-                color="blue"
-                footerText={Math.abs(summary.temperature_deviation) > 0.5 ? "Poza normą ±0.5°C (Oura)" : "W normie ±0.5°C (Oura)"}
-                status={Math.abs(summary.temperature_deviation) > 0.5 ? "warning" : "success"}
-              />
-            )}
+            {summary.temperature_deviation != null && (() => {
+              // Wspólny próg ±0.5°C (Oura) - patrz utils/health.js, żeby nie
+              // duplikować tej samej granicy w kilku komponentach.
+              const tempStatus = getTemperatureStatus(summary.temperature_deviation);
+              return (
+                <TrendCard
+                  title="Odchylenie temperatury"
+                  valueText={`${summary.temperature_deviation > 0 ? '+' : ''}${summary.temperature_deviation.toFixed(2)}`}
+                  unitText="°C"
+                  activeSegment={summary.temperature_deviation > 0.5 ? "right" : summary.temperature_deviation < -0.5 ? "left" : "middle"}
+                  color="blue"
+                  footerText={tempStatus.label}
+                  status={tempStatus.inRange ? "success" : "warning"}
+                />
+              );
+            })()}
           </div>
         </div>
 
@@ -1717,7 +1743,9 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
         </div>
 
-        {/* STREFY TĘTNA (HR ZONES) */}
+        {/* STREFY TĘTNA (HR ZONES) - tylko gdy mamy realny RHR, bez tego wszystkie
+            zakresy byłyby liczone z fałszywym RHR=0 (patrz rhrForZones powyżej) */}
+        {rhr != null && (
         <div className="premium-card">
           <div className="premium-title-row">
             <span className="premium-title">💓 Strefy Tętna (Karvonen)</span>
@@ -1767,6 +1795,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
           </div>
         </div>
+        )}
       </div>
 
 

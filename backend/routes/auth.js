@@ -7,17 +7,30 @@ const QRCode = require('qrcode');
 const crypto = require('crypto');
 const loginAttempts = require('../services/loginAttempts');
 const logger = require('../services/logger');
-const { getAppConfig, generateOAuthState, verifyOAuthState } = require('../services/oauthHelpers');
+const { getAppConfig, generateOAuthState, verifyOAuthState, getVerifiedSessionByToken } = require('../services/oauthHelpers');
 
-// Pomocnicza funkcja do tworzenia stałego tokenu sesji (7 dni) - używana też przez logowanie Google
-async function createPermanentSession(userId) {
-  const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+// Pomocnicza funkcja do tworzenia sesji (tymczasowej lub stałej) - wydzielona, bo ten
+// sam wzorzec (wygeneruj token, policz expires_at, wstaw wiersz do sessions) był
+// powtórzony osobno w kilkunastu miejscach w tym pliku (force_password_change,
+// require_2fa, setup_2fa, logowanie bez 2FA, logowanie Google, weryfikacja 2FA,
+// rejestracja...), z identyczną logiką poza długością ważności i flagą is_verified_2fa.
+// `ttlDays` przyjmuje też wartości ułamkowe (np. tymczasowe sesje 5-minutowe, patrz
+// TEMP_SESSION_TTL_DAYS poniżej) - liczone i tak w milisekundach.
+// Prefiks tokenu ('temp_' dla krótkotrwałych sesji weryfikacyjnych, 'sess_' dla
+// docelowych sesji zalogowania) zachowuje dokładnie te same wzorce tokenów, które
+// rozpoznaje reszta kodu (np. getVerifiedSessionByToken, middleware/auth.js).
+const TEMP_SESSION_TTL_DAYS = 5 / (24 * 60); // 5 minut wyrażone w dniach
+const PERMANENT_SESSION_TTL_DAYS = 7;
+
+async function createSession(userId, isVerified2fa, ttlDays = PERMANENT_SESSION_TTL_DAYS) {
+  const tokenPrefix = ttlDays >= 1 ? 'sess_' : 'temp_';
+  const token = tokenPrefix + crypto.randomBytes(24).toString('hex');
+  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
   await db.run(`
     INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-    VALUES (?, ?, ?, 0)
-  `, [permanentToken, userId, expiresAt]);
-  return permanentToken;
+    VALUES (?, ?, ?, ?)
+  `, [token, userId, expiresAt, isVerified2fa ? 1 : 0]);
+  return token;
 }
 
 // ===== Logowanie przez Google =====
@@ -58,9 +71,9 @@ router.get('/api/auth/google/link', async (req, res) => {
   if (!token) return res.status(401).send('Brak tokenu autoryzacji.');
 
   try {
-    const session = await db.get(`SELECT user_id, expires_at FROM sessions WHERE token = ?`, [token]);
-    if (!session || new Date(session.expires_at) < new Date()) {
-      return res.status(401).send('Sesja wygasła.');
+    const session = await getVerifiedSessionByToken(token);
+    if (!session) {
+      return res.status(401).send('Sesja wygasła lub wymaga weryfikacji 2FA.');
     }
 
     const clientId = await getAppConfig('google_client_id');
@@ -201,12 +214,7 @@ router.get('/api/auth/google/callback', async (req, res) => {
 
     // Respektujemy 2FA, jeśli użytkownik je wcześniej włączył (logowanie Google nie omija 2FA)
     if (user.totp_enabled === 1) {
-      const tempToken = 'temp_' + crypto.randomBytes(24).toString('hex');
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-      await db.run(`
-        INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-        VALUES (?, ?, ?, 0)
-      `, [tempToken, user.id, expiresAt]);
+      const tempToken = await createSession(user.id, false, TEMP_SESSION_TTL_DAYS);
       // Token w fragmencie URL (#), NIE w query stringu: fragment nigdy nie jest
       // wysyłany przez przeglądarkę do serwera przy kolejnym żądaniu (np. GET /),
       // więc żywy token sesji nie trafia do logów morgan('dev') (logującego pełny
@@ -214,7 +222,7 @@ router.get('/api/auth/google/callback', async (req, res) => {
       return res.redirect(`/#google_temp_token=${tempToken}`);
     }
 
-    const permanentToken = await createPermanentSession(user.id);
+    const permanentToken = await createSession(user.id, false);
     res.redirect(`/#google_token=${permanentToken}`);
   } catch (err) {
     console.error('[GOOGLE LOGIN CALLBACK ERROR]', err.message);
@@ -254,13 +262,7 @@ router.post('/api/login', async (req, res) => {
 
     // Sprawdź czy wymuszona jest zmiana hasła
     if (user.force_password_change === 1) {
-      const tempToken = 'temp_' + crypto.randomBytes(24).toString('hex');
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-
-      await db.run(`
-        INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-        VALUES (?, ?, ?, 0)
-      `, [tempToken, user.id, expiresAt]);
+      const tempToken = await createSession(user.id, false, TEMP_SESSION_TTL_DAYS);
 
       return res.json({
         status: 'force_password_change',
@@ -270,13 +272,7 @@ router.post('/api/login', async (req, res) => {
 
     if (user.totp_enabled === 1) {
       // Generowanie tymczasowego tokenu (ważnego 5 minut)
-      const tempToken = 'temp_' + crypto.randomBytes(24).toString('hex');
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-
-      await db.run(`
-        INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-        VALUES (?, ?, ?, 0)
-      `, [tempToken, user.id, expiresAt]);
+      const tempToken = await createSession(user.id, false, TEMP_SESSION_TTL_DAYS);
 
       return res.json({
         status: 'require_2fa',
@@ -299,13 +295,7 @@ router.post('/api/login', async (req, res) => {
             await db.run(`UPDATE users SET totp_secret = ? WHERE id = ?`, [secret, user.id]);
           }
 
-          const tempToken = 'temp_' + crypto.randomBytes(24).toString('hex');
-          const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-
-          await db.run(`
-            INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-            VALUES (?, ?, ?, 0)
-          `, [tempToken, user.id, expiresAt]);
+          const tempToken = await createSession(user.id, false, TEMP_SESSION_TTL_DAYS);
 
           const otpauth = authenticator.keyuri(user.username, 'Dietetyk AI', secret);
           const qrCodeDataUrl = await QRCode.toDataURL(otpauth);
@@ -320,26 +310,14 @@ router.post('/api/login', async (req, res) => {
       }
 
       // Logowanie bezpośrednie bez 2FA (wymuszenie wyłączone lub konto młodsze niż 24h)
-      const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-
-      await db.run(`
-        INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-        VALUES (?, ?, ?, 0)
-      `, [permanentToken, user.id, expiresAt]);
+      const permanentToken = await createSession(user.id, false);
 
       return res.json({
         token: permanentToken
       });
     } else {
       // Bezpośrednie generowanie stałego tokenu sesji dla testowego konta admina (MFA wyłączone)
-      const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-
-      await db.run(`
-        INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-        VALUES (?, ?, ?, 0)
-      `, [permanentToken, user.id, expiresAt]);
+      const permanentToken = await createSession(user.id, false);
 
       return res.json({
         token: permanentToken
@@ -393,14 +371,8 @@ router.post('/api/verify-2fa-setup', async (req, res) => {
     // Aktywuj 2FA dla użytkownika
     await db.run(`UPDATE users SET totp_enabled = 1, force_2fa = 0 WHERE id = ?`, [session.user_id]);
 
-    // Wygeneruj stały token sesji (ważny 7 dni)
-    const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-
-    await db.run(`
-      INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-      VALUES (?, ?, ?, 1)
-    `, [permanentToken, session.user_id, expiresAt]);
+    // Wygeneruj stały token sesji (ważny 7 dni), już zweryfikowany 2FA
+    const permanentToken = await createSession(session.user_id, true);
 
     // Usuń tymczasową sesję
     await db.run(`DELETE FROM sessions WHERE token = ?`, [tempToken]);
@@ -451,14 +423,8 @@ router.post('/api/login-2fa', async (req, res) => {
 
     await loginAttempts.recordSuccess(req.ip, tempToken);
 
-    // Wygeneruj stały token sesji (ważny 7 dni)
-    const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-
-    await db.run(`
-      INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-      VALUES (?, ?, ?, 1)
-    `, [permanentToken, session.user_id, expiresAt]);
+    // Wygeneruj stały token sesji (ważny 7 dni), już zweryfikowany 2FA
+    const permanentToken = await createSession(session.user_id, true);
 
     // Usuń tymczasową sesję
     await db.run(`DELETE FROM sessions WHERE token = ?`, [tempToken]);
@@ -531,13 +497,7 @@ router.post('/api/change-password-forced', async (req, res) => {
           secret: secret
         });
       } else {
-        const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-
-        await db.run(`
-          INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-          VALUES (?, ?, ?, 0)
-        `, [permanentToken, session.user_id, expiresAt]);
+        const permanentToken = await createSession(session.user_id, false);
 
         // Usuń tymczasową sesję
         await db.run(`DELETE FROM sessions WHERE token = ?`, [tempToken]);
@@ -599,13 +559,7 @@ router.post('/api/register-invitation', async (req, res) => {
       WHERE id = ?
     `, [username, passwordHash, secret, user.id]);
 
-    const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-
-    await db.run(`
-      INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-      VALUES (?, ?, ?, 0)
-    `, [permanentToken, user.id, expiresAt]);
+    const permanentToken = await createSession(user.id, false);
 
     res.json({
       token: permanentToken
@@ -657,13 +611,7 @@ router.post('/api/register-public', async (req, res) => {
       await db.run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (?, ?, ?)`, [result.id, s.key, s.value]);
     }
 
-    const permanentToken = 'sess_' + crypto.randomBytes(24).toString('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-
-    await db.run(`
-      INSERT INTO sessions (token, user_id, expires_at, is_verified_2fa)
-      VALUES (?, ?, ?, 0)
-    `, [permanentToken, result.id, expiresAt]);
+    const permanentToken = await createSession(result.id, false);
 
     res.json({
       token: permanentToken

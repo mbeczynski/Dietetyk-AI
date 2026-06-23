@@ -2,7 +2,14 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { getLocalDateString } = require('../utils/dates');
+const { getDefaultHealthMetrics } = require('../utils/defaultHealthMetrics');
 const { genAI, generateContentWithFallback } = require('../config');
+
+// Blokada równoległego generowania porady AI dla tej samej (user, data) - bez tego
+// kilka odświeżeń dashboardu w krótkim czasie (np. otwarcie kilku zakładek albo
+// szybkie odświeżanie po nieudanym ładowaniu) odpalałoby N równoległych zapytań
+// do Gemini dla identycznego promptu, mnożąc niepotrzebnie koszt/limity API.
+const pendingAdviceGeneration = new Set();
 
 // Przesunięcie daty (string YYYY-MM-DD) o N dni - czysta arytmetyka kalendarzowa
 // przez Date.UTC (jak w istniejącym subtractDay), żeby uniknąć błędów strefy
@@ -85,6 +92,15 @@ router.get('/api/dashboard', async (req, res) => {
       settings[r.key] = Number(r.value);
     });
 
+    // Realny HRmax na bazie roku urodzenia użytkownika (wzór 220 - wiek) - wcześniej
+    // strefy tętna (Karvonen) liczone na froncie zawsze zakładały HRmax=190 (czyli
+    // wiek ~30 lat) niezależnie od realnego wieku użytkownika. Pole opcjonalne -
+    // jeśli użytkownik nie podał roku urodzenia w profilu, zwracamy null, a front
+    // sam wraca do fallbacku 190.
+    const userRow = await db.get('SELECT birth_year FROM users WHERE id = ?', [req.user.id]);
+    const currentYear = new Date().getFullYear();
+    const userMaxHr = userRow && userRow.birth_year ? (220 - (currentYear - userRow.birth_year)) : null;
+
     // Posiłki z dzisiaj
     const mealRows = await db.all(`SELECT * FROM meals WHERE user_id = ? AND date = ?`, [req.user.id, date]);
     let totalEaten = { calories: 0, protein: 0, carbs: 0, fat: 0 };
@@ -108,37 +124,7 @@ router.get('/api/dashboard', async (req, res) => {
     totalEaten.fat = Math.round(totalEaten.fat * 10) / 10;
 
     // Dane zdrowotne z Oura & Withings z wybranego dnia
-    const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, date]) || {
-      steps: 0,
-      active_calories: 0,
-      total_calories_burned: 0,
-      sleep_score: null,
-      sleep_duration: null,
-      sleep_deep: null,
-      sleep_rem: null,
-      readiness_score: null,
-      hrv: null,
-      rhr: null,
-      temperature_deviation: null,
-      respiratory_rate: null,
-      spo2_percentage: null,
-      wrist_temperature: null,
-      weight: null,
-      fat_ratio: null,
-      muscle_mass: null,
-      active_minutes: 0,
-      distance_meters: 0,
-      sedentary_minutes: 0,
-      low_activity_minutes: 0,
-      stress_high_minutes: null,
-      stress_recovery_minutes: null,
-      stress_summary: null,
-      water_ml: 0,
-      last_sync: null,
-      activity_source: null,
-      ai_advice: null,
-      ai_advice_generated_at: null
-    };
+    const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, date]) || getDefaultHealthMetrics();
 
     const hasOuraRow = await db.get(`SELECT 1 FROM oauth_tokens WHERE user_id = ? AND service = 'oura'`, [req.user.id]);
     const hasWithingsRow = await db.get(`SELECT 1 FROM oauth_tokens WHERE user_id = ? AND service = 'withings'`, [req.user.id]);
@@ -337,7 +323,13 @@ router.get('/api/dashboard', async (req, res) => {
       const forceCustomKeyOnly = req.user.role !== 'admin';
       const canUseAI = userApiKey || (!forceCustomKeyOnly && (genAI || process.env.GEMINI_API_KEY));
 
-      if (canUseAI && (meals.length > 0 || activeCalories > 0 || health.sleep_score !== null)) {
+      // Klucz (user, data) do blokady równoległego generowania (patrz definicja
+      // pendingAdviceGeneration na górze pliku) - jeśli generowanie dla tej (user, data)
+      // już trwa (np. inna karta przeglądarki odświeżyła dashboard chwilę wcześniej),
+      // NIE odpalamy kolejnego zapytania do Gemini, tylko zostawiamy stary cache/placeholder.
+      const adviceLockKey = `${req.user.id}:${date}`;
+
+      if (canUseAI && !pendingAdviceGeneration.has(adviceLockKey) && (meals.length > 0 || activeCalories > 0 || health.sleep_score !== null)) {
         // Imię (jeśli ustawione w Ustawieniach) ma priorytet nad loginem technicznym -
         // o to prosił użytkownik: AI ma się zwracać po imieniu, nie po nazwie konta.
         const displayName = req.user.first_name || req.user.username;
@@ -429,6 +421,11 @@ Napisz krótką, spersonalizowaną poradę dietetyczno-treningową (maksymalnie 
 Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego po imieniu (${displayName}) co najmniej raz. Bądź konkretny, motywujący i merytoryczny. Możesz swobodnie używać formatowania Markdown (np. **pogrubienia** kluczowych fraz, list punktowanych) - frontend renderuje tę odpowiedź jako Markdown.
 `;
 
+        // Oznaczamy (user, data) jako "generowanie w toku" PRZED startem zapytania do
+        // Gemini, żeby kolejne, prawie równoczesne żądanie GET /api/dashboard (patrz
+        // warunek pendingAdviceGeneration.has(...) powyżej) nie odpaliło duplikatu.
+        pendingAdviceGeneration.add(adviceLockKey);
+
         // Fire-and-forget: NIE czekamy na wynik w tym żądaniu (patrz komentarz wyżej).
         generateContentWithFallback(advicePrompt, false, null, userApiKey, forceCustomKeyOnly)
           .then(async (text) => {
@@ -444,6 +441,12 @@ Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego p
           })
           .catch((aiErr) => {
             console.error('[API ERROR] Błąd generowania porady AI (w tle):', aiErr);
+          })
+          .finally(() => {
+            // Usuwamy blokadę zarówno po sukcesie, jak i po błędzie - inaczej błąd
+            // (np. tymczasowa awaria Gemini) zablokowałby generowanie porady dla tej
+            // (user, data) na zawsze, do restartu serwera.
+            pendingAdviceGeneration.delete(adviceLockKey);
           });
       }
     }
@@ -514,7 +517,8 @@ Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego p
         activity_source: health.activity_source || null,
         latest_body_measurement: latestBodyMeasurement || null,
         calorie_streak_days: calorieStreakDays,
-        sleep_streak_days: sleepStreakDays
+        sleep_streak_days: sleepStreakDays,
+        user_max_hr: userMaxHr
       },
       meals,
       aiAdvice

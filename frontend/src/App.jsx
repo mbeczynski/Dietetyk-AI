@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Dashboard from './components/Dashboard';
 import MealLogger from './components/MealLogger';
 import ActivityTracker from './components/ActivityTracker';
@@ -34,9 +34,6 @@ export default function App() {
   const [registerConfirmPasswordInput, setRegisterConfirmPasswordInput] = useState('');
   const [registerEmailInput, setRegisterEmailInput] = useState('');
   
-  // Modal state
-  const [showTermsModal, setShowTermsModal] = useState(false);
-
   const handlePublicRegister = async (e) => {
     e.preventDefault();
     setLoginError('');
@@ -117,20 +114,35 @@ export default function App() {
     meals: [],
     aiAdvice: 'Ładowanie porad dietetyka...'
   });
-  const [syncToken, setSyncToken] = useState('secure-diet-token-123');
+  // Brak wartości domyślnej/placeholdera - prawdziwy token przychodzi z backendu
+  // (fetchSyncToken). Pusty string sygnalizuje komponentom (np. Settings), że
+  // token jeszcze się ładuje, zamiast budować URL webhooka z fałszywym tokenem.
+  const [syncToken, setSyncToken] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [userProfile, setUserProfile] = useState({ username: '', avatar_base64: '' });
+  // Flaga "czy to wciąż aktualne żądanie" - patrz komentarz w useEffect poniżej
+  // (ochrona przed race condition przy szybkiej zmianie daty/sesji).
+  const isCurrentRequestRef = useRef(true);
 
   // Pobierz dane przy załadowaniu i przy zmianie daty lub sesji
   useEffect(() => {
+    // Ochrona przed race condition: jeśli użytkownik szybko zmieni datę,
+    // odpowiedź z poprzedniego (już nieaktualnego) zapytania o dashboard mogłaby
+    // przyjść później niż odpowiedź dla nowej daty i nadpisać ją złymi danymi.
+    // isCurrent ustawiane na false w cleanupie efektu jest sprawdzane w
+    // fetchDashboardData przed setDashboardData, żeby zignorować spóźnioną odpowiedź.
+    isCurrentRequestRef.current = true;
     if (sessionToken) {
       fetchDashboardData();
       fetchSyncToken();
       fetchUserProfile();
     }
+    return () => {
+      isCurrentRequestRef.current = false;
+    };
   }, [selectedDate, sessionToken]);
 
   // Automatyczne odświeżanie danych z bazy co godzinę (zgodnie z godzinową
@@ -347,6 +359,10 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
+        // Jeśli w międzyczasie zmieniła się data/sesja (nowy efekt już wystartował
+        // i ustawił flagę na false w cleanupie), ignorujemy tę spóźnioną odpowiedź,
+        // żeby nie nadpisać nowszych, już wyświetlonych danych starymi.
+        if (!isCurrentRequestRef.current) return;
         setDashboardData({
           summary: data.summary,
           meals: data.meals,
@@ -994,73 +1010,6 @@ export default function App() {
         <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', textAlign: 'center' }}>
           Dietetyk AI v1.1.0 | Powered by <a href="https://renacode.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>RenaCode</a> | <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Regulamin</a> | <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Polityka Prywatności</a> | <a href="/sync.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textDecoration: 'underline' }}>Jak zsynchronizować dane</a>
         </div>
-
-        {/* Modal regulaminu */}
-        {showTermsModal && (
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(7, 9, 19, 0.85)',
-            backdropFilter: 'blur(8px)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 9999,
-            padding: '20px'
-          }}>
-            <div className="glass-card" style={{ maxWidth: '600px', width: '100%', maxHeight: '80vh', overflowY: 'auto', textAlign: 'left', position: 'relative' }}>
-              <button 
-                type="button" 
-                onClick={() => setShowTermsModal(false)} 
-                style={{
-                  position: 'absolute',
-                  top: '15px',
-                  right: '15px',
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  fontSize: '1.25rem',
-                  cursor: 'pointer'
-                }}
-              >
-                ✕
-              </button>
-              <h3 className="card-title" style={{ marginBottom: '16px' }}>📜 Regulamin Serwisu i Polityka Prywatności</h3>
-              <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: '1.6', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <p><strong>1. Postanowienia ogólne</strong><br />
-                Aplikacja Dietetyk AI (zwana dalej „Serwisem”) jest osobistym asystentem żywieniowym i treningowym. Korzystanie z Serwisu wymaga akceptacji niniejszego Regulaminu.</p>
-                
-                <p><strong>2. Rejestracja i Bezpieczeństwo Konta</strong><br />
-                Każdy użytkownik zobowiązany jest do zabezpieczenia swojego konta za pomocą dwuetapowej weryfikacji (2FA) przy pierwszym logowaniu. Zabrania się udostępniania danych logowania osobom trzecim.</p>
-                
-                <p><strong>3. Przetwarzanie i synchronizacja danych</strong><br />
-                Serwis umożliwia synchronizację danych aktywności z Apple Health za pomocą webhooka oraz analizowanie wprowadzanych posiłków przez zewnętrzną sztuczną inteligencję (Gemini AI). Przesyłane dane są przechowywane w bazie danych serwisu w celu wyliczania bilansu kalorycznego.</p>
-                
-                <p><strong>4. Analiza AI i Odpowiedzialność</strong><br />
-                Wszelkie analizy żywieniowe, wartości kaloryczne makroskładników oraz porady dietetyczne generowane przez Gemini AI mają charakter wyłącznie edukacyjno-informacyjny. Nie zastępują one profesjonalnej porady medycznej, lekarskiej ani dietetycznej. Użytkownik korzysta z Serwisu na własną odpowiedzialność.</p>
-                
-                <p><strong>5. Licencja</strong><br />
-                Kod źródłowy Serwisu jest rozpowszechniany na warunkach otwartoźródłowej licencji MIT. Użytkownik ma prawo do korzystania z Serwisu zgodnie z jej postanowieniami.</p>
-                
-                <p><strong>6. Zmiany Regulaminu</strong><br />
-                Serwis zastrzega sobie prawo do wprowadzania zmian w niniejszym Regulaminie. Aktualna wersja jest zawsze dostępna w stopce Serwisu.</p>
-                
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '10px' }}>Ostatnia aktualizacja: 15.06.2026 r.</p>
-              </div>
-              <button 
-                type="button" 
-                className="btn-primary" 
-                onClick={() => setShowTermsModal(false)}
-                style={{ width: '100%', marginTop: '20px', padding: '10px' }}
-              >
-                Zamknij
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -1203,73 +1152,6 @@ export default function App() {
           Dietetyk AI v1.1.0 | Powered by <a href="https://renacode.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>RenaCode</a> | <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Regulamin</a> | <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Polityka Prywatności</a> | <a href="/sync.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline' }}>Jak zsynchronizować dane</a>
         </div>
       </footer>
-
-      {/* Modal regulaminu */}
-      {showTermsModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(7, 9, 19, 0.85)',
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 9999,
-          padding: '20px'
-        }}>
-          <div className="glass-card" style={{ maxWidth: '600px', width: '100%', maxHeight: '80vh', overflowY: 'auto', textAlign: 'left', position: 'relative' }}>
-            <button 
-              type="button" 
-              onClick={() => setShowTermsModal(false)} 
-              style={{
-                position: 'absolute',
-                top: '15px',
-                right: '15px',
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-muted)',
-                fontSize: '1.25rem',
-                cursor: 'pointer'
-              }}
-            >
-              ✕
-            </button>
-            <h3 className="card-title" style={{ marginBottom: '16px' }}>📜 Regulamin Serwisu i Polityka Prywatności</h3>
-            <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: '1.6', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <p><strong>1. Postanowienia ogólne</strong><br />
-              Aplikacja Dietetyk AI (zwana dalej „Serwisem”) jest osobistym asystentem żywieniowym i treningowym. Korzystanie z Serwisu wymaga akceptacji niniejszego Regulaminu.</p>
-              
-              <p><strong>2. Rejestracja i Bezpieczeństwo Konta</strong><br />
-              Każdy użytkownik zobowiązany jest do zabezpieczenia swojego konta za pomocą dwuetapowej weryfikacji (2FA) przy pierwszym logowaniu. Zabrania się udostępniania danych logowania osobom trzecim.</p>
-              
-              <p><strong>3. Przetwarzanie i synchronizacja danych</strong><br />
-              Serwis umożliwia synchronizację danych aktywności z Apple Health za pomocą webhooka oraz analizowanie wprowadzanych posiłków przez zewnętrzną sztuczną inteligencję (Gemini AI). Przesyłane dane są przechowywane w bazie danych serwisu w celu wyliczania bilansu kalorycznego.</p>
-              
-              <p><strong>4. Analiza AI i Odpowiedzialność</strong><br />
-              Wszelkie analizy żywieniowe, wartości kaloryczne makroskładników oraz porady dietetyczne generowane przez Gemini AI mają charakter wyłącznie edukacyjno-informacyjny. Nie zastępują one profesjonalnej porady medycznej, lekarskiej ani dietetycznej. Użytkownik korzysta z Serwisu na własną odpowiedzialność.</p>
-              
-              <p><strong>5. Licencja</strong><br />
-              Kod źródłowy Serwisu jest rozpowszechniany na warunkach otwartoźródłowej licencji MIT. Użytkownik ma prawo do korzystania z Serwisu zgodnie z jej postanowieniami.</p>
-              
-              <p><strong>6. Zmiany Regulaminu</strong><br />
-              Serwis zastrzega sobie prawo do wprowadzania zmian w niniejszym Regulaminie. Aktualna wersja jest zawsze dostępna w stopce Serwisu.</p>
-              
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '10px' }}>Ostatnia aktualizacja: 15.06.2026 r.</p>
-            </div>
-            <button 
-              type="button" 
-              className="btn-primary" 
-              onClick={() => setShowTermsModal(false)}
-              style={{ width: '100%', marginTop: '20px', padding: '10px' }}
-            >
-              Zamknij
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

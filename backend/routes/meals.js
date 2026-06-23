@@ -4,6 +4,17 @@ const db = require('../db');
 const { getLocalDateString } = require('../utils/dates');
 const { generateContentWithFallback } = require('../config');
 
+// Model AI (Gemini) czasem zwraca nierealistyczne lub ujemne wartości kalorii/makro
+// (np. błąd parsowania wielkości porcji, halucynacja liczby) - bez tego zabezpieczenia
+// taka wartość trafiałaby bezpośrednio do bazy i psuła agregacje (sumy dzienne, bilans
+// kaloryczny, streaki) na dashboardzie/podsumowaniach. Odcinamy do sensownego zakresu,
+// a gdy wartości nie da się sparsować jako liczby, używamy fallbacku (domyślnie 0).
+function sanitizeNumber(val, min, max, fallback = 0) {
+  const num = Number(val);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(Math.max(num, min), max);
+}
+
 router.post('/api/meals', async (req, res) => {
   const { rawText, date, image } = req.body;
   const targetDate = date || getLocalDateString();
@@ -149,6 +160,13 @@ Struktura JSON:
     for (const m of mealsToInsert) {
       const mealDescription = (imagePart ? (m.name || rawText || 'Posiłek ze zdjęcia') : (m.name || rawText));
 
+      // Odcięcie wartości z odpowiedzi AI do sensownego zakresu przed zapisem do bazy
+      // (patrz komentarz przy definicji sanitizeNumber powyżej).
+      const safeCalories = sanitizeNumber(m.calories, 0, 5000, 0);
+      const safeProtein = sanitizeNumber(m.protein, 0, 500, 0);
+      const safeCarbs = sanitizeNumber(m.carbs, 0, 500, 0);
+      const safeFat = sanitizeNumber(m.fat, 0, 500, 0);
+
       // Zapisz posiłek w bazie (błonnik/cukry/sód jako NULL, jeśli AI ich nie
       // oszacowało - bez fabrykowania zer, zgodnie z ustaloną zasadą projektu)
       const result = await db.run(`
@@ -158,10 +176,10 @@ Struktura JSON:
         req.user.id,
         targetDate,
         mealDescription,
-        m.calories || 0,
-        m.protein || 0,
-        m.carbs || 0,
-        m.fat || 0,
+        safeCalories,
+        safeProtein,
+        safeCarbs,
+        safeFat,
         m.fiber !== undefined && m.fiber !== null ? m.fiber : null,
         m.sugar !== undefined && m.sugar !== null ? m.sugar : null,
         m.sodium !== undefined && m.sodium !== null ? m.sodium : null,
@@ -169,12 +187,19 @@ Struktura JSON:
         image || null
       ]);
 
+      // Odpowiedź do frontendu musi pokazywać te SAME (odcięte) wartości, które
+      // wylądowały w bazie - inaczej dashboard od razu po dodaniu posiłku pokazałby
+      // inną liczbę kcal/makro niż po jego odświeżeniu z bazy.
       insertedMeals.push({
         id: result.id,
         date: targetDate,
         raw_text: mealDescription,
         image_base64: image || null,
-        ...m
+        ...m,
+        calories: safeCalories,
+        protein: safeProtein,
+        carbs: safeCarbs,
+        fat: safeFat
       });
     }
 

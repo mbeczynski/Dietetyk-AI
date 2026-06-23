@@ -1267,6 +1267,23 @@ header {
   color: rgba(255, 255, 255, 0.85);
 }
 
+.dietetyk-ai-advice-text p {
+  margin: 0 0 8px 0;
+}
+
+.dietetyk-ai-advice-text p:last-child {
+  margin-bottom: 0;
+}
+
+.dietetyk-ai-advice-text ul {
+  margin: 0 0 8px 0;
+  padding-left: 18px;
+}
+
+.dietetyk-ai-advice-text strong {
+  color: #fff;
+}
+
 .btn-dietetyk-ask {
   background: linear-gradient(90deg, #7c3aed, #a855f7);
   border: none;

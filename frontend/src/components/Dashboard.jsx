@@ -701,6 +701,36 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     return `${hours}h ${mins}m`;
   };
 
+  // Renderowanie porady AI jako Markdown (pogrubienia, listy punktowane).
+  // dashboard.js prosi Gemini o odpowiedź w Markdown - bez tej konwersji
+  // React wyświetliłby "**tekst**" dosłownie, z gwiazdkami na ekranie.
+  // Najpierw escapujemy HTML (tekst generuje LLM, mógł przepisać coś od
+  // użytkownika), potem zamieniamy tylko znane znaczniki Markdown na HTML.
+  const escapeHtml = (str) => str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const renderAdviceMarkdown = (text) => {
+    if (!text) return '';
+    const lines = escapeHtml(text).split('\n');
+    let html = '';
+    let inList = false;
+    lines.forEach((rawLine) => {
+      const line = rawLine.trim();
+      const listMatch = line.match(/^[*-]\s+(.*)/);
+      if (listMatch) {
+        if (!inList) { html += '<ul>'; inList = true; }
+        html += `<li>${listMatch[1]}</li>`;
+      } else {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += line === '' ? '<br/>' : `<p>${line}</p>`;
+      }
+    });
+    if (inList) html += '</ul>';
+    return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  };
+
   return (
     <div className="premium-dashboard-container">
       
@@ -714,12 +744,16 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             }
           </span>
         </div>
-        <p className="dietetyk-ai-advice-text">
-          {aiAdvice && aiAdvice.length > 30 
-            ? aiAdvice 
-            : `Twoja regeneracja trzyma stabilny poziom (${readinessScore}%). HRV wynosi ${hrv} ms i mieści się w normie, więc organizm nie protestuje przeciwko aktywności. Dobrym wyborem będzie lekki tlenowy wysiłek kardio lub sesja mobility.`
-          }
-        </p>
+        {aiAdvice && aiAdvice.length > 30 ? (
+          <div
+            className="dietetyk-ai-advice-text"
+            dangerouslySetInnerHTML={{ __html: renderAdviceMarkdown(aiAdvice) }}
+          />
+        ) : (
+          <p className="dietetyk-ai-advice-text">
+            {`Twoja regeneracja trzyma stabilny poziom (${readinessScore}%). HRV wynosi ${hrv} ms i mieści się w normie, więc organizm nie protestuje przeciwko aktywności. Dobrym wyborem będzie lekki tlenowy wysiłek kardio lub sesja mobility.`}
+          </p>
+        )}
         <button className="btn-dietetyk-ask" onClick={() => setIsChatOpen(true)}>
           ✨ Zapytaj agenta
         </button>

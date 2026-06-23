@@ -426,7 +426,7 @@ Napisz krótką, spersonalizowaną poradę dietetyczno-treningową (maksymalnie 
 4. Udostępnieniu wniosków z trendu wagi i składu ciała z ostatnich pomiarów Withings oraz jakości snu i regeneracji z Oura (zwróć uwagę, czy obecny trend przybliża użytkownika do celu w dłuższej perspektywie 7/30 dni).
 5. Analizie przyjętych suplementów: jeśli użytkownik wpisał jakiekolwiek suplementy dzisiaj lub wczoraj (np. kreatyna, kwasy omega-3, witamina D3, magnez, odżywka białkowa), skomentuj krótko ich przydatność i czas przyjmowania w odniesieniu do jego dzisiejszego treningu i samopoczucia.
 
-Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego po imieniu (${displayName}) co najmniej raz. Bądź konkretny, motywujący i merytoryczny.
+Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego po imieniu (${displayName}) co najmniej raz. Bądź konkretny, motywujący i merytoryczny. Możesz swobodnie używać formatowania Markdown (np. **pogrubienia** kluczowych fraz, list punktowanych) - frontend renderuje tę odpowiedź jako Markdown.
 `;
 
         // Fire-and-forget: NIE czekamy na wynik w tym żądaniu (patrz komentarz wyżej).

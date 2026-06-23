@@ -38,11 +38,10 @@ async function generateContentWithFallback(promptText, isJson = false, imagePart
 
   const modelsToTry = [
     process.env.GEMINI_MODEL,
-    'gemini-1.5-flash',
     'gemini-2.5-flash',
     'gemini-2.0-flash',
-    'gemini-1.5-flash-latest',
-    'gemini-3.5-flash'
+    'gemini-3.5-flash',
+    'gemini-1.5-flash'
   ].filter(Boolean);
 
   const uniqueModels = [...new Set(modelsToTry)];
@@ -79,15 +78,16 @@ async function generateContentWithFallback(promptText, isJson = false, imagePart
       console.warn(`[AI WARNING] Model ${modelName} zgłosił błąd: ${err.message}`);
       lastError = err;
       
-      // Jeśli błąd dotyczy niepoprawnego klucza API, braku uprawnień (400/403) lub ograniczeń projektu,
+      // Jeśli błąd dotyczy niepoprawnego klucza API lub braku autoryzacji (401/403),
       // nie ma sensu ponawiać próby dla innych modeli z tym samym kluczem.
       const errText = err.message || '';
       if (
-        err.status === 400 ||
+        err.status === 401 ||
         err.status === 403 ||
         errText.includes('API key not valid') ||
         errText.includes('API_KEY_INVALID') ||
-        errText.includes('not found for API version')
+        errText.includes('API_KEY_SERVICE_BLOCKED') ||
+        errText.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED')
       ) {
         console.error(`[AI ERROR] Krytyczny błąd klucza API. Przerywam próby dla innych modeli.`);
         break;

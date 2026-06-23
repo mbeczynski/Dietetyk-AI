@@ -6,7 +6,7 @@ const { requireAuth } = require('../middleware/auth');
 router.get('/api/health/history', requireAuth, async (req, res) => {
   try {
     const rows = await db.all(`
-      SELECT date, weight, fat_ratio, muscle_mass, sleep_score, sleep_duration, sleep_deep, sleep_rem, readiness_score, steps, active_calories, total_calories_burned, rhr, hrv, active_minutes
+      SELECT date, weight, fat_ratio, muscle_mass, sleep_score, sleep_duration, sleep_deep, sleep_rem, readiness_score, steps, active_calories, total_calories_burned, rhr, hrv, active_minutes, supplements
       FROM health_metrics 
       WHERE user_id = ? AND date >= date('now', '-90 days')
       ORDER BY date ASC

@@ -143,8 +143,52 @@ const TrendCard = ({ title, valueText, unitText, activeSegment, color, footerTex
   );
 };
 
+const PRESET_SUPPLEMENTS = [
+  { name: 'Kreatyna', icon: '⚡', match: ['kreatyn'] },
+  { name: 'Ashwagandha', icon: '🌿', match: ['ashwagandh'] },
+  { name: 'GABA', icon: '🧠', match: ['gaba'] },
+  { name: 'Rhodiola', icon: '🌱', match: ['rhodiol', 'różeniec'] },
+  { name: 'Multiwitamina 7Nutrition', icon: '🧬', match: ['multiwitam', 'multivitamin', 'witamin', '7nutrition'] }
+];
+
+const getSupplementIconsForText = (text) => {
+  if (!text) return [];
+  const lowerText = text.toLowerCase();
+  const icons = [];
+  let matchedAny = false;
+  PRESET_SUPPLEMENTS.forEach(sup => {
+    const isMatch = sup.match.some(m => lowerText.includes(m.toLowerCase()));
+    if (isMatch) {
+      icons.push(sup.icon);
+      matchedAny = true;
+    }
+  });
+  if (!matchedAny && text.trim().length > 0) {
+    icons.push('💊');
+  }
+  return icons;
+};
+
+const getLast7Days = (endDateStr) => {
+  const days = [];
+  const endDate = new Date(endDateStr);
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(endDate);
+    d.setDate(d.getDate() - i);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+    
+    const weekday = d.toLocaleDateString('pl-PL', { weekday: 'short' });
+    days.push({ date: dateStr, label: weekday, dayNum: d.getDate() });
+  }
+  return days;
+};
+
 export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDate, onNavigate, onRefresh }) {
   const [historyData, setHistoryData] = useState([]);
+  const [historyTrigger, setHistoryTrigger] = useState(0);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isAddingWater, setIsAddingWater] = useState(false);
   const [customWaterAmount, setCustomWaterAmount] = useState('');
@@ -154,6 +198,30 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const [supplementsText, setSupplementsText] = useState('');
   const [isSavingSupplements, setIsSavingSupplements] = useState(false);
   const [supplementsMessage, setSupplementsMessage] = useState({ type: '', text: '' });
+
+  const handleToggleSupplement = (sup) => {
+    let items = supplementsText
+      ? supplementsText.split(',').map(item => item.trim()).filter(Boolean)
+      : [];
+
+    const matchIndex = items.findIndex(item => 
+      sup.match.some(keyword => item.toLowerCase().includes(keyword))
+    );
+
+    if (matchIndex >= 0) {
+      items.splice(matchIndex, 1);
+    } else {
+      items.push(sup.name);
+    }
+
+    setSupplementsText(items.join(', '));
+  };
+
+  const isSupplementActive = (sup) => {
+    if (!supplementsText) return false;
+    const lowerText = supplementsText.toLowerCase();
+    return sup.match.some(keyword => lowerText.includes(keyword));
+  };
 
   // Inicjalizacja tekstu suplementów przy zmianie summary (np. zmiana daty)
   useEffect(() => {
@@ -180,6 +248,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
       });
       if (res.ok) {
         setSupplementsMessage({ type: 'success', text: 'Zapisano suplementy!' });
+        setHistoryTrigger(prev => prev + 1);
         if (onRefresh) {
           onRefresh(); // Odśwież dane dashboardu (i wyzwalaj generowanie nowej porady AI w tle)
         }
@@ -219,7 +288,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
       }
     };
     fetchHistory();
-  }, [sessionToken, summary.last_sync]);
+  }, [sessionToken, summary.last_sync, historyTrigger]);
 
   useEffect(() => {
     const fetchComparisonAndBalance = async () => {
@@ -935,6 +1004,41 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {/* Szybki wybór suplementów 7Nutrition */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '4px' }}>
+              {PRESET_SUPPLEMENTS.map((sup, idx) => {
+                const active = isSupplementActive(sup);
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleToggleSupplement(sup)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '5px 10px',
+                      borderRadius: '20px',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      border: '1px solid',
+                      borderColor: active ? 'rgba(56, 189, 248, 0.4)' : 'rgba(255, 255, 255, 0.08)',
+                      background: active 
+                        ? 'linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(56, 189, 248, 0.05) 100%)' 
+                        : 'rgba(255, 255, 255, 0.03)',
+                      color: active ? '#38bdf8' : 'rgba(255, 255, 255, 0.6)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      boxShadow: active ? '0 0 8px rgba(56, 189, 248, 0.15)' : 'none'
+                    }}
+                  >
+                    <span>{sup.icon}</span>
+                    <span>{sup.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+
             <textarea
               placeholder="Wpisz przyjmowane suplementy (np. Kreatyna, Omega-3, Wit. D3, Białko)..."
               value={supplementsText}
@@ -966,6 +1070,150 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 {isSavingSupplements ? 'Zapisywanie...' : 'Zapisz'}
               </button>
             </div>
+
+            {/* Historia suplementacji (ostatnie 7 dni) */}
+            {(() => {
+              const last7Days = getLast7Days(selectedDate);
+              const complianceDays = last7Days.filter(day => {
+                const entry = historyData.find(h => h.date === day.date);
+                return entry?.supplements && entry.supplements.trim().length > 0;
+              }).length;
+
+              return (
+                <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'rgba(255, 255, 255, 0.6)', fontWeight: '600' }}>
+                      Historia suplementacji
+                    </span>
+                    <span style={{ fontSize: '0.7rem', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '10px', fontWeight: '700' }}>
+                      Aktywność: {complianceDays}/7 dni
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '4px' }}>
+                    {last7Days.map((day, idx) => {
+                      const histEntry = historyData.find(h => h.date === day.date);
+                      const supsText = histEntry?.supplements || '';
+                      const icons = getSupplementIconsForText(supsText);
+                      const isToday = day.date === selectedDate;
+                      const hasSups = icons.length > 0;
+
+                      return (
+                        <div 
+                          key={idx} 
+                          style={{ 
+                            flex: 1, 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            alignItems: 'center',
+                            padding: '6px 4px',
+                            background: isToday ? 'rgba(56, 189, 248, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                            border: isToday ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid rgba(255, 255, 255, 0.04)',
+                            borderRadius: '10px',
+                            minWidth: 0,
+                            cursor: 'pointer'
+                          }}
+                          title={supsText ? `${day.date}: ${supsText}` : `${day.date}: brak suplementów`}
+                        >
+                          <span style={{ fontSize: '0.65rem', color: isToday ? '#38bdf8' : 'rgba(255,255,255,0.4)', textTransform: 'capitalize' }}>
+                            {day.label}
+                          </span>
+                          <span style={{ fontSize: '0.8rem', fontWeight: '700', color: isToday ? '#fff' : 'rgba(255,255,255,0.7)', margin: '2px 0' }}>
+                            {day.dayNum}
+                          </span>
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            alignItems: 'center', 
+                            gap: '2px', 
+                            minHeight: '28px', 
+                            justifyContent: 'center',
+                            marginTop: '2px'
+                          }}>
+                            {hasSups ? (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', justifyContent: 'center' }}>
+                                {icons.slice(0, 3).map((ico, i) => (
+                                  <span key={i} style={{ fontSize: '0.8rem' }} title={supsText}>{ico}</span>
+                                ))}
+                                {icons.length > 3 && (
+                                  <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.5)', fontWeight: 'bold' }}>+{icons.length - 3}</span>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.1)' }}>-</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Szczegóły ostatnich dni */}
+                  {(() => {
+                    const loggedDays = historyData
+                      .filter(h => h.supplements && h.supplements.trim().length > 0)
+                      .sort((a, b) => b.date.localeCompare(a.date)) // newest first
+                      .slice(0, 3); // show last 3 entries
+
+                    if (loggedDays.length === 0) return null;
+
+                    return (
+                      <div style={{ 
+                        marginTop: '12px', 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        gap: '6px', 
+                        background: 'rgba(255, 255, 255, 0.01)', 
+                        padding: '8px 10px', 
+                        borderRadius: '8px', 
+                        border: '1px solid rgba(255, 255, 255, 0.03)' 
+                      }}>
+                        <div style={{ 
+                          fontSize: '0.68rem', 
+                          color: 'rgba(255, 255, 255, 0.35)', 
+                          fontWeight: '700', 
+                          textTransform: 'uppercase', 
+                          letterSpacing: '0.05em',
+                          marginBottom: '2px'
+                        }}>
+                          Ostatnio przyjmowane
+                        </div>
+                        {loggedDays.map((entry, idx) => {
+                          // Bezpieczna konwersja daty bez przesunięć strefy czasowej
+                          const parts = entry.date.split('-');
+                          const dateObj = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                          const formattedDate = dateObj.toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' });
+                          
+                          let dayLabel = formattedDate;
+                          const todayStr = selectedDate;
+                          
+                          // Wczoraj
+                          const dateParts = selectedDate.split('-');
+                          const yesterdayObj = new Date(Number(dateParts[0]), Number(dateParts[1]) - 1, Number(dateParts[2]));
+                          yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+                          const yyyy = yesterdayObj.getFullYear();
+                          const mm = String(yesterdayObj.getMonth() + 1).padStart(2, '0');
+                          const dd = String(yesterdayObj.getDate()).padStart(2, '0');
+                          const yesterdayStr = `${yyyy}-${mm}-${dd}`;
+                          
+                          if (entry.date === todayStr) {
+                            dayLabel = 'Dzisiaj';
+                          } else if (entry.date === yesterdayStr) {
+                            dayLabel = 'Wczoraj';
+                          }
+
+                          return (
+                            <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.75rem', gap: '12px' }}>
+                              <span style={{ fontWeight: '700', color: 'rgba(255, 255, 255, 0.5)', flexShrink: 0 }}>{dayLabel}</span>
+                              <span style={{ color: '#fff', textAlign: 'right', wordBreak: 'break-word', fontWeight: '500' }}>{entry.supplements}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -1024,6 +1272,65 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 typicalEnd={45} 
                 colorClass="awake" 
               />
+            </div>
+          </div>
+        </div>
+
+
+
+      </div>
+
+      <div className="dashboard-column">
+        {/* ODŻYWIANIE (NUTRITION) */}
+        <div className="premium-card">
+          <div className="premium-title-row">
+            <span className="premium-title">Odżywianie</span>
+            <span className="premium-title-info">▶</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px', margin: '8px 0' }}>
+            <div style={{ position: 'relative', width: 92, height: 92, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {/* Calories circular gauge */}
+              <RenderProgressCircle size={92} strokeWidth={8} percentage={Math.min((eatenCalories / (targetCalories || 2000)) * 100, 100)} color="#10b981" />
+              <div style={{ position: 'absolute', textAlign: 'center' }}>
+                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>
+                  {eatenCalories}
+                </div>
+                <div style={{ fontSize: '0.65rem', color: 'rgba(255, 255, 255, 0.4)', textTransform: 'uppercase', marginTop: '2px' }}>
+                  cals
+                </div>
+              </div>
+            </div>
+            
+            {/* Macronutrients Progress Bars */}
+            <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '2px' }}>
+                  <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Węglowodany</span>
+                  <span style={{ fontWeight: '700' }}>{Math.round(eatenCarbs)}g / {targetCarbs}g</span>
+                </div>
+                <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', background: '#06b6d4', width: `${Math.min((eatenCarbs / (targetCarbs || 250)) * 100, 100)}%` }}></div>
+                </div>
+              </div>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '2px' }}>
+                  <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Białko</span>
+                  <span style={{ fontWeight: '700' }}>{Math.round(eatenProtein)}g / {targetProtein}g</span>
+                </div>
+                <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', background: '#7c3aed', width: `${Math.min((eatenProtein / (targetProtein || 150)) * 100, 100)}%` }}></div>
+                </div>
+              </div>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '2px' }}>
+                  <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Tłuszcz</span>
+                  <span style={{ fontWeight: '700' }}>{Math.round(eatenFat)}g / {targetFat}g</span>
+                </div>
+                <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', background: '#fbbf24', width: `${Math.min((eatenFat / (targetFat || 80)) * 100, 100)}%` }}></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1125,63 +1432,6 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             )}
           </div>
           {renderWeightCompositionChart(historyData)}
-        </div>
-
-      </div>
-
-      <div className="dashboard-column">
-        {/* ODŻYWIANIE (NUTRITION) */}
-        <div className="premium-card">
-          <div className="premium-title-row">
-            <span className="premium-title">Odżywianie</span>
-            <span className="premium-title-info">▶</span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '24px', margin: '8px 0' }}>
-            <div style={{ position: 'relative', width: 92, height: 92, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              {/* Calories circular gauge */}
-              <RenderProgressCircle size={92} strokeWidth={8} percentage={Math.min((eatenCalories / (targetCalories || 2000)) * 100, 100)} color="#10b981" />
-              <div style={{ position: 'absolute', textAlign: 'center' }}>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>
-                  {eatenCalories}
-                </div>
-                <div style={{ fontSize: '0.65rem', color: 'rgba(255, 255, 255, 0.4)', textTransform: 'uppercase', marginTop: '2px' }}>
-                  cals
-                </div>
-              </div>
-            </div>
-            
-            {/* Macronutrients Progress Bars */}
-            <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '2px' }}>
-                  <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Węglowodany</span>
-                  <span style={{ fontWeight: '700' }}>{Math.round(eatenCarbs)}g / {targetCarbs}g</span>
-                </div>
-                <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', background: '#06b6d4', width: `${Math.min((eatenCarbs / (targetCarbs || 250)) * 100, 100)}%` }}></div>
-                </div>
-              </div>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '2px' }}>
-                  <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Białko</span>
-                  <span style={{ fontWeight: '700' }}>{Math.round(eatenProtein)}g / {targetProtein}g</span>
-                </div>
-                <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', background: '#7c3aed', width: `${Math.min((eatenProtein / (targetProtein || 150)) * 100, 100)}%` }}></div>
-                </div>
-              </div>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '2px' }}>
-                  <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>Tłuszcz</span>
-                  <span style={{ fontWeight: '700' }}>{Math.round(eatenFat)}g / {targetFat}g</span>
-                </div>
-                <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', background: '#fbbf24', width: `${Math.min((eatenFat / (targetFat || 80)) * 100, 100)}%` }}></div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* ENERGIA I STRES */}

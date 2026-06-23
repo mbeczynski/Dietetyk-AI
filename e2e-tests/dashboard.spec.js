@@ -199,7 +199,7 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
     await page.waitForTimeout(500);
   });
 
-  test('Obsługa zapisywania suplementów na Dashboardzie', async ({ page }) => {
+  test('Obsługa zapisywania suplementów i weryfikacja historii na Dashboardzie', async ({ page }) => {
     await page.goto('/');
 
     const supplementsCard = page.locator('.premium-card:has-text("Suplementy")');
@@ -208,8 +208,8 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
     const textarea = supplementsCard.locator('textarea');
     await expect(textarea).toBeVisible();
 
-    // Wpisz testowe suplementy
-    const testSups = 'Kreatyna, Omega-3, Witamina D3, Białko';
+    // Wpisz testowe suplementy (kreatyna i multiwitamina)
+    const testSups = 'Kreatyna, Multiwitamina 7Nutrition';
     await textarea.fill(testSups);
 
     // Zapisz suplementy
@@ -219,11 +219,31 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
     // Weryfikacja komunikatu o sukcesie w UI
     await expect(supplementsCard).toContainText('Zapisano suplementy!');
 
+    // Weryfikacja historii (powinna się zaktualizować od razu i pokazać ikony oraz aktywność)
+    await expect(supplementsCard).toContainText('Historia suplementacji');
+    await expect(supplementsCard).toContainText('Aktywność:');
+    
+    // Sprawdź, czy ikony suplementów są widoczne w historii (⚡ i 🧬 dla naszych testowych supli)
+    await expect(supplementsCard.locator('span:text("⚡")').first()).toBeVisible();
+    await expect(supplementsCard.locator('span:text("🧬")').first()).toBeVisible();
+
     // Odśwież stronę i upewnij się, że wartość się zachowała w bazie i wczytała z powrotem
     await page.reload();
     await expect(supplementsCard).toBeVisible();
     const loadedVal = await supplementsCard.locator('textarea').inputValue();
     expect(loadedVal).toBe(testSups);
+  });
+
+  test('Weryfikacja lokalizacji kafelka Waga i Skład Ciała w drugiej kolumnie', async ({ page }) => {
+    await page.goto('/');
+
+    // Pierwsza kolumna nie powinna zawierać tekstu "Waga i Skład Ciała"
+    const col1 = page.locator('.dashboard-column').first();
+    await expect(col1).not.toContainText('Waga i Skład Ciała');
+
+    // Druga kolumna powinna zawierać tekst "Waga i Skład Ciała"
+    const col2 = page.locator('.dashboard-column').nth(1);
+    await expect(col2).toContainText('Waga i Skład Ciała');
   });
 });
 

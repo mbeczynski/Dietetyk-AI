@@ -133,7 +133,16 @@ async function syncOura(userId) {
     }
 
     if (sleepData && sleepData.data) {
-      sleepData.data.forEach(item => {
+      // Sortujemy wpisy snu tak, aby drzemki/krótkie sny ('sleep') były przetwarzane na początku,
+      // a główny sen ('long_sleep') na końcu. Dzięki temu główny sen nadpisze dane z drzemek
+      // dla danej daty w obiekcie metricsByDate.
+      const sortedSleep = [...sleepData.data].sort((a, b) => {
+        if (a.type === 'long_sleep' && b.type !== 'long_sleep') return 1;
+        if (a.type !== 'long_sleep' && b.type === 'long_sleep') return -1;
+        return 0;
+      });
+
+      sortedSleep.forEach(item => {
         const dateStr = item.day;
         if (metricsByDate[dateStr]) {
           metricsByDate[dateStr].sleep_duration = item.total_sleep_duration ? Math.round((item.total_sleep_duration / 3600) * 10) / 10 : null;

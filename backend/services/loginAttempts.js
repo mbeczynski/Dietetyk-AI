@@ -44,6 +44,11 @@ async function recordFailure(ip, identifier) {
 
   const lockedUntil = count >= MAX_ATTEMPTS ? now + LOCKOUT_MS : 0;
 
+  if (count >= MAX_ATTEMPTS) {
+    const logger = require('./logger');
+    logger.security(`Blokada brute-force (lockout) dla: ${identifier}`, 'AUTH_LOCKOUT', { key, count }, ip);
+  }
+
   await db.run(`
     INSERT INTO login_attempts (key, count, first_at, locked_until)
     VALUES (?, ?, ?, ?)

@@ -2,6 +2,7 @@ const db = require('./db');
 const { getLocalDateString } = require('./utils/dates');
 const { syncAllOura, syncAllWithings, syncAllGoogleFit } = require('./services/sync');
 const { sendWeeklySummaryForUser, sendDailySummaryForUser, sendMonthlySummaryForUser } = require('./services/summaries');
+const { sendWeeklyAdminReport } = require('./services/adminReport');
 
 async function checkAndSendAutomatedSummaries() {
   try {
@@ -157,14 +158,50 @@ async function runHourlySyncIfDue() {
     await syncAllWithings();
     await syncAllGoogleFit();
     await checkAndSendAutomatedSummaries();
+    await runWeeklyAdminReportIfDue();
     console.log('[SCHEDULER] Godzinowa synchronizacja i podsumowania zakończone.');
   } catch (err) {
     console.error('[SCHEDULER ERROR] Błąd podczas godzinowej synchronizacji:', err);
   }
 }
 
+async function runWeeklyAdminReportIfDue() {
+  try {
+    const todayStr = getLocalDateString(); // 'YYYY-MM-DD'
+    const now = new Date();
+    
+    // getDay() = 1 (Poniedziałek)
+    const currentDay = now.getDay() === 0 ? 7 : now.getDay();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const currentTimeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
+    
+    // Chcemy wysyłać w każdy poniedziałek (1) od godziny 08:00
+    if (currentDay === 1 && currentTimeStr >= '08:00') {
+      const lastSentRow = await db.get(`SELECT value FROM app_config WHERE key = 'last_admin_report_sent'`);
+      const lastSentDate = lastSentRow ? lastSentRow.value : '';
+
+      // Wyślij tylko raz w dany poniedziałek
+      if (lastSentDate !== todayStr) {
+        console.log(`[SCHEDULER] Uruchamianie tygodniowego raportu logów i bezpieczeństwa dla administratorów...`);
+        await sendWeeklyAdminReport();
+        
+        await db.run(`
+          INSERT INTO app_config (key, value)
+          VALUES ('last_admin_report_sent', ?)
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        `, [todayStr]);
+        console.log(`[SCHEDULER] Z powodzeniem wysłano raport administratora i zaktualizowano last_admin_report_sent na ${todayStr}`);
+      }
+    }
+  } catch (err) {
+    console.error('[SCHEDULER ERROR] Błąd podczas sprawdzania/wysyłania raportu administratora:', err.message);
+  }
+}
+
 module.exports = {
   checkAndSendAutomatedSummaries,
   isWithinSyncWindow,
-  runHourlySyncIfDue
+  runHourlySyncIfDue,
+  runWeeklyAdminReportIfDue
 };

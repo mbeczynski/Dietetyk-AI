@@ -6,6 +6,7 @@ const { authenticator } = require('otplib');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const loginAttempts = require('../services/loginAttempts');
+const logger = require('../services/logger');
 const { getAppConfig, generateOAuthState, verifyOAuthState } = require('../services/oauthHelpers');
 
 // Pomocnicza funkcja do tworzenia stałego tokenu sesji (7 dni) - używana też przez logowanie Google
@@ -238,12 +239,14 @@ router.post('/api/login', async (req, res) => {
     const user = await db.get(`SELECT * FROM users WHERE username = ?`, [username]);
     if (!user) {
       await loginAttempts.recordFailure(req.ip, username);
+      logger.security(`Nieudana próba logowania na konto: ${username} (użytkownik nie istnieje)`, 'AUTH_LOGIN_FAILURE', { username }, req.ip);
       return res.status(401).json({ error: 'Niepoprawny użytkownik lub hasło.' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       await loginAttempts.recordFailure(req.ip, username);
+      logger.security(`Nieudana próba logowania na konto: ${username} (błędne hasło)`, 'AUTH_LOGIN_FAILURE', { username }, req.ip);
       return res.status(401).json({ error: 'Niepoprawny użytkownik lub hasło.' });
     }
 
@@ -381,6 +384,7 @@ router.post('/api/verify-2fa-setup', async (req, res) => {
 
     if (!isValid) {
       await loginAttempts.recordFailure(req.ip, tempToken);
+      logger.security(`Niepoprawny kod 2FA podczas konfiguracji (UID: ${session.user_id})`, 'AUTH_2FA_FAILURE', { userId: session.user_id }, req.ip);
       return res.status(400).json({ error: 'Niepoprawny kod 2FA. Spróbuj ponownie.' });
     }
 
@@ -441,6 +445,7 @@ router.post('/api/login-2fa', async (req, res) => {
 
     if (!isValid) {
       await loginAttempts.recordFailure(req.ip, tempToken);
+      logger.security(`Niepoprawny kod 2FA podczas logowania (UID: ${session.user_id})`, 'AUTH_2FA_FAILURE', { userId: session.user_id }, req.ip);
       return res.status(400).json({ error: 'Niepoprawny kod 2FA. Spróbuj ponownie.' });
     }
 

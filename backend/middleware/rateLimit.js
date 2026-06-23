@@ -9,6 +9,8 @@
 const WINDOW_MS = 60 * 1000;   // okno czasowe liczenia zapytań
 const MAX_REQUESTS = 120;      // maks. liczba zapytań /api na adres IP w oknie
 
+const logger = require('../services/logger');
+
 const hits = new Map(); // ip -> { count, windowStart }
 
 function apiRateLimiter(req, res, next) {
@@ -26,6 +28,14 @@ function apiRateLimiter(req, res, next) {
   if (rec.count > MAX_REQUESTS) {
     const retryAfterSec = Math.ceil((rec.windowStart + WINDOW_MS - now) / 1000);
     res.set('Retry-After', String(Math.max(retryAfterSec, 1)));
+    
+    logger.security(
+      `Przekroczono limit żądań API (${rec.count}/${MAX_REQUESTS})`,
+      'RATE_LIMIT',
+      { path: req.originalUrl, method: req.method },
+      ip
+    );
+
     return res.status(429).json({ error: 'Zbyt wiele żądań. Spróbuj ponownie za chwilę.' });
   }
 
@@ -72,6 +82,15 @@ function summaryEmailLimiter(req, res, next) {
   if (rec.count > SUMMARY_EMAIL_MAX) {
     const retryAfterSec = Math.ceil((rec.windowStart + SUMMARY_EMAIL_WINDOW_MS - now) / 1000);
     res.set('Retry-After', String(Math.max(retryAfterSec, 1)));
+
+    logger.security(
+      `Przekroczono limit wysyłki e-maili testowych (${rec.count}/${SUMMARY_EMAIL_MAX})`,
+      'RATE_LIMIT_EMAIL',
+      { email: req.body.email },
+      req.ip || 'unknown',
+      userId
+    );
+
     return res.status(429).json({ error: 'Zbyt wiele wysłanych e-maili testowych. Spróbuj ponownie później.' });
   }
 

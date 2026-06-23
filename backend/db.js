@@ -507,6 +507,24 @@ const initDb = async () => {
     )
   `);
 
+  // 9. Tabela Logów Aplikacji (app_logs)
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT DEFAULT (datetime('now', 'localtime')),
+      level TEXT NOT NULL,      -- INFO, WARN, ERROR, SECURITY
+      category TEXT NOT NULL,   -- AUTH, API, SYSTEM, etc.
+      message TEXT NOT NULL,
+      ip TEXT,
+      user_id INTEGER,
+      details TEXT,             -- JSON string lub stack trace
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `);
+
+  await run(`CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON app_logs(timestamp)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_logs_level ON app_logs(level)`);
+
   console.log('Baza danych SQLite została pomyślnie zmigrowana i zainicjalizowana.');
 };
 
@@ -527,6 +545,22 @@ const cleanupOldImages = async () => {
     }
   } catch (err) {
     console.error('[CLEANUP ERROR] Błąd podczas czyszczenia starych zdjęć:', err);
+  }
+};
+
+const cleanupOldLogs = async () => {
+  try {
+    const result = await run(`
+      DELETE FROM app_logs 
+      WHERE timestamp < datetime('now', '-30 days', 'localtime')
+    `);
+    if (result.changes > 0) {
+      console.log(`[CLEANUP] Usunięto ${result.changes} wpisów logów starszych niż 30 dni.`);
+    } else {
+      console.log('[CLEANUP] Brak starych logów do usunięcia.');
+    }
+  } catch (err) {
+    console.error('[CLEANUP ERROR] Błąd podczas czyszczenia starych logów:', err);
   }
 };
 
@@ -572,6 +606,7 @@ const backupDatabase = async () => {
 module.exports = {
   initDb,
   cleanupOldImages,
+  cleanupOldLogs,
   backupDatabase,
   run,
   get,

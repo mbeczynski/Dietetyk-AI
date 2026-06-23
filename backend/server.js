@@ -4,6 +4,7 @@ const morgan = require('morgan');
 const path = require('path');
 const db = require('./db');
 const { PORT } = require('./config');
+const logger = require('./services/logger');
 const { requireAuth } = require('./middleware/auth');
 const { apiRateLimiter } = require('./middleware/rateLimit');
 const { runHourlySyncIfDue } = require('./scheduler');
@@ -86,8 +87,18 @@ app.get('*', (req, res) => {
 // błędu Express ze stack trace'em i ścieżkami plików serwera.
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
-  console.error('[ERROR] Nieobsłużony błąd żądania:', err.message);
-  const status = err.status || err.statusCode || 400;
+  
+  const status = err.status || err.statusCode || 500;
+  const level = status >= 500 ? 'ERROR' : 'WARN';
+  
+  logger[level.toLowerCase()](
+    `Błąd HTTP ${status}: ${err.message}`,
+    'HTTP_SERVER',
+    err,
+    req.ip,
+    req.user ? req.user.id : null
+  );
+
   res.status(status).json({ error: 'Nieprawidłowe żądanie.' });
 });
 
@@ -95,8 +106,9 @@ app.use((err, req, res, next) => {
 async function start() {
   await db.initDb();
 
-  // Uruchomienie czyszczenia starych zdjęć przy starcie
+  // Uruchomienie czyszczenia starych zdjęć i logów przy starcie
   await db.cleanupOldImages();
+  await db.cleanupOldLogs();
 
   // Pierwsza kopia zapasowa bazy danych przy starcie (patrz db.js, backupDatabase) -
   // dzięki temu kopia istnieje od razu, a nie tylko po 24h działania kontenera.
@@ -104,8 +116,9 @@ async function start() {
 
   // Uruchomienie czyszczenia i kopii zapasowej co 24 godziny
   setInterval(async () => {
-    console.log('[CRON] Uruchomienie okresowego czyszczenia starych zdjęć...');
+    console.log('[CRON] Uruchomienie okresowego czyszczenia starych zdjęć i logów...');
     await db.cleanupOldImages();
+    await db.cleanupOldLogs();
   }, 24 * 60 * 60 * 1000);
 
   setInterval(async () => {
@@ -126,3 +139,18 @@ async function start() {
 }
 
 start();
+
+// Globalne przechwytywanie błędów procesu
+process.on('uncaughtException', (err) => {
+  logger.error(`Uncaught Exception (nieobsłużony wyjątek): ${err.message}`, 'SYSTEM', err);
+  // Dajemy logom czas na zapisanie się przed wyjściem z procesu
+  setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error(
+    `Unhandled Rejection (nieobsłużona obietnica): ${reason}`,
+    'SYSTEM',
+    reason instanceof Error ? reason : new Error(String(reason))
+  );
+});

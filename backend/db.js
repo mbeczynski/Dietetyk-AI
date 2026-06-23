@@ -354,6 +354,7 @@ const initDb = async () => {
       last_sync TEXT DEFAULT NULL,
       ai_advice TEXT DEFAULT NULL,
       ai_advice_generated_at TEXT DEFAULT NULL,
+      supplements TEXT DEFAULT NULL,
       PRIMARY KEY(user_id, date),
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -445,6 +446,10 @@ const initDb = async () => {
   } catch (e) {}
   try {
     await run("ALTER TABLE health_metrics ADD COLUMN stress_summary TEXT DEFAULT NULL");
+  } catch (e) {}
+
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN supplements TEXT DEFAULT NULL");
   } catch (e) {}
 
   // Domyślny cel wody (ml) dla istniejącego konta admina/Marcina, jeśli jeszcze nie ustawiony

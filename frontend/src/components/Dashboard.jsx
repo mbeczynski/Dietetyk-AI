@@ -149,6 +149,51 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const [isAddingWater, setIsAddingWater] = useState(false);
   const [customWaterAmount, setCustomWaterAmount] = useState('');
   const [waterMessage, setWaterMessage] = useState('');
+  
+  // Stany dla suplementacji
+  const [supplementsText, setSupplementsText] = useState('');
+  const [isSavingSupplements, setIsSavingSupplements] = useState(false);
+  const [supplementsMessage, setSupplementsMessage] = useState({ type: '', text: '' });
+
+  // Inicjalizacja tekstu suplementów przy zmianie summary (np. zmiana daty)
+  useEffect(() => {
+    if (summary) {
+      setSupplementsText(summary.supplements || '');
+    }
+  }, [summary]);
+
+  const handleSaveSupplements = async () => {
+    if (!sessionToken) return;
+    setIsSavingSupplements(true);
+    setSupplementsMessage({ type: '', text: '' });
+    try {
+      const res = await fetch('/api/supplements', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`
+        },
+        body: JSON.stringify({
+          date: selectedDate,
+          supplements: supplementsText
+        })
+      });
+      if (res.ok) {
+        setSupplementsMessage({ type: 'success', text: 'Zapisano suplementy!' });
+        if (onRefresh) {
+          onRefresh(); // Odśwież dane dashboardu (i wyzwalaj generowanie nowej porady AI w tle)
+        }
+        setTimeout(() => setSupplementsMessage({ type: '', text: '' }), 5000);
+      } else {
+        setSupplementsMessage({ type: 'error', text: 'Błąd zapisu.' });
+      }
+    } catch (err) {
+      console.error(err);
+      setSupplementsMessage({ type: 'error', text: 'Błąd połączenia z serwerem.' });
+    } finally {
+      setIsSavingSupplements(false);
+    }
+  };
 
   // Porównanie odżywiania tydzień/miesiąc i bilans kaloryczny narastająco
   const [nutritionComparison, setNutritionComparison] = useState(null);
@@ -881,6 +926,47 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               {waterMessage}
             </div>
           )}
+        </div>
+
+        {/* SUPLEMENTY */}
+        <div className="premium-card">
+          <div className="premium-title-row">
+            <span className="premium-title">💊 Suplementy</span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <textarea
+              placeholder="Wpisz przyjmowane suplementy (np. Kreatyna, Omega-3, Wit. D3, Białko)..."
+              value={supplementsText}
+              onChange={(e) => setSupplementsText(e.target.value)}
+              rows={3}
+              style={{
+                width: '100%',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '12px',
+                color: '#fff',
+                padding: '10px',
+                fontSize: '0.85rem',
+                resize: 'none',
+                fontFamily: 'inherit'
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: supplementsMessage.type === 'success' ? '#10b981' : supplementsMessage.type === 'error' ? '#ef4444' : 'rgba(255,255,255,0.3)' }}>
+                {supplementsMessage.text || 'Zapisz, aby AI wzięło je pod uwagę'}
+              </span>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={isSavingSupplements}
+                onClick={handleSaveSupplements}
+                style={{ padding: '8px 16px', fontSize: '0.8rem' }}
+              >
+                {isSavingSupplements ? 'Zapisywanie...' : 'Zapisz'}
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* SEN DETAILS */}

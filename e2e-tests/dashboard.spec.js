@@ -198,5 +198,32 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
     await dateInput.fill(dateStr);
     await page.waitForTimeout(500);
   });
+
+  test('Obsługa zapisywania suplementów na Dashboardzie', async ({ page }) => {
+    await page.goto('/');
+
+    const supplementsCard = page.locator('.premium-card:has-text("Suplementy")');
+    await expect(supplementsCard).toBeVisible();
+
+    const textarea = supplementsCard.locator('textarea');
+    await expect(textarea).toBeVisible();
+
+    // Wpisz testowe suplementy
+    const testSups = 'Kreatyna, Omega-3, Witamina D3, Białko';
+    await textarea.fill(testSups);
+
+    // Zapisz suplementy
+    const saveButton = supplementsCard.locator('button:has-text("Zapisz")');
+    await saveButton.click();
+
+    // Weryfikacja komunikatu o sukcesie w UI
+    await expect(supplementsCard).toContainText('Zapisano suplementy!');
+
+    // Odśwież stronę i upewnij się, że wartość się zachowała w bazie i wczytała z powrotem
+    await page.reload();
+    await expect(supplementsCard).toBeVisible();
+    const loadedVal = await supplementsCard.locator('textarea').inputValue();
+    expect(loadedVal).toBe(testSups);
+  });
 });
 

@@ -115,4 +115,21 @@ router.post('/api/water/reset', requireAuth, async (req, res) => {
   }
 });
 
+// Zapisz/aktualizuj suplementy dla danego dnia
+router.post('/api/supplements', requireAuth, async (req, res) => {
+  const { date, supplements } = req.body;
+  if (!date) return res.status(400).json({ error: 'Data jest wymagana.' });
+  try {
+    await db.run(`
+      INSERT INTO health_metrics (user_id, date, supplements)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id, date) DO UPDATE SET supplements = excluded.supplements
+    `, [req.user.id, date, supplements ? supplements.trim() : null]);
+    res.json({ success: true, supplements: supplements ? supplements.trim() : null });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd zapisu suplementów.' });
+  }
+});
+
 module.exports = router;

@@ -360,9 +360,9 @@ router.get('/api/dashboard', async (req, res) => {
         yesterdayTotalEaten.fat = Math.round(yesterdayTotalEaten.fat * 10) / 10;
 
         const yesterdayHealth = await db.get(
-          `SELECT active_calories, steps FROM health_metrics WHERE user_id = ? AND date = ?`,
+          `SELECT active_calories, steps, supplements FROM health_metrics WHERE user_id = ? AND date = ?`,
           [req.user.id, yesterdayDate]
-        ) || { active_calories: 0, steps: 0 };
+        ) || { active_calories: 0, steps: 0, supplements: null };
 
         // Pobranie trendów historycznych z bazy danych dla AI
         const last7DaysNutrition = await aggregateNutrition(req.user.id, shiftDate(date, -7), shiftDate(date, -1));
@@ -392,6 +392,7 @@ Aktualny bilans dzisiejszy:
 - Bilans netto (zjedzone - spalone): ${netCalories} kcal
 - Wykonane kroki dzisiaj: ${displaySteps || 0}
 - Wypita woda dzisiaj: ${health.water_ml || 0}ml (cel: ${isNaN(settings.target_water_ml) || !settings.target_water_ml ? 2500 : settings.target_water_ml}ml)
+- Przyjęte suplementy dzisiaj: ${health.supplements || 'brak (użytkownik nie zapisał dzisiaj żadnych suplementów)'}
 
 Dane gotowości, snu (Oura) i składu ciała (Withings):
 - Wynik Snu: ${displaySleepScore !== null ? displaySleepScore + '/100' : 'Brak danych'} (Czas trwania: ${displaySleepDuration || 0}h, Głęboki: ${displaySleepDeep || 0}h, REM: ${displaySleepRem || 0}h)
@@ -406,6 +407,7 @@ Dla kontekstu historycznego, oto dane z wczoraj (${yesterdayDate}):
 - Łącznie zjedzone wczoraj: ${yesterdayTotalEaten.calories} kcal (Białko: ${yesterdayTotalEaten.protein}g, Węgle: ${yesterdayTotalEaten.carbs}g, Tłuszcz: ${yesterdayTotalEaten.fat}g)
 - Aktywne kalorie spalone wczoraj: ${yesterdayHealth.active_calories || 0} kcal
 - Wykonane kroki wczoraj: ${yesterdayHealth.steps || 0}
+- Przyjęte suplementy wczoraj: ${yesterdayHealth.supplements || 'brak'}
 - Lista wczorajszych posiłków:
 ${yesterdayMealRows.map(m => `- ${m.raw_text} (${m.calories} kcal, B:${m.protein}g, W:${m.carbs}g, T:${m.fat}g)`).join('\n') || 'Brak posiłków wczoraj'}
 
@@ -422,6 +424,7 @@ Napisz krótką, spersonalizowaną poradę dietetyczno-treningową (maksymalnie 
 2. Sugerowaniu precyzyjnych zmian w diecie na bazie dzisiejszych posiłków i treningu (np. zalecenie dorzucenia większej ilości białka w celu wsparcia regeneracji włókien mięśniowych po ciężkim wysiłku beztlenowym lub redukcji węglowodanów w dni o niskim wysiłku aerobowym).
 3. Porównaniu dzisiejszego odżywiania i aktywności z wczorajszymi. Jeśli wczorajsza dieta nie była optymalna (np. za mało białka w stosunku do celu, zbyt mało kcal po dużym treningu lub nadmiar kalorii przy braku ruchu), wskaż to konstruktywnie użytkownikowi i doradź korektę (np. "Twoje wczorajsze posiłki nie dostarczyły wystarczającej ilości białka, dlatego dzisiaj upewnij się, że dodasz do menu chudy twaróg lub odżywkę...").
 4. Udostępnieniu wniosków z trendu wagi i składu ciała z ostatnich pomiarów Withings oraz jakości snu i regeneracji z Oura (zwróć uwagę, czy obecny trend przybliża użytkownika do celu w dłuższej perspektywie 7/30 dni).
+5. Analizie przyjętych suplementów: jeśli użytkownik wpisał jakiekolwiek suplementy dzisiaj lub wczoraj (np. kreatyna, kwasy omega-3, witamina D3, magnez, odżywka białkowa), skomentuj krótko ich przydatność i czas przyjmowania w odniesieniu do jego dzisiejszego treningu i samopoczucia.
 
 Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego po imieniu (${displayName}) co najmniej raz. Bądź konkretny, motywujący i merytoryczny.
 `;
@@ -505,6 +508,7 @@ Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego p
         stress_recovery_minutes: displayStressRecoveryMinutes,
         stress_summary: displayStressSummary,
         water_ml: health.water_ml || 0,
+        supplements: health.supplements || null,
         has_oura: !!hasOuraRow,
         has_withings: !!hasWithingsRow,
         activity_source: health.activity_source || null,

@@ -194,7 +194,14 @@ async function syncOura(userId) {
         const dateStr = item.day;
         if (metricsByDate[dateStr]) {
           metricsByDate[dateStr].readiness_score = item.score || null;
-          metricsByDate[dateStr].temperature_deviation = item.temperature?.deviation || null;
+          // BUG (do 2026-06): Oura API v2 zwraca "temperature_deviation" jako
+          // płaskie pole na obiekcie readiness, NIE zagnieżdżone pod
+          // "temperature.deviation" (takiego zagnieżdżonego pola nie ma w
+          // ogóle w odpowiedzi /v2/usercollection/daily_readiness) - stara
+          // ścieżka item.temperature?.deviation była więc zawsze undefined,
+          // więc kolumna zawsze wpadała w fallback null. Stąd permanentne
+          // "--" przy "Odchylenie temperatury" na karcie Oura Ring Status.
+          metricsByDate[dateStr].temperature_deviation = item.temperature_deviation ?? null;
         }
       });
     }

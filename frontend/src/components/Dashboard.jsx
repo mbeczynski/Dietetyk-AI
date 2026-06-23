@@ -1581,9 +1581,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             />
             {/* Karta "Słuch" pozostaje usunięta na życzenie użytkownika - Oura nie ma
                 mikrofonu, a Apple Watch/AirPods nie są jeszcze obsługiwane. Poniższe
-                3 karty pokazują się tylko, gdy backend faktycznie ma dla nich realną
+                4 karty pokazują się tylko, gdy backend faktycznie ma dla nich realną
                 wartość (Gen 3+ Oura dla SpO2, Apple Watch Series 8+/Ultra z włączoną
-                metryką "Wrist Temperature" w Health Auto Export dla temperatury) -
+                metryką "Wrist Temperature" w Health Auto Export dla temperatury
+                nadgarstka, Oura /daily_readiness dla odchylenia temperatury ciała) -
                 w przeciwnym razie karta jest po prostu niewidoczna, bez fałszywych zer. */}
             {summary.respiratory_rate != null && (
               <TrendCard
@@ -1616,6 +1617,17 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 color="blue"
                 footerText="Pomiar nocny (Apple Watch)"
                 status="success"
+              />
+            )}
+            {summary.temperature_deviation != null && (
+              <TrendCard
+                title="Odchylenie temperatury"
+                valueText={`${summary.temperature_deviation > 0 ? '+' : ''}${summary.temperature_deviation.toFixed(2)}`}
+                unitText="°C"
+                activeSegment={summary.temperature_deviation > 0.5 ? "right" : summary.temperature_deviation < -0.5 ? "left" : "middle"}
+                color="blue"
+                footerText={Math.abs(summary.temperature_deviation) > 0.5 ? "Poza normą ±0.5°C (Oura)" : "W normie ±0.5°C (Oura)"}
+                status={Math.abs(summary.temperature_deviation) > 0.5 ? "warning" : "success"}
               />
             )}
           </div>

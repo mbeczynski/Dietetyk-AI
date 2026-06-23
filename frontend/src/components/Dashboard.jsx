@@ -630,7 +630,13 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     
     const userMsg = chatInput.trim();
     setChatInput('');
-    setChatMessages(prev => [...prev, { sender: 'user', text: userMsg }]);
+    // Budujemy nową historię jawnie (a nie przez closure na `chatMessages`) - setChatMessages
+    // poniżej jest asynchroniczny, więc zmienna `chatMessages` w tym wywołaniu funkcji
+    // wciąż wskazywałaby na stan SPRZED dodania aktualnej wiadomości użytkownika (stale
+    // closure). Bez tej poprawki backend (routes/chat.js) dostawał historię, w której
+    // brakowało właśnie wysłanej wiadomości - AI odpowiadał bez kontekstu ostatniego pytania.
+    const updatedHistory = [...chatMessages, { sender: 'user', text: userMsg }];
+    setChatMessages(updatedHistory);
     setIsSendingChat(true);
 
     try {
@@ -640,7 +646,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${sessionToken}`
         },
-        body: JSON.stringify({ message: userMsg, date: selectedDate, history: chatMessages })
+        body: JSON.stringify({ message: userMsg, date: selectedDate, history: updatedHistory })
       });
       
       if (res.ok) {
@@ -724,23 +730,41 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
+  // Rozpoznaje nagłówki (## Analiza / ### Coś), listy punktowane ("- "/"* ") ORAZ
+  // numerowane ("1. ") - poprzednia wersja obsługiwała tylko listy punktowane i
+  // akapity, więc nowa, ustrukturyzowana odpowiedź AI (nagłówki "## Analiza" /
+  // "## Rekomendacje" z promptu w dashboard.js) renderowała się jako zwykły tekst
+  // z widocznymi "##" na ekranie. Domykamy każdą listę/nagłówek przy zmianie typu
+  // linii, żeby nigdy nie zostawić otwartego <ul>/<ol>.
   const renderAdviceMarkdown = (text) => {
     if (!text) return '';
     const lines = escapeHtml(text).split('\n');
     let html = '';
-    let inList = false;
+    let listType = null; // 'ul' | 'ol' | null
+    const closeList = () => {
+      if (listType) { html += `</${listType}>`; listType = null; }
+    };
     lines.forEach((rawLine) => {
       const line = rawLine.trim();
-      const listMatch = line.match(/^[*-]\s+(.*)/);
-      if (listMatch) {
-        if (!inList) { html += '<ul>'; inList = true; }
-        html += `<li>${listMatch[1]}</li>`;
+      const headingMatch = line.match(/^(#{2,4})\s+(.*)/);
+      const bulletMatch = line.match(/^[*-]\s+(.*)/);
+      const orderedMatch = line.match(/^\d+[.)]\s+(.*)/);
+      if (headingMatch) {
+        closeList();
+        const level = headingMatch[1].length >= 4 ? 'h6' : headingMatch[1].length === 3 ? 'h5' : 'h4';
+        html += `<${level} class="dietetyk-ai-advice-heading">${headingMatch[2]}</${level}>`;
+      } else if (bulletMatch) {
+        if (listType !== 'ul') { closeList(); html += '<ul>'; listType = 'ul'; }
+        html += `<li>${bulletMatch[1]}</li>`;
+      } else if (orderedMatch) {
+        if (listType !== 'ol') { closeList(); html += '<ol>'; listType = 'ol'; }
+        html += `<li>${orderedMatch[1]}</li>`;
       } else {
-        if (inList) { html += '</ul>'; inList = false; }
+        closeList();
         html += line === '' ? '<br/>' : `<p>${line}</p>`;
       }
     });
-    if (inList) html += '</ul>';
+    closeList();
     return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   };
 
@@ -1468,6 +1492,25 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 </span>
               )}
             </div>
+            {summary.blood_pressure_systolic !== null && summary.blood_pressure_systolic !== undefined && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
+                <span>Ciśnienie tętnicze</span>
+                {(() => {
+                  const sys = summary.blood_pressure_systolic;
+                  const dia = summary.blood_pressure_diastolic;
+                  let color = '#34d399';
+                  let label = 'Optymalne';
+                  if (sys >= 140 || dia >= 90) { color = '#f87171'; label = 'Wysokie'; }
+                  else if (sys >= 130 || dia >= 80) { color = '#fbbf24'; label = 'Podwyższone'; }
+                  else if (sys >= 120) { color = '#fbbf24'; label = 'Prawidłowe wysokie'; }
+                  return (
+                    <span style={{ color, fontWeight: '600' }}>
+                      {sys}/{dia} mmHg ({label})
+                    </span>
+                  );
+                })()}
+              </div>
+            )}
             {latestBodyMeasurement && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
                 <span>Ostatni pomiar obwodów ({latestBodyMeasurement.date})</span>

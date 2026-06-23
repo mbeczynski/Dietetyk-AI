@@ -180,8 +180,18 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   // tworzone automatycznie przy rejestracji - patrz backend/routes/auth.js)
   // i zapisuje go przez istniejący endpoint POST /api/user/profile (już
   // wspiera pole syncToken - backend/routes/account.js).
+  // UWAGA: Math.random() NIE jest kryptograficznie bezpieczny (generator PRNG silnika
+  // JS jest odtwarzalny/przewidywalny w pewnych warunkach) - a ten token jest realnym
+  // poświadczeniem: backend (account.js) przyjmuje go bez żadnej dodatkowej weryfikacji
+  // i ustawia jako nowy sync_token użytkownika, który m.in. autoryzuje webhook Apple
+  // Health (Health Auto Export) bez sesji/logowania. Używamy więc window.crypto.getRandomValues
+  // (kryptograficznie bezpieczny generator dostępny w przeglądarce), tak jak backend
+  // korzysta z crypto.randomBytes przy generowaniu tokenów w db.js/auth.js.
   const generateRandomToken = () => {
-    return 'sync_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+    const bytes = new Uint8Array(20);
+    window.crypto.getRandomValues(bytes);
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return 'sync_' + hex;
   };
 
   const handleRegenerateToken = async () => {
@@ -569,6 +579,10 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
   const handleDisable2FA = async () => {
     if (!confirm('Czy na pewno chcesz wyłączyć dwuetapową weryfikację (2FA) na swoim koncie? Obniży to bezpieczeństwo profilu.')) return;
+    // Backend wymaga teraz ponownej weryfikacji aktualnym hasłem przed wyłączeniem 2FA
+    // (patrz backend/routes/account.js) - samo posiadanie aktywnej sesji nie wystarczy.
+    const password = prompt('Aby wyłączyć 2FA, potwierdź swoje aktualne hasło:');
+    if (!password) return;
     setIsDisabling2fa(true);
     setTotpMessage({ type: '', text: '' });
 
@@ -576,8 +590,10 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
       const res = await fetch('/api/user/disable-2fa', {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${sessionToken}`
-        }
+        },
+        body: JSON.stringify({ password })
       });
 
       if (res.ok) {

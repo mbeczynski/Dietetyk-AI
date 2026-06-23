@@ -594,6 +594,29 @@ header {
   border-color: rgba(245, 158, 11, 0.2);
 }
 
+/* Błonnik/Cukry/Sód (MealLogger) - wcześniej te trzy chipy miały kolory wpisane
+   bezpośrednio jako inline style w komponencie, zamiast korzystać z tego samego
+   systemu klas .nutrition-chip.* co kalorie/B/W/T powyżej - dwa równoległe,
+   niezsynchronizowane sposoby stylowania tego samego elementu UI w tej samej
+   aplikacji. Kolory dopasowane do tego samego wzorca (10% tła, 20% obramowania). */
+.nutrition-chip.fiber {
+  background: rgba(132, 204, 22, 0.1);
+  color: #84cc16;
+  border-color: rgba(132, 204, 22, 0.2);
+}
+
+.nutrition-chip.sugar {
+  background: rgba(244, 114, 182, 0.1);
+  color: #f472b6;
+  border-color: rgba(244, 114, 182, 0.2);
+}
+
+.nutrition-chip.sodium {
+  background: rgba(96, 165, 250, 0.1);
+  color: #60a5fa;
+  border-color: rgba(96, 165, 250, 0.2);
+}
+
 .meal-comment {
   font-size: 0.9rem;
   line-height: 1.4;
@@ -1277,13 +1300,38 @@ header {
   margin-bottom: 0;
 }
 
-.dietetyk-ai-advice-text ul {
-  margin: 0 0 8px 0;
-  padding-left: 18px;
+.dietetyk-ai-advice-text ul,
+.dietetyk-ai-advice-text ol {
+  margin: 0 0 10px 0;
+  padding-left: 20px;
+}
+
+.dietetyk-ai-advice-text li {
+  margin-bottom: 4px;
+}
+
+.dietetyk-ai-advice-text li::marker {
+  color: #c084fc;
 }
 
 .dietetyk-ai-advice-text strong {
   color: #fff;
+}
+
+/* Nagłówki "## Analiza" / "## Rekomendacje" z promptu AI - oddzielają wizualnie
+   sekcję analizy od listy rekomendacji, żeby porada była "jak najbardziej czytelna"
+   (zgłoszenie użytkownika), a nie jednym blokiem tekstu z gwiazdkami. */
+.dietetyk-ai-advice-heading {
+  margin: 12px 0 6px 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #c084fc;
+}
+
+.dietetyk-ai-advice-text > .dietetyk-ai-advice-heading:first-child {
+  margin-top: 0;
 }
 
 .btn-dietetyk-ask {

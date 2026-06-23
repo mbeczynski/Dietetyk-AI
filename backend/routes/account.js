@@ -339,8 +339,27 @@ router.post('/api/user/verify-2fa', async (req, res) => {
 });
 
 // 6b-3. Wyłączenie 2FA przez zalogowanego użytkownika
+// UWAGA: wymagamy ponownej weryfikacji aktualnym hasłem przed wyłączeniem 2FA - bez tego
+// samo posiadanie aktywnej, zalogowanej sesji (np. przejęty/skradziony token sesji, urządzenie
+// zostawione bez blokady) wystarczało do trwałego wyłączenia drugiego czynnika logowania,
+// bez znajomości hasła czy aktualnego kodu TOTP. Ten sam wzorzec re-weryfikacji hasłem już
+// stosujemy przy zmianie hasła i usuwaniu konta (patrz wyżej w tym pliku).
 router.post('/api/user/disable-2fa', async (req, res) => {
+  const { password } = req.body;
+  if (!password) {
+    return res.status(400).json({ error: 'Wymagane jest podanie aktualnego hasła, aby wyłączyć 2FA.' });
+  }
   try {
+    const user = await db.get(`SELECT password_hash FROM users WHERE id = ?`, [req.user.id]);
+    if (!user) {
+      return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Niepoprawne hasło.' });
+    }
+
     await db.run(`UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE id = ?`, [req.user.id]);
     res.json({ success: true, message: 'Dwuetapowa weryfikacja (2FA) została wyłączona.' });
   } catch (err) {

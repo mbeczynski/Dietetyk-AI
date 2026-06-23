@@ -74,7 +74,13 @@ router.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
   }
 
   try {
-    await db.run(`DELETE FROM users WHERE id = ?`, [id]);
+    // UWAGA: sprawdzamy result.changes - bez tego usunięcie nieistniejącego/już usuniętego
+    // id zwracało "success: true" (operacja DELETE na zero wierszy nie jest błędem SQL),
+    // więc panel admina mylnie pokazywał potwierdzenie usunięcia, mimo że nic się nie stało.
+    const result = await db.run(`DELETE FROM users WHERE id = ?`, [id]);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
+    }
     res.json({ success: true, message: 'Użytkownik został usunięty.' });
   } catch (err) {
     console.error(err);
@@ -85,7 +91,10 @@ router.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
 router.post('/api/admin/users/:id/reset-2fa', requireAdmin, async (req, res) => {
   const { id } = req.params;
   try {
-    await db.run(`UPDATE users SET totp_enabled = 0, totp_secret = NULL, force_2fa = 0 WHERE id = ?`, [id]);
+    const result = await db.run(`UPDATE users SET totp_enabled = 0, totp_secret = NULL, force_2fa = 0 WHERE id = ?`, [id]);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
+    }
     await db.run(`DELETE FROM sessions WHERE user_id = ?`, [id]);
     res.json({ success: true, message: 'Zabezpieczenie 2FA zostało zresetowane i cofnięto wymuszenie.' });
   } catch (err) {
@@ -97,7 +106,10 @@ router.post('/api/admin/users/:id/reset-2fa', requireAdmin, async (req, res) => 
 router.post('/api/admin/users/:id/force-2fa', requireAdmin, async (req, res) => {
   const { id } = req.params;
   try {
-    await db.run(`UPDATE users SET force_2fa = 1 WHERE id = ?`, [id]);
+    const result = await db.run(`UPDATE users SET force_2fa = 1 WHERE id = ?`, [id]);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
+    }
     await db.run(`DELETE FROM sessions WHERE user_id = ?`, [id]);
     res.json({ success: true, message: 'Wymuszono 2FA dla użytkownika przy kolejnym logowaniu.' });
   } catch (err) {
@@ -109,7 +121,10 @@ router.post('/api/admin/users/:id/force-2fa', requireAdmin, async (req, res) => 
 router.post('/api/admin/users/:id/force-password-change', requireAdmin, async (req, res) => {
   const { id } = req.params;
   try {
-    await db.run(`UPDATE users SET force_password_change = 1 WHERE id = ?`, [id]);
+    const result = await db.run(`UPDATE users SET force_password_change = 1 WHERE id = ?`, [id]);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
+    }
     await db.run(`DELETE FROM sessions WHERE user_id = ?`, [id]);
     res.json({ success: true, message: 'Wymuszono zmianę hasła na użytkowniku.' });
   } catch (err) {

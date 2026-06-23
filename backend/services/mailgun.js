@@ -1,4 +1,5 @@
 const db = require('../db');
+const { fetchWithTimeout } = require('../utils/fetchWithTimeout');
 
 async function sendMailgunEmail({ to, subject, html }) {
   const configRows = await db.all(`SELECT * FROM app_config`);
@@ -32,7 +33,7 @@ async function sendMailgunEmail({ to, subject, html }) {
 
   console.log(`[MAILGUN] Wysyłanie e-maila do ${to} za pomocą domeny ${domain}...`);
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Authorization': authHeader,

@@ -33,17 +33,19 @@ async function logEvent({ level, category, message, ip = null, userId = null, de
     }
 
     // Bezpieczne wstawienie do bazy danych SQLite w tle (nie blokujemy wątku głównego)
-    // Sprawdzamy czy db jest zainicjalizowany i posiada funkcję run
+    // Sprawdzamy czy db jest zainicjalizowany i posiada funkcję run.
+    // UWAGA: db.run (z db.js) to wrapper oparty na Promise, NIE przyjmuje callbacku jako
+    // trzeciego argumentu (sqlite3 surowe API tak, ale to nie jest to API) - przekazanie
+    // tu funkcji jako trzeciego parametru było po cichu ignorowane, a sam zwrócony Promise
+    // nigdy nie był obsłużony, więc błąd zapisu logu (np. SQLITE_BUSY) kończył się
+    // nieobsłużonym odrzuceniem obietnicy (unhandled promise rejection) w całym procesie.
     if (db && typeof db.run === 'function') {
       db.run(
         `INSERT INTO app_logs (level, category, message, ip, user_id, details) VALUES (?, ?, ?, ?, ?, ?)`,
-        [level, category, message, ip, userId, detailsStr],
-        (err) => {
-          if (err) {
-            console.error('[LOGGER DB ERROR] Nieudany zapis logu do bazy:', err.message);
-          }
-        }
-      );
+        [level, category, message, ip, userId, detailsStr]
+      ).catch((err) => {
+        console.error('[LOGGER DB ERROR] Nieudany zapis logu do bazy:', err.message);
+      });
     }
   } catch (err) {
     console.error('[LOGGER CRITICAL ERROR] Krytyczny błąd loggera:', err.message);

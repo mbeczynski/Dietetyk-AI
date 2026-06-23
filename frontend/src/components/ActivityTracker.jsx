@@ -527,13 +527,13 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', display: 'block' }}>Gotowość (Readiness)</span>
                   <strong style={{ fontSize: '1.4rem', color: '#c084fc' }}>
-                    {summary.readiness_score !== null ? `${summary.readiness_score}/100` : '--'}
+                    {summary.readiness_score != null ? `${summary.readiness_score}/100` : '--'}
                   </strong>
                 </div>
                 <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', display: 'block' }}>Wynik Snu (Sleep)</span>
                   <strong style={{ fontSize: '1.4rem', color: '#38bdf8' }}>
-                    {summary.sleep_score !== null ? `${summary.sleep_score}/100` : '--'}
+                    {summary.sleep_score != null ? `${summary.sleep_score}/100` : '--'}
                   </strong>
                 </div>
               </div>
@@ -542,31 +542,31 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Długość snu:</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.sleep_duration !== null ? `${summary.sleep_duration.toFixed(1)}h` : '--'}
+                    {summary.sleep_duration != null ? `${summary.sleep_duration.toFixed(1)}h` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Faza głęboka / REM:</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.sleep_deep !== null ? `${summary.sleep_deep.toFixed(1)}h` : '--'} / {summary.sleep_rem !== null ? `${summary.sleep_rem.toFixed(1)}h` : '--'}
+                    {summary.sleep_deep != null ? `${summary.sleep_deep.toFixed(1)}h` : '--'} / {summary.sleep_rem != null ? `${summary.sleep_rem.toFixed(1)}h` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>HRV (Zmienność tętna):</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.hrv !== null ? `${summary.hrv.toFixed(0)} ms` : '--'}
+                    {summary.hrv != null ? `${summary.hrv.toFixed(0)} ms` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Tętno spoczynkowe (RHR):</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.rhr !== null ? `${summary.rhr.toFixed(0)} bpm` : '--'}
+                    {summary.rhr != null ? `${summary.rhr.toFixed(0)} bpm` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Odchylenie temperatury:</span>
                   <span style={{ color: summary.temperature_deviation > 0 ? '#f87171' : '#34d399', fontWeight: 600 }}>
-                    {summary.temperature_deviation !== null ? `${summary.temperature_deviation > 0 ? '+' : ''}${summary.temperature_deviation.toFixed(2)} °C` : '--'}
+                    {summary.temperature_deviation != null ? `${summary.temperature_deviation > 0 ? '+' : ''}${summary.temperature_deviation.toFixed(2)} °C` : '--'}
                   </span>
                 </div>
               </div>
@@ -595,7 +595,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', textAlign: 'center' }}>
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', display: 'block' }}>Aktualna Waga Ciała</span>
                   <strong style={{ fontSize: '1.8rem', color: '#fbbf24' }}>
-                    {summary.weight !== null ? `${summary.weight.toFixed(1)} kg` : '--'}
+                    {summary.weight != null ? `${summary.weight.toFixed(1)} kg` : '--'}
                   </strong>
                 </div>
               </div>
@@ -604,19 +604,19 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Procent tkanki tłuszczowej (Fat %):</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.fat_ratio !== null ? `${summary.fat_ratio.toFixed(1)}%` : '--'}
+                    {summary.fat_ratio != null ? `${summary.fat_ratio.toFixed(1)}%` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Szacowana masa tłuszczu:</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.weight !== null && summary.fat_ratio !== null ? `${((summary.weight * summary.fat_ratio) / 100).toFixed(1)} kg` : '--'}
+                    {summary.weight != null && summary.fat_ratio != null ? `${((summary.weight * summary.fat_ratio) / 100).toFixed(1)} kg` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Masa mięśniowa (Muscle mass):</span>
                   <span style={{ color: '#34d399', fontWeight: 600 }}>
-                    {summary.muscle_mass !== null ? `${summary.muscle_mass.toFixed(1)} kg` : '--'}
+                    {summary.muscle_mass != null ? `${summary.muscle_mass.toFixed(1)} kg` : '--'}
                   </span>
                 </div>
               </div>

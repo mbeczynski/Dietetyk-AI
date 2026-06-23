@@ -6,10 +6,20 @@ const { getLocalDateString } = require('../utils/dates');
 const { getDefaultHealthMetrics } = require('../utils/defaultHealthMetrics');
 const { generateContentWithFallback } = require('../config');
 
+// Limit znaków pojedynczej wiadomości czatu - bez tego nic nie ograniczało długości
+// `message` trafiającego prosto do promptu Gemini (limit body to 20MB, ustawiony w
+// server.js z myślą o webhooku Apple Health, nie o czacie) - użytkownik mógłby
+// wysłać ogromny tekst, drastycznie zwiększając koszt/czas wywołania AI albo
+// powodując błąd po stronie Gemini.
+const MAX_CHAT_MESSAGE_LENGTH = 2000;
+
 router.post('/api/chat', requireAuth, async (req, res) => {
   const { message, date, history } = req.body;
-  if (!message) {
+  if (!message || !message.trim()) {
     return res.status(400).json({ error: 'Treść wiadomości jest wymagana.' });
+  }
+  if (message.length > MAX_CHAT_MESSAGE_LENGTH) {
+    return res.status(400).json({ error: `Wiadomość jest zbyt długa (maks. ${MAX_CHAT_MESSAGE_LENGTH} znaków).` });
   }
 
   const queryDate = date || getLocalDateString();

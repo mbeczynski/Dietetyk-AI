@@ -41,6 +41,9 @@ function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
     totalProtein += m.protein;
     totalCarbs += m.carbs;
     totalFat += m.fat;
+    totalFiber += m.fiber || 0;
+    totalSugar += m.sugar || 0;
+    totalSodium += m.sodium || 0;
   });
 
   let totalSteps = 0, totalActiveCal = 0, totalWaterMl = 0;
@@ -52,6 +55,9 @@ function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
   let firstWeight = null, lastWeight = null;
   let firstFatRatio = null, lastFatRatio = null;
   let firstMuscleMass = null, lastMuscleMass = null;
+  let bpSystolicSum = 0, bpDiastolicSum = 0, bpCount = 0;
+  let totalFiber = 0, totalSugar = 0, totalSodium = 0;
+  const supplementsLogged = [];
 
   const sortedHealthMetrics = [...healthMetrics].sort((a, b) => a.date.localeCompare(b.date));
 
@@ -85,6 +91,14 @@ function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
       if (firstMuscleMass === null) firstMuscleMass = h.muscle_mass;
       lastMuscleMass = h.muscle_mass;
     }
+    if (h.blood_pressure_systolic !== null && h.blood_pressure_diastolic !== null) {
+      bpSystolicSum += h.blood_pressure_systolic;
+      bpDiastolicSum += h.blood_pressure_diastolic;
+      bpCount++;
+    }
+    if (h.supplements) {
+      supplementsLogged.push(`${h.date}: ${h.supplements}`);
+    }
   });
 
   const workoutsCount = healthMetrics.filter(h => (h.active_calories || 0) > 0).length;
@@ -103,6 +117,11 @@ function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
   const avgWeight = weightCount > 0 ? Math.round((weightSum / weightCount) * 10) / 10 : null;
   const avgFatRatio = fatRatioCount > 0 ? Math.round((fatRatioSum / fatRatioCount) * 10) / 10 : null;
   const avgMuscleMass = muscleMassCount > 0 ? Math.round((muscleMassSum / muscleMassCount) * 10) / 10 : null;
+  const avgBpSystolic = bpCount > 0 ? Math.round(bpSystolicSum / bpCount) : null;
+  const avgBpDiastolic = bpCount > 0 ? Math.round(bpDiastolicSum / bpCount) : null;
+  const avgFiber = Math.round((totalFiber / numDays) * 10) / 10;
+  const avgSugar = Math.round((totalSugar / numDays) * 10) / 10;
+  const avgSodium = Math.round(totalSodium / numDays);
 
   const weightChange = (firstWeight !== null && lastWeight !== null) ? Math.round((lastWeight - firstWeight) * 10) / 10 : null;
   const fatRatioChange = (firstFatRatio !== null && lastFatRatio !== null) ? Math.round((lastFatRatio - firstFatRatio) * 10) / 10 : null;
@@ -110,8 +129,10 @@ function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
 
   return {
     avgEatenCalories, avgProtein, avgCarbs, avgFat,
+    avgFiber, avgSugar, avgSodium,
     avgSteps, avgActiveCalories, avgWaterMl,
     avgSleepScore, avgReadinessScore, avgWeight, avgFatRatio, avgMuscleMass,
+    avgBpSystolic, avgBpDiastolic, supplementsLogged,
     workoutsCount, weightChange, fatRatioChange, muscleMassChange
   };
 }
@@ -134,13 +155,40 @@ async function generateAiSummaryText({ userId, user, prompt, shouldGenerate, fal
   return result;
 }
 
-// Konwersja markdown z Gemini na HTML (identyczna logika używana w 3 raportach)
+// Konwersja markdown z Gemini na HTML (identyczna logika używana w 3 raportach).
+// Linia po linii - obsługuje nagłówki (## / ###), listy punktowane ("- "/"* ") i
+// pogrubienia, zamiast samego zamieniania \n na <br/> jak poprzednio (ten prosty
+// zamiennik nie domykał <ul> i nie rozumiał nagłówków, więc nowa, ustrukturyzowana
+// odpowiedź AI - "## Analiza" / "## Rekomendacje" w punktach - renderowała się płasko).
+// Najpierw escapujemy HTML (tekst generuje LLM), tak jak w renderAdviceMarkdown na froncie.
 function markdownToHtml(text) {
-  return text
-    .replace(/\n\n/g, '<br/><br/>')
-    .replace(/\n/g, '<br/>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\* ([^*]+)/g, '<li>$1</li>');
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const lines = escaped.split('\n');
+  let html = '';
+  let listOpen = false;
+  const closeList = () => {
+    if (listOpen) { html += '</ul>'; listOpen = false; }
+  };
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    const headingMatch = line.match(/^#{2,3}\s+(.*)/);
+    const bulletMatch = line.match(/^[-*]\s+(.*)/);
+    if (headingMatch) {
+      closeList();
+      html += `<h3 style="color:#a78bfa;font-size:1rem;margin:16px 0 8px;">${headingMatch[1]}</h3>`;
+    } else if (bulletMatch) {
+      if (!listOpen) { html += '<ul style="margin:0 0 12px 0;padding-left:20px;">'; listOpen = true; }
+      html += `<li style="margin-bottom:4px;">${bulletMatch[1]}</li>`;
+    } else {
+      closeList();
+      html += line === '' ? '<br/>' : `<p style="margin:0 0 10px 0;">${line}</p>`;
+    }
+  });
+  closeList();
+  return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 
 // Wspólny CSS dla wszystkich maili podsumowujących
@@ -304,12 +352,13 @@ Cele dobowe:
 - BMR: ${bmr} kcal
 
 Tygodniowe statystyki (średnie dzienne):
-- Średnie dzienne spożycie energii: ${stats.avgEatenCalories} kcal (Białko: ${stats.avgProtein}g, Węglowodany: ${stats.avgCarbs}g, Tłuszcz: ${stats.avgFat}g)
+- Średnie dzienne spożycie energii: ${stats.avgEatenCalories} kcal (Białko: ${stats.avgProtein}g, Węglowodany: ${stats.avgCarbs}g, Tłuszcz: ${stats.avgFat}g, Błonnik: ${stats.avgFiber}g, Cukry: ${stats.avgSugar}g, Sód: ${stats.avgSodium}mg)
 - Średnia aktywność fizyczna (aktywne kalorie): ${stats.avgActiveCalories} kcal
 - Średnia całkowitego dziennego spalania: ${avgTotalBurned} kcal
 - Średni dobowy bilans netto: ${avgNetCalories} kcal
 - Średni dobowy kroki: ${stats.avgSteps}
 - Średnie dobowe nawodnienie: ${stats.avgWaterMl}ml (cel: ${targetWaterMl}ml)
+- Suplementy zapisane w tym tygodniu: ${stats.supplementsLogged.length > 0 ? stats.supplementsLogged.join('; ') : 'brak zapisanych suplementów'}
 
 Dane z Oura & Withings (średnie tygodniowe):
 - Średni wynik snu (Sleep Score): ${stats.avgSleepScore !== null ? stats.avgSleepScore + '/100' : 'brak'}
@@ -317,16 +366,17 @@ Dane z Oura & Withings (średnie tygodniowe):
 - Średnia waga ciała: ${stats.avgWeight !== null ? stats.avgWeight + ' kg' : 'brak'}
 - Średni procent tłuszczu: ${stats.avgFatRatio !== null ? stats.avgFatRatio + '%' : 'brak'}
 - Średnia masa mięśniowa: ${stats.avgMuscleMass !== null ? stats.avgMuscleMass + ' kg' : 'brak'}
+- Średnie ciśnienie tętnicze: ${stats.avgBpSystolic !== null ? `${stats.avgBpSystolic}/${stats.avgBpDiastolic} mmHg` : 'brak danych'}
 
-Napisz profesjonalny, zwięzły i motywujący tygodniowy raport w języku polskim. Skup się na:
-1. Bilansie energetycznym (trzymanie celów).
-2. Pokryciu makroskładników (ze szczególnym naciskiem na modyfikacje i sugestie dietetyczne, np. kiedy i jak dorzucić więcej białka w celu odbudowy mięśni lub jak zbilansować pozostałe makro).
-3. Podsumowaniu aktywności treningowej, w tym szacunkowych strefach kardio po treningu (strefa spalania tłuszczu vs. wysoka intensywność tlenowa/beztlenowa) oszacowanych na podstawie spalonych aktywnych kalorii oraz wskaźników tętna spoczynkowego (RHR) i HRV z Oura.
-4. Regeneracji i zmianach w składzie ciała z Withings (przyrost masy mięśniowej vs spadek tkanki tłuszczowej).
-5. Poziomie nawodnienia względem celu i jego wpływie na regenerację i wydolność.
-6. Zakończ trzema konkretnymi rekomendacjami żywieniowo-treningowymi w punktach na nadchodzący tydzień.
+Napisz profesjonalny, zwięzły i motywujący tygodniowy raport w języku polskim, analizując wszystkie dane podane powyżej. Weź pod uwagę:
+1. Bilans energetyczny (trzymanie celów).
+2. Pokrycie makroskładników i mikroelementów (błonnik, cukry, sód) - ze szczególnym naciskiem na modyfikacje i sugestie dietetyczne, np. kiedy i jak dorzucić więcej białka w celu odbudowy mięśni, jak zbilansować pozostałe makro, lub jak ograniczyć nadmiar sodu/cukrów prostych.
+3. Podsumowanie aktywności treningowej, w tym szacunkowe strefy kardio po treningu (strefa spalania tłuszczu vs. wysoka intensywność tlenowa/beztlenowa) oszacowane na podstawie spalonych aktywnych kalorii oraz wskaźników tętna spoczynkowego (RHR) i HRV z Oura.
+4. Regenerację i zmiany w składzie ciała z Withings (przyrost masy mięśniowej vs spadek tkanki tłuszczowej) oraz ciśnienie tętnicze, jeśli dostępne.
+5. Poziom nawodnienia względem celu i jego wpływ na regenerację i wydolność.
+6. Suplementy: jeśli użytkownik zapisał suplementy w tym tygodniu, skomentuj krótko ich regularność i przydatność.
 
-Formatuj odpowiedź używając czytelnych akapitów, punktów i nagłówków. Pisz bezpośrednio do użytkownika.
+Sformatuj odpowiedź w strukturze Markdown: krótkie zdanie wstępu, nagłówek "## Analiza" (zwięzłe akapity podsumowujące tydzień na bazie powyższych punktów), nagłówek "## Rekomendacje" z listą punktowaną (3 konkretne punkty na nadchodzący tydzień, każdy zaczynający się od "- "). Używaj **pogrubienia** dla kluczowych liczb i fraz. Pisz bezpośrednio do użytkownika.
 `;
 
   const aiSummary = await generateAiSummaryText({
@@ -439,11 +489,12 @@ Dane gotowości, snu (Oura) i składu ciała (Withings):
 Lista dzisiejszych posiłków:
 ${meals.map(m => `- ${m.raw_text} (${m.calories} kcal, B:${m.protein}g, W:${m.carbs}g, T:${m.fat}g)`).join('\n') || 'Brak wprowadzonych posiłków'}
 
-Napisz krótką, spersonalizowaną poradę dietetyczno-treningową (maksymalnie 4-5 zdań). Skup się na:
-1. Analizie intensywności wysiłku i stref kardio po treningu na bazie aktywnych kalorii oraz parametrów serca (RHR, HRV) - oceń, czy trening sprzyjał tlenowemu spalaniu tłuszczu (strefa spalania tłuszczu, niska intensywność) czy wszedł w wyższe strefy beztlenowe/kardio.
-2. Sugerowaniu precyzyjnych zmian w diecie na bazie dzisiejszych posiłków i treningu (np. zalecenie dorzucenia większej ilości białka w celu wsparcia regeneracji włókien mięśniowych po ciężkim wysiłku beztlenowym lub redukcji węglowodanów w dni o niskim wysiłku aerobowym).
-3. Uwzględnieniu gotowości Oura i trendów wagi/mięśni/tłuszczu z Withings.
-Pisz bezpośrednio do użytkownika w języku polskim. Bądź konkretny, motywujący i merytoryczny.
+Twoja analiza ma uwzględniać wszystkie dane podane powyżej (dzisiejsze posiłki i wartości, gotowość Oura, skład ciała Withings) - to kluczowa funkcja tej aplikacji. Weź pod uwagę przy analizie i rekomendacjach:
+1. Intensywność wysiłku i strefy kardio po treningu na bazie aktywnych kalorii oraz parametrów serca (RHR, HRV) - oceń, czy trening sprzyjał tlenowemu spalaniu tłuszczu (strefa spalania tłuszczu, niska intensywność) czy wszedł w wyższe strefy beztlenowe/kardio.
+2. Precyzyjne zmiany w diecie na bazie dzisiejszych posiłków i treningu (np. zalecenie dorzucenia większej ilości białka w celu wsparcia regeneracji włókien mięśniowych po ciężkim wysiłku beztlenowym lub redukcji węglowodanów w dni o niskim wysiłku aerobowym).
+3. Gotowość Oura i trendy wagi/mięśni/tłuszczu z Withings.
+
+Sformatuj odpowiedź w strukturze Markdown: jedno krótkie zdanie wstępu, nagłówek "## Analiza" (2-3 zdania), nagłówek "## Rekomendacje" z listą punktowaną (2-3 punkty, każdy zaczynający się od "- "). Używaj **pogrubienia** dla kluczowych liczb i fraz. Pisz bezpośrednio do użytkownika w języku polskim. Bądź konkretny, motywujący i merytoryczny, bez lania wody.
 `;
 
   let aiAdvice = await generateAiSummaryText({
@@ -511,13 +562,14 @@ Cele dobowe:
 - BMR: ${bmr} kcal
 
 Miesięczne statystyki (średnie dzienne z ostatnich 30 dni):
-- Średnie dzienne spożycie energii: ${stats.avgEatenCalories} kcal (Białko: ${stats.avgProtein}g, Węglowodany: ${stats.avgCarbs}g, Tłuszcz: ${stats.avgFat}g)
+- Średnie dzienne spożycie energii: ${stats.avgEatenCalories} kcal (Białko: ${stats.avgProtein}g, Węglowodany: ${stats.avgCarbs}g, Tłuszcz: ${stats.avgFat}g, Błonnik: ${stats.avgFiber}g, Cukry: ${stats.avgSugar}g, Sód: ${stats.avgSodium}mg)
 - Średnia aktywność fizyczna (aktywne kalorie): ${stats.avgActiveCalories} kcal
 - Średnia całkowitego dziennego spalania: ${avgTotalBurned} kcal
 - Średni dobowy bilans netto: ${avgNetCalories} kcal
 - Średni dobowy kroki: ${stats.avgSteps}
 - Liczba dni z treningiem w miesiącu: ${stats.workoutsCount}
 - Średnie dobowe nawodnienie: ${stats.avgWaterMl}ml (cel: ${targetWaterMl}ml)
+- Suplementy zapisane w tym miesiącu: ${stats.supplementsLogged.length > 0 ? stats.supplementsLogged.length + ' wpisów - ' + stats.supplementsLogged.slice(0, 10).join('; ') : 'brak zapisanych suplementów'}
 
 Dane z Oura & Withings (średnie miesięczne i zmiana trendu od początku do końca okresu):
 - Średni wynik snu (Sleep Score): ${stats.avgSleepScore !== null ? stats.avgSleepScore + '/100' : 'brak'}
@@ -525,15 +577,15 @@ Dane z Oura & Withings (średnie miesięczne i zmiana trendu od początku do ko�
 - Średnia waga ciała: ${stats.avgWeight !== null ? stats.avgWeight + ' kg' : 'brak'} (zmiana w miesiącu: ${stats.weightChange !== null ? (stats.weightChange > 0 ? '+' : '') + stats.weightChange + ' kg' : 'brak danych'})
 - Średni procent tłuszczu: ${stats.avgFatRatio !== null ? stats.avgFatRatio + '%' : 'brak'} (zmiana w miesiącu: ${stats.fatRatioChange !== null ? (stats.fatRatioChange > 0 ? '+' : '') + stats.fatRatioChange + ' pp' : 'brak danych'})
 - Średnia masa mięśniowa: ${stats.avgMuscleMass !== null ? stats.avgMuscleMass + ' kg' : 'brak'} (zmiana w miesiącu: ${stats.muscleMassChange !== null ? (stats.muscleMassChange > 0 ? '+' : '') + stats.muscleMassChange + ' kg' : 'brak danych'})
+- Średnie ciśnienie tętnicze w miesiącu: ${stats.avgBpSystolic !== null ? `${stats.avgBpSystolic}/${stats.avgBpDiastolic} mmHg` : 'brak danych'}
 
-Napisz profesjonalny, zwięzły i motywujący miesięczny raport w języku polskim. Skup się na:
-1. Ogólnym trendzie bilansu energetycznego w skali miesiąca (utrzymanie celów, konsekwencja).
-2. Długoterminowych zmianach w składzie ciała z Withings (przyrost masy mięśniowej vs spadek tkanki tłuszczowej w skali miesiąca) - odnieś się konkretnie do zmiany wagi/tłuszczu/mięśni podanej powyżej.
-3. Konsekwencji w treningach i regeneracji (gotowość Oura) na przestrzeni miesiąca.
-4. Poziomie nawodnienia względem celu w skali miesiąca i jego wpływie na regenerację.
-5. Zakończ trzema konkretnymi, długoterminowymi rekomendacjami żywieniowo-treningowymi na nadchodzący miesiąc.
+Napisz profesjonalny, zwięzły i motywujący miesięczny raport w języku polskim, analizując wszystkie dane podane powyżej. Weź pod uwagę:
+1. Ogólny trend bilansu energetycznego w skali miesiąca (utrzymanie celów, konsekwencja), w tym jakość diety pod kątem błonnika, cukrów i sodu.
+2. Długoterminowe zmiany w składzie ciała z Withings (przyrost masy mięśniowej vs spadek tkanki tłuszczowej w skali miesiąca) oraz trend ciśnienia tętniczego, jeśli dostępny - odnieś się konkretnie do zmiany wagi/tłuszczu/mięśni/ciśnienia podanej powyżej.
+3. Konsekwencję w treningach, regeneracji (gotowość Oura) i suplementacji na przestrzeni miesiąca.
+4. Poziom nawodnienia względem celu w skali miesiąca i jego wpływ na regenerację.
 
-Formatuj odpowiedź używając czytelnych akapitów, punktów i nagłówków. Pisz bezpośrednio do użytkownika.
+Sformatuj odpowiedź w strukturze Markdown: krótkie zdanie wstępu, nagłówek "## Analiza" (zwięzłe akapity podsumowujące miesiąc na bazie powyższych punktów), nagłówek "## Rekomendacje" z listą punktowaną (3 konkretne, długoterminowe punkty na nadchodzący miesiąc, każdy zaczynający się od "- "). Używaj **pogrubienia** dla kluczowych liczb i fraz. Pisz bezpośrednio do użytkownika.
 `;
 
   const aiSummary = await generateAiSummaryText({

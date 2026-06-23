@@ -27,7 +27,7 @@ const shiftDate = (dateStr, deltaDays) => {
 // przez całą długość okresu zaniżałoby średnią przy nieregularnym logowaniu.
 async function aggregateNutrition(userId, startDate, endDate) {
   const rows = await db.all(
-    `SELECT date, SUM(calories) AS calories, SUM(protein) AS protein, SUM(carbs) AS carbs, SUM(fat) AS fat
+    `SELECT date, SUM(calories) AS calories, SUM(protein) AS protein, SUM(carbs) AS carbs, SUM(fat) AS fat, SUM(fiber) AS fiber, SUM(sugar) AS sugar, SUM(sodium) AS sodium
      FROM meals WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date`,
     [userId, startDate, endDate]
   );
@@ -37,13 +37,19 @@ async function aggregateNutrition(userId, startDate, endDate) {
     acc.protein += r.protein || 0;
     acc.carbs += r.carbs || 0;
     acc.fat += r.fat || 0;
+    acc.fiber += r.fiber || 0;
+    acc.sugar += r.sugar || 0;
+    acc.sodium += r.sodium || 0;
     return acc;
-  }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  }, { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0 });
   const avg = daysLogged > 0 ? {
     calories: Math.round(totals.calories / daysLogged),
     protein: Math.round((totals.protein / daysLogged) * 10) / 10,
     carbs: Math.round((totals.carbs / daysLogged) * 10) / 10,
-    fat: Math.round((totals.fat / daysLogged) * 10) / 10
+    fat: Math.round((totals.fat / daysLogged) * 10) / 10,
+    fiber: Math.round((totals.fiber / daysLogged) * 10) / 10,
+    sugar: Math.round((totals.sugar / daysLogged) * 10) / 10,
+    sodium: Math.round(totals.sodium / daysLogged)
   } : null;
   return { start: startDate, end: endDate, days_logged: daysLogged, totals, avg };
 }
@@ -103,7 +109,7 @@ router.get('/api/dashboard', async (req, res) => {
 
     // Posiłki z dzisiaj
     const mealRows = await db.all(`SELECT * FROM meals WHERE user_id = ? AND date = ?`, [req.user.id, date]);
-    let totalEaten = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    let totalEaten = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0 };
     const meals = mealRows.map(r => {
       let analysis = {};
       try {
@@ -115,6 +121,9 @@ router.get('/api/dashboard', async (req, res) => {
       totalEaten.protein += r.protein;
       totalEaten.carbs += r.carbs;
       totalEaten.fat += r.fat;
+      totalEaten.fiber += r.fiber || 0;
+      totalEaten.sugar += r.sugar || 0;
+      totalEaten.sodium += r.sodium || 0;
       return { id: r.id, raw_text: r.raw_text, timestamp: r.timestamp, image_base64: r.image_base64, ...analysis };
     });
 
@@ -122,6 +131,9 @@ router.get('/api/dashboard', async (req, res) => {
     totalEaten.protein = Math.round(totalEaten.protein * 10) / 10;
     totalEaten.carbs = Math.round(totalEaten.carbs * 10) / 10;
     totalEaten.fat = Math.round(totalEaten.fat * 10) / 10;
+    totalEaten.fiber = Math.round(totalEaten.fiber * 10) / 10;
+    totalEaten.sugar = Math.round(totalEaten.sugar * 10) / 10;
+    totalEaten.sodium = Math.round(totalEaten.sodium);
 
     // Dane zdrowotne z Oura & Withings z wybranego dnia
     const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, date]) || getDefaultHealthMetrics();
@@ -133,6 +145,8 @@ router.get('/api/dashboard', async (req, res) => {
     let displayWeight = health.weight;
     let displayFatRatio = health.fat_ratio;
     let displayMuscleMass = health.muscle_mass;
+    let displayBpSystolic = health.blood_pressure_systolic;
+    let displayBpDiastolic = health.blood_pressure_diastolic;
     let displaySteps = health.steps;
     let displayActiveCalories = health.active_calories;
     let displayTotalCaloriesBurned = health.total_calories_burned;
@@ -171,6 +185,16 @@ router.get('/api/dashboard', async (req, res) => {
     if (displayMuscleMass === null) {
       const row = await db.get(`SELECT muscle_mass FROM health_metrics WHERE user_id = ? AND muscle_mass IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
       if (row) displayMuscleMass = row.muscle_mass;
+    }
+    // Ciśnienie tętnicze (Withings BPM) - dociągane analogicznie do wagi/składu ciała,
+    // bo pomiar nie jest robiony codziennie.
+    if (displayBpSystolic === null) {
+      const row = await db.get(`SELECT blood_pressure_systolic FROM health_metrics WHERE user_id = ? AND blood_pressure_systolic IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
+      if (row) displayBpSystolic = row.blood_pressure_systolic;
+    }
+    if (displayBpDiastolic === null) {
+      const row = await db.get(`SELECT blood_pressure_diastolic FROM health_metrics WHERE user_id = ? AND blood_pressure_diastolic IS NOT NULL ORDER BY date DESC LIMIT 1`, [req.user.id]);
+      if (row) displayBpDiastolic = row.blood_pressure_diastolic;
     }
     // Uwaga: liczniki dzienne (kroki, kalorie aktywne, kalorie spalone, minuty aktywności)
     // celowo NIE są dociągane z poprzednich dni - mają zerować się każdego dnia, dopóki
@@ -243,6 +267,20 @@ router.get('/api/dashboard', async (req, res) => {
       `SELECT date, chest, waist, hips, biceps, thigh FROM body_measurements WHERE user_id = ? ORDER BY date DESC LIMIT 1`,
       [req.user.id]
     );
+
+    // Realne treningi z danego dnia (zsynchronizowane przez webhook Apple Health,
+    // patrz routes/appleHealth.js). Liczone tutaj (przed promptem AI), żeby dało się
+    // przekazać dzisiejsze treningi do advicePrompt, nie tylko do odpowiedzi JSON.
+    const workoutRows = await db.all(
+      `SELECT workout_type, duration_minutes, active_calories
+       FROM apple_health_workouts WHERE user_id = ? AND date = ? ORDER BY updated_at DESC`,
+      [req.user.id, date]
+    );
+    const workouts = workoutRows.map(w => ({
+      type: w.workout_type || 'Trening',
+      duration_mins: Math.round(w.duration_minutes || 0),
+      calories: Math.round(w.active_calories || 0)
+    }));
 
     const activeCalories = displayActiveCalories || 0;
     const bmr = settings.bmr || 1800;
@@ -368,6 +406,17 @@ router.get('/api/dashboard', async (req, res) => {
           `SELECT date, sleep_score, readiness_score FROM health_metrics WHERE user_id = ? AND (sleep_score IS NOT NULL OR readiness_score IS NOT NULL) ORDER BY date DESC LIMIT 7`,
           [req.user.id]
         );
+        const bpHistory = await db.all(
+          `SELECT date, blood_pressure_systolic, blood_pressure_diastolic FROM health_metrics WHERE user_id = ? AND blood_pressure_systolic IS NOT NULL ORDER BY date DESC LIMIT 7`,
+          [req.user.id]
+        );
+        // Pełna historia suplementów (ostatnie 7 dni z wpisem, nie tylko dziś/wczoraj) -
+        // użytkownik wprost zażądał, żeby podsumowanie AI brało WSZYSTKO, co jest
+        // wpisywane w aplikacji, łącznie z suplementami, a nie tylko dwa ostatnie dni.
+        const supplementsHistory = await db.all(
+          `SELECT date, supplements FROM health_metrics WHERE user_id = ? AND supplements IS NOT NULL AND supplements != '' ORDER BY date DESC LIMIT 7`,
+          [req.user.id]
+        );
 
         const advicePrompt = `
 Jesteś profesjonalnym, przyjaznym dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
@@ -378,19 +427,32 @@ Cele użytkownika:
 - BMR (Podstawowa Przemiana Materii): ${bmr} kcal
 
 Aktualny bilans dzisiejszy:
-- Łącznie zjedzone: ${totalEaten.calories} kcal (Białko: ${totalEaten.protein}g, Węgle: ${totalEaten.carbs}g, Tłuszcz: ${totalEaten.fat}g)
+- Łącznie zjedzone: ${totalEaten.calories} kcal (Białko: ${totalEaten.protein}g, Węgle: ${totalEaten.carbs}g, Tłuszcz: ${totalEaten.fat}g, Błonnik: ${totalEaten.fiber}g, Cukry: ${totalEaten.sugar}g, Sód: ${totalEaten.sodium}mg)
 - Aktywne kalorie spalone: ${activeCalories} kcal
 - Łącznie spalone kalorie (BMR + Aktywne): ${totalBurned} kcal
 - Bilans netto (zjedzone - spalone): ${netCalories} kcal
 - Wykonane kroki dzisiaj: ${displaySteps || 0}
+- Aktywność dzisiaj: ${displayActiveMinutes || 0} min aktywności, Dystans: ${displayDistanceMeters ? (Math.round(displayDistanceMeters / 100) / 10) + ' km' : '0 km'}, Czas siedzący: ${displaySedentaryMinutes || 0} min, Niska intensywność: ${displayLowActivityMinutes || 0} min
 - Wypita woda dzisiaj: ${health.water_ml || 0}ml (cel: ${isNaN(settings.target_water_ml) || !settings.target_water_ml ? 2500 : settings.target_water_ml}ml)
 - Przyjęte suplementy dzisiaj: ${health.supplements || 'brak (użytkownik nie zapisał dzisiaj żadnych suplementów)'}
+- Treningi zarejestrowane dzisiaj (Apple Health): ${workouts.length > 0 ? workouts.map(w => `${w.type} (${w.duration_mins} min, ${w.calories} kcal)`).join(', ') : 'brak zarejestrowanych treningów'}
+- Passa (streak) trafiania w cel kaloryczny: ${calorieStreakDays} dni, Passa snu wg celu: ${sleepStreakDays} dni
 
 Dane gotowości, snu (Oura) i składu ciała (Withings):
 - Wynik Snu: ${displaySleepScore !== null ? displaySleepScore + '/100' : 'Brak danych'} (Czas trwania: ${displaySleepDuration || 0}h, Głęboki: ${displaySleepDeep || 0}h, REM: ${displaySleepRem || 0}h)
 - Parametry serca i temp: Tętno spoczynkowe: ${displayRhr || '-'} bpm, HRV: ${displayHrv || '-'} ms, Odchylenie temperatury ciała: ${displayTempDev !== null ? displayTempDev + ' °C' : 'brak'}
+- Oddech i utlenowanie krwi: Częstość oddechów: ${displayRespiratoryRate !== null ? displayRespiratoryRate + '/min' : 'brak'}, SpO2: ${displaySpo2 !== null ? displaySpo2 + '%' : 'brak'}, Temperatura nadgarstka: ${displayWristTemperature !== null ? displayWristTemperature + ' °C' : 'brak'}
+- Stres (Oura): Wysoki stres: ${displayStressHighMinutes !== null ? displayStressHighMinutes + ' min' : 'brak danych'}, Regeneracja: ${displayStressRecoveryMinutes !== null ? displayStressRecoveryMinutes + ' min' : 'brak danych'}, Podsumowanie: ${displayStressSummary || 'brak'}
 - Wynik Gotowości (Readiness): ${displayReadinessScore !== null ? displayReadinessScore + '/100' : 'Brak danych'}
 - Skład Ciała: Waga: ${displayWeight !== null ? displayWeight + ' kg' : 'brak danych'}, Procent tłuszczu: ${displayFatRatio !== null ? displayFatRatio + '%' : 'brak danych'}, Masa mięśniowa: ${displayMuscleMass !== null ? displayMuscleMass + ' kg' : 'brak danych'}
+- Ciśnienie tętnicze (Withings): ${displayBpSystolic !== null && displayBpDiastolic !== null ? `${displayBpSystolic}/${displayBpDiastolic} mmHg` : 'brak danych'}
+- Obwody ciała (ostatni zapisany pomiar${latestBodyMeasurement ? ', ' + latestBodyMeasurement.date : ''}): ${latestBodyMeasurement ? [
+    latestBodyMeasurement.waist != null && `Pas: ${latestBodyMeasurement.waist}cm`,
+    latestBodyMeasurement.chest != null && `Klatka: ${latestBodyMeasurement.chest}cm`,
+    latestBodyMeasurement.hips != null && `Biodra: ${latestBodyMeasurement.hips}cm`,
+    latestBodyMeasurement.biceps != null && `Biceps: ${latestBodyMeasurement.biceps}cm`,
+    latestBodyMeasurement.thigh != null && `Udo: ${latestBodyMeasurement.thigh}cm`
+  ].filter(Boolean).join(', ') || 'brak wypełnionych pól' : 'brak danych w bazie'}
 
 Lista dzisiejszych posiłków:
 ${meals.map(m => `- ${m.raw_text} (${m.calories} kcal, B:${m.protein}g, W:${m.carbs}g, T:${m.fat}g)`).join('\n') || 'Brak wprowadzonych posiłków'}
@@ -404,21 +466,32 @@ Dla kontekstu historycznego, oto dane z wczoraj (${yesterdayDate}):
 ${yesterdayMealRows.map(m => `- ${m.raw_text} (${m.calories} kcal, B:${m.protein}g, W:${m.carbs}g, T:${m.fat}g)`).join('\n') || 'Brak posiłków wczoraj'}
 
 Trendy i historia z bazy danych użytkownika:
-- Średnie odżywianie z ostatnich 7 dni: ${last7DaysNutrition.avg ? `${last7DaysNutrition.avg.calories} kcal (B: ${last7DaysNutrition.avg.protein}g, W: ${last7DaysNutrition.avg.carbs}g, T: ${last7DaysNutrition.avg.fat}g) na ${last7DaysNutrition.days_logged} dni logowania` : 'brak danych'}
-- Średnie odżywianie z ostatnich 30 dni: ${last30DaysNutrition.avg ? `${last30DaysNutrition.avg.calories} kcal (B: ${last30DaysNutrition.avg.protein}g, W: ${last30DaysNutrition.avg.carbs}g, T: ${last30DaysNutrition.avg.fat}g) na ${last30DaysNutrition.days_logged} dni logowania` : 'brak danych'}
+- Średnie odżywianie z ostatnich 7 dni: ${last7DaysNutrition.avg ? `${last7DaysNutrition.avg.calories} kcal (B: ${last7DaysNutrition.avg.protein}g, W: ${last7DaysNutrition.avg.carbs}g, T: ${last7DaysNutrition.avg.fat}g, Błonnik: ${last7DaysNutrition.avg.fiber}g, Cukry: ${last7DaysNutrition.avg.sugar}g, Sód: ${last7DaysNutrition.avg.sodium}mg) na ${last7DaysNutrition.days_logged} dni logowania` : 'brak danych'}
+- Średnie odżywianie z ostatnich 30 dni: ${last30DaysNutrition.avg ? `${last30DaysNutrition.avg.calories} kcal (B: ${last30DaysNutrition.avg.protein}g, W: ${last30DaysNutrition.avg.carbs}g, T: ${last30DaysNutrition.avg.fat}g, Błonnik: ${last30DaysNutrition.avg.fiber}g, Cukry: ${last30DaysNutrition.avg.sugar}g, Sód: ${last30DaysNutrition.avg.sodium}mg) na ${last30DaysNutrition.days_logged} dni logowania` : 'brak danych'}
 - Historia pomiarów wagi i składu ciała (ostatnie wpisy):
 ${weightHistory.map(w => `- ${w.date}: ${w.weight} kg (tłuszcz: ${w.fat_ratio || '-'}%, mięśnie: ${w.muscle_mass || '-'} kg)`).join('\n') || 'brak danych w bazie'}
+- Historia suplementów (ostatnie wpisy, nie tylko dziś/wczoraj):
+${supplementsHistory.map(s => `- ${s.date}: ${s.supplements}`).join('\n') || 'brak zapisanych suplementów w bazie'}
 - Ostatnia jakość snu i gotowości Oura:
 ${sleepHistory.map(s => `- ${s.date}: Sen ${s.sleep_score || '-'}, Gotowość ${s.readiness_score || '-'}`).join('\n') || 'brak danych w bazie'}
+- Historia ciśnienia tętniczego (Withings, ostatnie pomiary):
+${bpHistory.map(b => `- ${b.date}: ${b.blood_pressure_systolic}/${b.blood_pressure_diastolic} mmHg`).join('\n') || 'brak danych w bazie'}
 
-Napisz krótką, spersonalizowaną poradę dietetyczno-treningową (maksymalnie 4-5 zdań). Skup się na:
-1. Analizie intensywności wysiłku i stref kardio po treningu na bazie aktywnych kalorii oraz parametrów serca (RHR, HRV) - oceń, czy trening sprzyjał tlenowemu spalaniu tłuszczu (strefa spalania tłuszczu, niska intensywność) czy wszedł w wyższe strefy beztlenowe/kardio.
-2. Sugerowaniu precyzyjnych zmian w diecie na bazie dzisiejszych posiłków i treningu (np. zalecenie dorzucenia większej ilości białka w celu wsparcia regeneracji włókien mięśniowych po ciężkim wysiłku beztlenowym lub redukcji węglowodanów w dni o niskim wysiłku aerobowym).
-3. Porównaniu dzisiejszego odżywiania i aktywności z wczorajszymi. Jeśli wczorajsza dieta nie była optymalna (np. za mało białka w stosunku do celu, zbyt mało kcal po dużym treningu lub nadmiar kalorii przy braku ruchu), wskaż to konstruktywnie użytkownikowi i doradź korektę (np. "Twoje wczorajsze posiłki nie dostarczyły wystarczającej ilości białka, dlatego dzisiaj upewnij się, że dodasz do menu chudy twaróg lub odżywkę...").
-4. Udostępnieniu wniosków z trendu wagi i składu ciała z ostatnich pomiarów Withings oraz jakości snu i regeneracji z Oura (zwróć uwagę, czy obecny trend przybliża użytkownika do celu w dłuższej perspektywie 7/30 dni).
-5. Analizie przyjętych suplementów: jeśli użytkownik wpisał jakiekolwiek suplementy dzisiaj lub wczoraj (np. kreatyna, kwasy omega-3, witamina D3, magnez, odżywka białkowa), skomentuj krótko ich przydatność i czas przyjmowania w odniesieniu do jego dzisiejszego treningu i samopoczucia.
+Twoja analiza MUSI uwzględniać WSZYSTKIE dane podane powyżej (dzisiejsze posiłki i mikroelementy, aktywność, treningi, suplementy, porównanie z wczoraj, trendy 7/30-dniowe, historię wagi/składu ciała/obwodów, ciśnienia tętniczego, snu, gotowości, stresu i parametrów oddechowych) - to jest kluczowa funkcja tej aplikacji, użytkownik oczekuje analizy na bazie CAŁEJ historii i wszystkich dostępnych metryk, nie tylko jednego dnia czy wybranych wskaźników. Weź pod uwagę przy analizie i rekomendacjach:
+1. Intensywność wysiłku i strefy kardio po treningu na bazie aktywnych kalorii, zarejestrowanych treningów (typ, czas trwania, spalone kalorie) oraz parametrów serca (RHR, HRV) - oceń, czy trening sprzyjał tlenowemu spalaniu tłuszczu (strefa spalania tłuszczu, niska intensywność) czy wszedł w wyższe strefy beztlenowe/kardio.
+2. Precyzyjne zmiany w diecie na bazie dzisiejszych posiłków i treningu, w tym jakość diety pod kątem błonnika, cukrów prostych i sodu (np. zbyt mało błonnika w stosunku do kalorii, zbyt dużo cukrów prostych lub sodu w ostatnich dniach) - nie tylko makra, ale pełny obraz odżywiania.
+3. Porównanie dzisiejszego odżywiania i aktywności z wczorajszymi oraz z trendem 7/30-dniowym - jeśli dieta z ostatnich dni nie była optymalna (np. za mało białka w stosunku do celu, zbyt mało kcal po dużym treningu lub nadmiar kalorii przy braku ruchu), wskaż to konstruktywnie i doradź konkretną korektę.
+4. Wnioski z trendu wagi, składu ciała i obwodów ciała z ostatnich pomiarów Withings oraz jakości snu, regeneracji i poziomu stresu z Oura (zwróć uwagę, czy obecny trend przybliża użytkownika do celu w dłuższej perspektywie 7/30 dni).
+5. Przyjęte suplementy: przeanalizuj CAŁĄ historię suplementów (nie tylko dziś/wczoraj, ale wszystkie dostępne wpisy z ostatnich dni) i skomentuj krótko ich przydatność, regularność przyjmowania i czas przyjmowania w odniesieniu do treningu i samopoczucia użytkownika.
+6. Ciśnienie tętnicze: jeśli dostępne są pomiary ciśnienia, oceń czy wartości są w normie (orientacyjnie <120/80 mmHg optymalnie, 120-129/<80 podwyższone prawidłowe, ≥130/80 nadciśnienie) i czy trend z ostatnich pomiarów jest stabilny, rosnący czy spadkowy - jeśli widzisz niepokojący trend lub wartości podwyższone, zalecaj konsultację lekarską (nie diagnozuj).
+7. Regeneracja i stres: jeśli dostępne są dane o stresie (Oura), SpO2, częstości oddechów czy temperaturze nadgarstka, skomentuj ogólny stan regeneracji organizmu i zasugeruj, czy potrzebny jest dzień odpoczynku.
+8. Konsekwencja (streaki): jeśli użytkownik ma passę trafiania w cel kaloryczny lub cel snu, doceń to krótko - jeśli passa jest przerwana lub bliska zera, zachęcająco zasugeruj, jak wrócić na właściwe tory.
 
-Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego po imieniu (${displayName}) co najmniej raz. Bądź konkretny, motywujący i merytoryczny. Możesz swobodnie używać formatowania Markdown (np. **pogrubienia** kluczowych fraz, list punktowanych) - frontend renderuje tę odpowiedź jako Markdown.
+Sformatuj odpowiedź WYŁĄCZNIE w tej strukturze Markdown (frontend renderuje nagłówki, pogrubienia i listy punktowane):
+1. Jedno krótkie, spersonalizowane zdanie wstępu, zwracające się do użytkownika po imieniu (${displayName}).
+2. Nagłówek "## Analiza" a pod nim 2-3 zwięzłe zdania syntetyzujące dzisiejsze dane NA TLE trendu historycznego (wczoraj + 7/30 dni) - to ma być realna analiza porównawcza, nie powtórzenie samych liczb.
+3. Nagłówek "## Rekomendacje" a pod nim lista punktowana (3-5 punktów, każdy zaczynający się od "- ") z konkretnymi, wykonalnymi działaniami wynikającymi z analizy (dieta i mikroelementy, trening, regeneracja i stres, suplementy, ciśnienie - tylko te obszary, które mają pokrycie w danych).
+Używaj **pogrubienia** dla kluczowych liczb i fraz w Analizie i Rekomendacjach. Pisz w języku polskim, bezpośrednio do użytkownika, konkretnie i merytorycznie, bez lania wody.
 `;
 
         // Oznaczamy (user, data) jako "generowanie w toku" PRZED startem zapytania do
@@ -450,20 +523,6 @@ Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego p
           });
       }
     }
-
-    // Realne treningi z danego dnia (zsynchronizowane przez webhook Apple Health,
-    // patrz routes/appleHealth.js) - wcześniej to pole było zawsze zaszyte na sztywno
-    // jako pusta lista, mimo że apka faktycznie zbiera te dane od dawna.
-    const workoutRows = await db.all(
-      `SELECT workout_type, duration_minutes, active_calories
-       FROM apple_health_workouts WHERE user_id = ? AND date = ? ORDER BY updated_at DESC`,
-      [req.user.id, date]
-    );
-    const workouts = workoutRows.map(w => ({
-      type: w.workout_type || 'Trening',
-      duration_mins: Math.round(w.duration_minutes || 0),
-      calories: Math.round(w.active_calories || 0)
-    }));
 
     res.json({
       date,
@@ -503,6 +562,8 @@ Pisz bezpośrednio do użytkownika w języku polskim, zwracając się do niego p
         weight: displayWeight,
         fat_ratio: displayFatRatio,
         muscle_mass: displayMuscleMass,
+        blood_pressure_systolic: displayBpSystolic,
+        blood_pressure_diastolic: displayBpDiastolic,
         active_minutes: displayActiveMinutes || 0,
         distance_meters: displayDistanceMeters || 0,
         sedentary_minutes: displaySedentaryMinutes || 0,

@@ -48,20 +48,28 @@ app.use(morgan(':method :safe-url :status :response-time ms - :res[content-lengt
 // Serwowanie plików statycznych frontendu w trybie produkcyjnym
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Publiczny health-check (BEZ autoryzacji) - musi być zamontowany PRZED
+// Globalny limiter zapytań (chroni m.in. trasy korzystające z Gemini AI i resztę /api
+// przed nadużyciem) - zamontowany PRZED requireAuth, żeby limitować również próby
+// logowania, nie tylko zapytania zalogowanych.
+// UWAGA: musi być zamontowany PRZED publicznym health-checkiem i webhookiem Apple Health
+// poniżej, NIE po nich - obie te trasy też zaczynają się od /api/, a middleware Express
+// wykonuje się w kolejności rejestracji. Webhook Apple Health w szczególności jest
+// autoryzowany tylko tokenem w adresie URL (sync_token) - bez limitera zamontowanego
+// PRZED nim, ten endpoint był całkowicie pozbawiony ochrony przed zalewem zapytań/
+// próbami odgadnięcia poprawnego tokenu, mimo że kod i komentarz niżej zawsze zakładały,
+// że limiter obejmuje "resztę /api", w tym tę trasę.
+app.use('/api', apiRateLimiter);
+
+// Publiczny health-check (BEZ autoryzacji sesyjnej) - musi być zamontowany PRZED
 // `app.use('/api', requireAuth)` poniżej, inaczej Docker/CI dostałby 401
-// zamiast realnego statusu aplikacji.
+// zamiast realnego statusu aplikacji. Limit 120 zapytań/min/IP z limitera powyżej
+// jest na tyle wysoki, że nie zakłóca typowych, częstych odpytań healthchecku.
 app.use(require('./routes/healthcheck'));
 
 // Webhook Apple Health (apka Health Auto Export) - również musi być zamontowany PRZED
 // requireAuth, ponieważ ma własną autoryzację per-żądanie (sync_token w adresie URL,
 // patrz routes/appleHealth.js), a nie sesję/ciasteczko jak resztę /api/.
 app.use(require('./routes/appleHealth'));
-
-// Globalny limiter zapytań (chroni m.in. trasy korzystające z Gemini AI
-// i resztę /api przed nadużyciem) - zamontowany PRZED requireAuth, żeby
-// limitować również próby logowania, nie tylko zapytania zalogowanych.
-app.use('/api', apiRateLimiter);
 
 // Zabezpieczenie wszystkich tras /api/ za pomocą middleware
 app.use('/api', requireAuth);

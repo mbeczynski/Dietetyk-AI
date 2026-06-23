@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-export default function AdminPanel({ sessionToken }) {
+export default function AdminPanel({ sessionToken, onLogout }) {
   const [config, setConfig] = useState({
     mailgun_api_key: '',
     mailgun_domain: '',
@@ -45,6 +45,8 @@ export default function AdminPanel({ sessionToken }) {
           google_client_id: data.google_client_id || '',
           google_client_secret: data.google_client_secret || ''
         });
+      } else if (res.status === 401) {
+        if (onLogout) onLogout();
       }
     } catch (err) {
       console.error('Błąd pobierania konfiguracji systemowej:', err);
@@ -60,6 +62,8 @@ export default function AdminPanel({ sessionToken }) {
       if (res.ok) {
         const data = await res.json();
         setUsers(data);
+      } else if (res.status === 401) {
+        if (onLogout) onLogout();
       }
     } catch (err) {
       console.error('Błąd pobierania użytkowników:', err);
@@ -86,6 +90,8 @@ export default function AdminPanel({ sessionToken }) {
       if (res.ok) {
         setConfigMessage({ type: 'success', text: 'Konfiguracja systemowa została zapisana pomyślnie!' });
         setTimeout(() => setConfigMessage({ type: '', text: '' }), 5000);
+      } else if (res.status === 401) {
+        if (onLogout) onLogout();
       } else {
         const data = await res.json();
         setConfigMessage({ type: 'error', text: data.error || 'Błąd zapisu konfiguracji.' });
@@ -122,6 +128,8 @@ export default function AdminPanel({ sessionToken }) {
         setInviteRole('user'); // Reset to default
         fetchUsers(); // Refresh list to show pending user
         setTimeout(() => setInviteMessage({ type: '', text: '' }), 5000);
+      } else if (res.status === 401) {
+        if (onLogout) onLogout();
       } else {
         const data = await res.json();
         setInviteMessage({ type: 'error', text: data.error || 'Błąd wysyłania zaproszenia.' });
@@ -150,6 +158,11 @@ export default function AdminPanel({ sessionToken }) {
         method,
         headers: { 'Authorization': `Bearer ${sessionToken}` }
       });
+
+      if (res.status === 401) {
+        if (onLogout) onLogout();
+        return;
+      }
 
       const data = await res.json();
 
@@ -416,7 +429,7 @@ export default function AdminPanel({ sessionToken }) {
                       </span>
                     </td>
                     <td style={{ padding: '12px 8px', fontSize: '0.9rem' }}>
-                      {u.totp_enabled ? (
+                      {u.totp_enabled === 1 ? (
                         <span style={{ color: '#34d399', display: 'flex', alignItems: 'center', gap: '4px' }}>🛡️ Włączona</span>
                       ) : u.force_2fa ? (
                         <span style={{ color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '4px' }}>⚠️ Wymuszone</span>

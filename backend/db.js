@@ -459,6 +459,18 @@ const initDb = async () => {
     await run("ALTER TABLE health_metrics ADD COLUMN supplements TEXT DEFAULT NULL");
   } catch (e) {}
 
+  // Migracja: ciśnienie tętnicze z Withings (endpoint getmeas, meastype 9 = rozkurczowe
+  // (diastolic, mmHg), meastype 10 = skurczowe (systolic, mmHg) - mierzone tym samym
+  // ciśnieniomierzem Withings co waga/skład ciała, patrz services/sync.js syncWithings()).
+  // Osobne kolumny (nie jedno pole tekstowe), żeby dało się je użyć w trendach/wykresach
+  // tak samo jak weight/fat_ratio/muscle_mass.
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN blood_pressure_systolic REAL DEFAULT NULL");
+  } catch (e) {}
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN blood_pressure_diastolic REAL DEFAULT NULL");
+  } catch (e) {}
+
   // Domyślny cel wody (ml) dla istniejącego konta admina/Marcina, jeśli jeszcze nie ustawiony
   await run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (1, 'target_water_ml', '2500')`);
 

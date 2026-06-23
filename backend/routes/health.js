@@ -6,8 +6,8 @@ const { requireAuth } = require('../middleware/auth');
 router.get('/api/health/history', requireAuth, async (req, res) => {
   try {
     const rows = await db.all(`
-      SELECT date, weight, fat_ratio, muscle_mass, sleep_score, sleep_duration, sleep_deep, sleep_rem, readiness_score, steps, active_calories, total_calories_burned, rhr, hrv, active_minutes, supplements
-      FROM health_metrics 
+      SELECT date, weight, fat_ratio, muscle_mass, blood_pressure_systolic, blood_pressure_diastolic, sleep_score, sleep_duration, sleep_deep, sleep_rem, readiness_score, steps, active_calories, total_calories_burned, rhr, hrv, active_minutes, supplements
+      FROM health_metrics
       WHERE user_id = ? AND date >= date('now', '-90 days')
       ORDER BY date ASC
     `, [req.user.id]);
@@ -51,11 +51,16 @@ router.post('/api/body-measurements', requireAuth, async (req, res) => {
     `, [
       req.user.id,
       date,
-      chest ? Number(chest) : null,
-      waist ? Number(waist) : null,
-      hips ? Number(hips) : null,
-      biceps ? Number(biceps) : null,
-      thigh ? Number(thigh) : null
+      // UWAGA: sprawdzamy "!== undefined && !== '' " (czy pole zostało przesłane), a NIE
+      // samą prawdziwość wartości (truthy check) - "wartość ? Number(wartość) : null" myliło
+      // "pole nie zostało podane" z "podano poprawną, ale falsy liczbę" (np. 0), co przy
+      // ewentualnym 0 zamieniałoby je w NULL (i przez COALESCE wyżej nigdy nie nadpisywałoby
+      // istniejącej wartości) zamiast faktycznie zapisać 0.
+      chest !== undefined && chest !== null && chest !== '' ? Number(chest) : null,
+      waist !== undefined && waist !== null && waist !== '' ? Number(waist) : null,
+      hips !== undefined && hips !== null && hips !== '' ? Number(hips) : null,
+      biceps !== undefined && biceps !== null && biceps !== '' ? Number(biceps) : null,
+      thigh !== undefined && thigh !== null && thigh !== '' ? Number(thigh) : null
     ]);
     res.json({ success: true, message: 'Pomiary obwodów ciała zostały zapisane.' });
   } catch (err) {

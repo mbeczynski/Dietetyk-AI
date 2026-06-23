@@ -15,6 +15,20 @@ function sanitizeNumber(val, min, max, fallback = 0) {
   return Math.min(Math.max(num, min), max);
 }
 
+// Wariant dla pól, które mogą być prawdziwie nieznane (błonnik/cukry/sód - AI nie zawsze
+// jest w stanie je oszacować) - w przeciwieństwie do sanitizeNumber NIE fabrykujemy zera,
+// jeśli AI nie podało wartości, ale gdy wartość JEST podana, wciąż odcinamy ją do sensownego
+// zakresu. Bez tego ujemna/nierealistyczna/nie-numeryczna wartość z odpowiedzi Gemini
+// trafiałaby bezpośrednio do bazy (w przeciwieństwie do calories/protein/carbs/fat, które
+// już były sanityzowane) i psuła agregacje w summaries.js/dashboard.js (sumy/średnie błonnika,
+// cukrów, sodu używane teraz w pełnym podsumowaniu AI).
+function sanitizeNullableNumber(val, min, max) {
+  if (val === undefined || val === null || val === '') return null;
+  const num = Number(val);
+  if (!Number.isFinite(num)) return null;
+  return Math.min(Math.max(num, min), max);
+}
+
 router.post('/api/meals', async (req, res) => {
   const { rawText, date, image } = req.body;
   const targetDate = date || getLocalDateString();
@@ -166,9 +180,13 @@ Struktura JSON:
       const safeProtein = sanitizeNumber(m.protein, 0, 500, 0);
       const safeCarbs = sanitizeNumber(m.carbs, 0, 500, 0);
       const safeFat = sanitizeNumber(m.fat, 0, 500, 0);
+      const safeFiber = sanitizeNullableNumber(m.fiber, 0, 100);
+      const safeSugar = sanitizeNullableNumber(m.sugar, 0, 300);
+      const safeSodium = sanitizeNullableNumber(m.sodium, 0, 15000);
 
       // Zapisz posiłek w bazie (błonnik/cukry/sód jako NULL, jeśli AI ich nie
-      // oszacowało - bez fabrykowania zer, zgodnie z ustaloną zasadą projektu)
+      // oszacowało - bez fabrykowania zer, zgodnie z ustaloną zasadą projektu - ale
+      // jeśli AI JEDNAK podało wartość, odcinamy ją do sensownego zakresu jak resztę makro)
       const result = await db.run(`
         INSERT INTO meals (user_id, date, raw_text, calories, protein, carbs, fat, fiber, sugar, sodium, analysis_json, image_base64)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -180,9 +198,9 @@ Struktura JSON:
         safeProtein,
         safeCarbs,
         safeFat,
-        m.fiber !== undefined && m.fiber !== null ? m.fiber : null,
-        m.sugar !== undefined && m.sugar !== null ? m.sugar : null,
-        m.sodium !== undefined && m.sodium !== null ? m.sodium : null,
+        safeFiber,
+        safeSugar,
+        safeSodium,
         JSON.stringify(m),
         image || null
       ]);
@@ -199,7 +217,10 @@ Struktura JSON:
         calories: safeCalories,
         protein: safeProtein,
         carbs: safeCarbs,
-        fat: safeFat
+        fat: safeFat,
+        fiber: safeFiber,
+        sugar: safeSugar,
+        sodium: safeSodium
       });
     }
 

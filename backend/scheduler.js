@@ -139,6 +139,18 @@ function isWithinSyncWindow(date = new Date()) {
 // żeby uruchamiać ją maksymalnie raz na godzinę zegarową.
 let lastSyncedHourKey = null;
 
+// UWAGA: `lastSyncedHourKey` ustawiane PRZED wykonaniem synchronizacji chroni tylko
+// przed ponownym uruchomieniem W TEJ SAMEJ godzinie (kolejne wywołanie co 5 min z
+// tym samym hourKey). NIE chroni jednak przed nakładaniem się przebiegów, gdy
+// synchronizacja dla wielu użytkowników (przetwarzanych SEKWENCYJNIE, patrz
+// syncAllOura/syncAllWithings/syncAllGoogleFit w sync.js) trwa dłużej niż do
+// następnej pełnej godziny zegarowej - wtedy hourKey się zmienia, poprzedni
+// warunek przepuszcza nowe wywołanie i dwa pełne przebiegi (uderzające w te same
+// zewnętrzne API i bazę danych dla tych samych użytkowników, włącznie z możliwą
+// PODWÓJNĄ wysyłką e-maili podsumowań) ruszają współbieżnie. Flaga `isSyncRunning`
+// jest dodatkowym, niezależnym zabezpieczeniem przed takim nakładaniem się.
+let isSyncRunning = false;
+
 async function runHourlySyncIfDue() {
   const now = new Date();
   const hourKey = `${getLocalDateString()}T${now.getHours()}`;
@@ -151,7 +163,13 @@ async function runHourlySyncIfDue() {
     return; // Synchronizacja dla tej godziny już wykonana
   }
 
+  if (isSyncRunning) {
+    console.warn('[SCHEDULER] Poprzedni przebieg synchronizacji wciąż trwa - pomijam to wywołanie, by nie nakładać przebiegów.');
+    return;
+  }
+
   lastSyncedHourKey = hourKey;
+  isSyncRunning = true;
   console.log(`[SCHEDULER] Uruchamianie godzinowej synchronizacji danych (godzina ${now.getHours()}:00)...`);
   try {
     await syncAllOura();
@@ -162,6 +180,8 @@ async function runHourlySyncIfDue() {
     console.log('[SCHEDULER] Godzinowa synchronizacja i podsumowania zakończone.');
   } catch (err) {
     console.error('[SCHEDULER ERROR] Błąd podczas godzinowej synchronizacji:', err);
+  } finally {
+    isSyncRunning = false;
   }
 }
 

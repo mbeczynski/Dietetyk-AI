@@ -1,5 +1,6 @@
 const db = require('../db');
 const { formatDateString, timestampToDateString } = require('../utils/dates');
+const { fetchWithTimeout } = require('../utils/fetchWithTimeout');
 
 const { getOrRefreshToken } = require('./oauthHelpers');
 
@@ -19,7 +20,7 @@ async function syncOura(userId) {
   console.log(`[SYNC OURA] Pobieranie danych gotowości/snu/aktywności dla użytkownika ${userId} od ${startDate} do ${endDate}...`);
 
   try {
-    const sleepRes = await fetch(`https://api.ouraring.com/v2/usercollection/sleep?start_date=${startDate}&end_date=${endDate}`, {
+    const sleepRes = await fetchWithTimeout(`https://api.ouraring.com/v2/usercollection/sleep?start_date=${startDate}&end_date=${endDate}`, {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     });
     if (!sleepRes.ok) {
@@ -33,7 +34,7 @@ async function syncOura(userId) {
     }
     const sleepData = await sleepRes.json();
 
-    const dailySleepRes = await fetch(`https://api.ouraring.com/v2/usercollection/daily_sleep?start_date=${startDate}&end_date=${endDate}`, {
+    const dailySleepRes = await fetchWithTimeout(`https://api.ouraring.com/v2/usercollection/daily_sleep?start_date=${startDate}&end_date=${endDate}`, {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     });
     if (!dailySleepRes.ok) {
@@ -47,7 +48,7 @@ async function syncOura(userId) {
     }
     const dailySleepData = await dailySleepRes.json();
 
-    const actRes = await fetch(`https://api.ouraring.com/v2/usercollection/daily_activity?start_date=${startDate}&end_date=${endDate}`, {
+    const actRes = await fetchWithTimeout(`https://api.ouraring.com/v2/usercollection/daily_activity?start_date=${startDate}&end_date=${endDate}`, {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     });
     if (!actRes.ok) {
@@ -61,7 +62,7 @@ async function syncOura(userId) {
     }
     const actData = await actRes.json();
 
-    const readRes = await fetch(`https://api.ouraring.com/v2/usercollection/daily_readiness?start_date=${startDate}&end_date=${endDate}`, {
+    const readRes = await fetchWithTimeout(`https://api.ouraring.com/v2/usercollection/daily_readiness?start_date=${startDate}&end_date=${endDate}`, {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     });
     if (!readRes.ok) {
@@ -78,7 +79,7 @@ async function syncOura(userId) {
     // Dobowe SpO2 (Oura Gen 3+) - osobny endpoint, NIE część odpowiedzi /sleep.
     // Dla pierścionków starszych niż Gen 3 Oura po prostu zwraca pustą tablicę
     // `data` (nie błąd 4xx) - wtedy spo2_percentage zostaje null dla każdej daty.
-    const spo2Res = await fetch(`https://api.ouraring.com/v2/usercollection/daily_spo2?start_date=${startDate}&end_date=${endDate}`, {
+    const spo2Res = await fetchWithTimeout(`https://api.ouraring.com/v2/usercollection/daily_spo2?start_date=${startDate}&end_date=${endDate}`, {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     });
     let spo2Data = null;
@@ -93,7 +94,7 @@ async function syncOura(userId) {
     // Realny poziom stresu (endpoint /v2/usercollection/daily_stress) - dostępny
     // tylko dla pierścionków z tą funkcją, dla starszych modeli `data` jest puste
     // (nie błąd 4xx). Tak jak SpO2, brak tej metryki nie przerywa synchronizacji.
-    const stressRes = await fetch(`https://api.ouraring.com/v2/usercollection/daily_stress?start_date=${startDate}&end_date=${endDate}`, {
+    const stressRes = await fetchWithTimeout(`https://api.ouraring.com/v2/usercollection/daily_stress?start_date=${startDate}&end_date=${endDate}`, {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     });
     let stressData = null;
@@ -330,7 +331,7 @@ async function syncWithings(userId) {
   console.log(`[SYNC WITHINGS] Pobieranie pomiarów wagi dla użytkownika ${userId}...`);
 
   try {
-    const response = await fetch('https://wbsapi.withings.net/v2/measure', {
+    const response = await fetchWithTimeout('https://wbsapi.withings.net/v2/measure', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -338,7 +339,10 @@ async function syncWithings(userId) {
       },
       body: new URLSearchParams({
         action: 'getmeas',
-        meastypes: '1,6,76', // 1: waga (kg), 6: % tłuszczu, 76: mięśnie (kg)
+        // 1: waga (kg), 6: % tłuszczu, 76: mięśnie (kg), 9: ciśnienie rozkurczowe
+        // (diastolic, mmHg), 10: ciśnienie skurczowe (systolic, mmHg) - z ciśnieniomierza
+        // Withings (np. BPM Core), zapisywane w tej samej grupie pomiarowej co waga.
+        meastypes: '1,6,76,9,10',
         category: '1',
         lastupdate: String(startTimestamp)
       })
@@ -362,24 +366,30 @@ async function syncWithings(userId) {
       let weight = null;
       let fatRatio = null;
       let muscleMass = null;
+      let bpSystolic = null;
+      let bpDiastolic = null;
 
       grp.measures.forEach(m => {
         const val = m.value * Math.pow(10, m.unit);
         if (m.type === 1) weight = Math.round(val * 100) / 100;
         if (m.type === 6) fatRatio = Math.round(val * 100) / 100;
         if (m.type === 76) muscleMass = Math.round(val * 100) / 100;
+        if (m.type === 10) bpSystolic = Math.round(val);
+        if (m.type === 9) bpDiastolic = Math.round(val);
       });
 
-      if (weight !== null || fatRatio !== null || muscleMass !== null) {
+      if (weight !== null || fatRatio !== null || muscleMass !== null || bpSystolic !== null || bpDiastolic !== null) {
         await db.run(`
-          INSERT INTO health_metrics (user_id, date, weight, fat_ratio, muscle_mass, last_sync)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO health_metrics (user_id, date, weight, fat_ratio, muscle_mass, blood_pressure_systolic, blood_pressure_diastolic, last_sync)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(user_id, date) DO UPDATE SET
             weight = COALESCE(excluded.weight, weight),
             fat_ratio = COALESCE(excluded.fat_ratio, fat_ratio),
             muscle_mass = COALESCE(excluded.muscle_mass, muscle_mass),
+            blood_pressure_systolic = COALESCE(excluded.blood_pressure_systolic, blood_pressure_systolic),
+            blood_pressure_diastolic = COALESCE(excluded.blood_pressure_diastolic, blood_pressure_diastolic),
             last_sync = excluded.last_sync
-        `, [userId, dateStr, weight, fatRatio, muscleMass, lastSyncTime]);
+        `, [userId, dateStr, weight, fatRatio, muscleMass, bpSystolic, bpDiastolic, lastSyncTime]);
       }
     }
     return { success: true };
@@ -407,7 +417,7 @@ async function syncGoogleFit(userId) {
   console.log(`[SYNC GOOGLE FIT] Pobieranie kroków/kalorii dla użytkownika ${userId}...`);
 
   try {
-    const response = await fetch('https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate', {
+    const response = await fetchWithTimeout('https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

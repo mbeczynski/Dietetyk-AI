@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { formatHoursMins } from '../utils/format';
 
-export default function Trends({ selectedDate, sessionToken }) {
+export default function Trends({ selectedDate, sessionToken, onLogout }) {
   const [historyData, setHistoryData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   // Wspólny stan dla podpowiedzi (tooltip) po najechaniu/kliknięciu na słupek lub punkt
@@ -20,6 +20,12 @@ export default function Trends({ selectedDate, sessionToken }) {
         if (res.ok) {
           const data = await res.json();
           setHistoryData(data);
+        } else if (res.status === 401) {
+          // Wygasła sesja - bez tego Trends po prostu po cichu przestawał się odświeżać
+          // (interwał co godzinę nadal działał, ale fetch zawsze zwracał 401), podczas gdy
+          // resztę aplikacji (App.jsx) konsekwentnie wylogowuje i pokazuje komunikat
+          // "Sesja wygasła" w tej sytuacji.
+          if (onLogout) onLogout();
         }
       } catch (err) {
         console.error('Błąd pobierania historii zdrowotnej:', err);
@@ -70,8 +76,17 @@ export default function Trends({ selectedDate, sessionToken }) {
     prevWeekDays.push(toDateStr(d));
   }
 
+  // Bezpieczne parsowanie "YYYY-MM-DD" w lokalnej strefie czasowej (patrz komentarz przy
+  // selectedDateObj wyżej) - new Date(dateStr) parsuje string daty jako UTC północ, a getDay/
+  // getDate/getMonth czytają w strefie LOKALNEJ, więc w strefach na zachód od UTC dawałoby to
+  // dzień tygodnia/datę przesunięte o -1 (np. niedziela pokazana jako sobota na wykresach).
+  const parseLocalDate = (dateStr) => {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  };
+
   const getDayLabel = (dateStr) => {
-    const d = new Date(dateStr);
+    const d = parseLocalDate(dateStr);
     const day = d.getDay(); // 0: niedziela, 1: poniedziałek...
     const labels = ['n', 'p', 'w', 'ś', 'c', 'p', 's'];
     return labels[day];
@@ -79,7 +94,7 @@ export default function Trends({ selectedDate, sessionToken }) {
 
   // Pełna etykieta dnia używana w podpowiedzi (tooltip), np. "śr 17.06"
   const getFullDayLabel = (dateStr) => {
-    const d = new Date(dateStr);
+    const d = parseLocalDate(dateStr);
     const names = ['niedz', 'pon', 'wt', 'śr', 'czw', 'pt', 'sob'];
     const dd = String(d.getDate()).padStart(2, '0');
     const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -455,6 +470,125 @@ export default function Trends({ selectedDate, sessionToken }) {
     );
   };
 
+  // Wykres ciśnienia tętniczego (Withings) - dwie linie (skurczowe/rozkurczowe) na
+  // wspólnej osi mmHg, na bazie renderLineChart, ale bez pojedynczego "key" bo
+  // potrzebujemy dwóch serii naraz.
+  const renderBloodPressureChart = () => {
+    const sysVals = getMetricData(currentWeekDays, 'blood_pressure_systolic');
+    const diaVals = getMetricData(currentWeekDays, 'blood_pressure_diastolic');
+    const validSys = sysVals.filter(v => v !== null && v !== undefined);
+    const validDia = diaVals.filter(v => v !== null && v !== undefined);
+    const hasData = validSys.length > 0 || validDia.length > 0;
+
+    const ticks = [60, 90, 120, 150];
+    const allVals = [...validSys, ...validDia];
+    const minVal = Math.min(...(allVals.length ? allVals : [0]), ...ticks, 1);
+    const maxVal = Math.max(...(allVals.length ? allVals : [0]), ...ticks, 1);
+    const range = maxVal - minVal || 1;
+
+    const svgWidth = 240;
+    const svgHeight = 90;
+    const leftMargin = 15;
+    const rightMargin = 30;
+    const topMargin = 10;
+    const chartWidth = svgWidth - leftMargin - rightMargin;
+    const chartHeight = svgHeight - topMargin - 15;
+
+    const buildPoints = (vals) => currentWeekDays.map((day, idx) => {
+      const val = vals[idx];
+      if (val === null || val === undefined) return null;
+      const x = leftMargin + (idx / 6) * chartWidth;
+      const y = svgHeight - topMargin - ((val - minVal) / range) * chartHeight;
+      return { x, y, val, day };
+    }).filter(p => p !== null);
+
+    const buildPath = (pts) => pts.length ? `M ${pts[0].x} ${pts[0].y} ` + pts.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') : '';
+
+    const sysPoints = buildPoints(sysVals);
+    const diaPoints = buildPoints(diaVals);
+    const sysPath = buildPath(sysPoints);
+    const diaPath = buildPath(diaPoints);
+    const lastSys = sysPoints[sysPoints.length - 1];
+    const lastDia = diaPoints[diaPoints.length - 1];
+
+    const todayRow = historyData.find(r => r.date === selectedDate);
+    const currentSys = (todayRow && todayRow.blood_pressure_systolic !== null && todayRow.blood_pressure_systolic !== undefined)
+      ? todayRow.blood_pressure_systolic
+      : (validSys.length ? validSys[validSys.length - 1] : null);
+    const currentDia = (todayRow && todayRow.blood_pressure_diastolic !== null && todayRow.blood_pressure_diastolic !== undefined)
+      ? todayRow.blood_pressure_diastolic
+      : (validDia.length ? validDia[validDia.length - 1] : null);
+
+    return (
+      <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '600' }}>Ciśnienie tętnicze</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.7rem' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'rgba(255,255,255,0.5)' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ffffff', display: 'inline-block' }}></span>
+              Skurczowe
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'rgba(255,255,255,0.5)' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#38bdf8', display: 'inline-block' }}></span>
+              Rozkurczowe
+            </span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
+          <div>
+            <span style={{ fontSize: '1.8rem', fontWeight: '800', color: '#fff' }}>
+              {currentSys !== null && currentSys !== undefined ? Math.round(currentSys) : '--'}/{currentDia !== null && currentDia !== undefined ? Math.round(currentDia) : '--'}
+            </span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginLeft: '4px' }}>mmHg</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px' }}>
+          <svg width="100%" height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={{ overflow: 'visible' }}>
+            {ticks.map((t, idx) => {
+              const y = svgHeight - topMargin - ((t - minVal) / range) * chartHeight;
+              return (
+                <g key={idx}>
+                  <line x1="0" y1={y} x2={svgWidth - 30} y2={y} stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
+                  <text x={svgWidth - 25} y={y + 3} fill="rgba(255,255,255,0.25)" fontSize="7px" textAnchor="start">{t}</text>
+                </g>
+              );
+            })}
+
+            {hasData && sysPath && <path d={sysPath} stroke="#ffffff" strokeWidth="2" fill="none" strokeLinecap="round" />}
+            {hasData && diaPath && <path d={diaPath} stroke="#38bdf8" strokeWidth="2" fill="none" strokeLinecap="round" />}
+
+            {lastSys && <circle cx={lastSys.x} cy={lastSys.y} r="3.5" fill="#ffffff" stroke="#121314" strokeWidth="1.5" />}
+            {lastDia && <circle cx={lastDia.x} cy={lastDia.y} r="3.5" fill="#38bdf8" stroke="#121314" strokeWidth="1.5" />}
+
+            {currentWeekDays.map((day, idx) => {
+              const x = leftMargin + (idx / 6) * chartWidth;
+              return (
+                <text
+                  key={idx}
+                  x={x}
+                  y={svgHeight - 1}
+                  fill={day === selectedDate ? '#ffffff' : 'rgba(255,255,255,0.35)'}
+                  fontSize="9px"
+                  fontWeight={day === selectedDate ? 'bold' : 'normal'}
+                  textAnchor="middle"
+                >
+                  {getDayLabel(day)}
+                </text>
+              );
+            })}
+          </svg>
+        </div>
+        {!hasData && (
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+            Brak danych - zsynchronizuj ciśnieniomierz Withings
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderComparisonPill = (pctChange) => {
     if (pctChange === 0) {
       return (
@@ -504,6 +638,7 @@ export default function Trends({ selectedDate, sessionToken }) {
         {renderLineChart("Spoczynkowe tętno", "rhr", "bpm", [40, 60, 80], false, (v) => Math.round(v), 56)}
         {renderLineChart("Zmienność rytmu zatokowego", "hrv", "ms", [20, 50, 80], false, (v) => Math.round(v), 50)}
         {renderLineChart("Masa ciała", "weight", "kg", [80, 95, 110], true, (v) => (Math.round(v * 10) / 10).toLocaleString('pl-PL'), 93.8)}
+        {renderBloodPressureChart()}
       </div>
 
     </div>

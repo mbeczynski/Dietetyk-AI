@@ -13,6 +13,19 @@ function getLocalDateString() {
   return new Date(d.getTime() - tzOffset).toISOString().slice(0, 10);
 }
 
+// Stopka - wspólna dla ekranu logowania i głównej aplikacji. Wcześniej treść
+// (numer wersji, linki) była wklejona dwukrotnie w dwóch różnych miejscach tego
+// pliku, co przy każdej aktualizacji (np. numeru wersji) wymagało pamiętania o
+// edycji obu kopii - łatwo było zaktualizować jedną i zostawić drugą nieaktualną.
+function AppFooter() {
+  const linkStyle = { color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' };
+  return (
+    <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', textAlign: 'center' }}>
+      Dietetyk AI v1.1.0 | Powered by <a href="https://renacode.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>RenaCode</a> | <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={linkStyle}>Regulamin</a> | <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={linkStyle}>Polityka Prywatności</a> | <a href="/sync.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline' }}>Jak zsynchronizować dane</a>
+    </div>
+  );
+}
+
 export default function App() {
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [selectedDate, setSelectedDate] = useState(getLocalDateString());
@@ -341,9 +354,19 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setUserProfile(data);
+      } else if (res.status === 401) {
+        // Wcześniej brak obsługi 401 w tym miejscu (w przeciwieństwie do
+        // fetchSyncToken/fetchDashboardData) - sesja wygasała "po cichu":
+        // userProfile zostawał w stanie początkowym/nieaktualnym, bez wylogowania
+        // i bez żadnej informacji dla użytkownika o przyczynie.
+        handleLogout();
+        setErrorMessage('Sesja wygasła. Zaloguj się ponownie.');
+      } else {
+        setErrorMessage('Nie udało się pobrać profilu użytkownika.');
       }
     } catch (err) {
       console.error('Błąd pobierania profilu:', err);
+      setErrorMessage('Błąd połączenia z serwerem podczas pobierania profilu.');
     }
   };
 
@@ -1007,9 +1030,7 @@ export default function App() {
         </div>
 
         {/* Footer */}
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', textAlign: 'center' }}>
-          Dietetyk AI v1.1.0 | Powered by <a href="https://renacode.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>RenaCode</a> | <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Regulamin</a> | <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Polityka Prywatności</a> | <a href="/sync.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textDecoration: 'underline' }}>Jak zsynchronizować dane</a>
-        </div>
+        <AppFooter />
       </div>
     );
   }
@@ -1134,7 +1155,7 @@ export default function App() {
         )}
 
         {currentTab === 'trends' && (
-          <Trends selectedDate={selectedDate} sessionToken={sessionToken} />
+          <Trends selectedDate={selectedDate} sessionToken={sessionToken} onLogout={handleLogout} />
         )}
 
         {currentTab === 'setup' && (
@@ -1142,14 +1163,14 @@ export default function App() {
         )}
 
         {currentTab === 'admin' && userProfile.role === 'admin' && (
-          <AdminPanel sessionToken={sessionToken} />
+          <AdminPanel sessionToken={sessionToken} onLogout={handleLogout} />
         )}
       </main>
 
       {/* Footer wewnątrz aplikacji */}
       <footer>
-        <div style={{ textAlign: 'center', marginTop: '40px', padding: '20px 0', borderTop: '1px solid var(--border-glass)', fontSize: '0.8rem', color: 'var(--text-dim)' }}>
-          Dietetyk AI v1.1.0 | Powered by <a href="https://renacode.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>RenaCode</a> | <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Regulamin</a> | <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline', marginRight: '10px' }}>Polityka Prywatności</a> | <a href="/sync.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'underline' }}>Jak zsynchronizować dane</a>
+        <div style={{ textAlign: 'center', marginTop: '40px', padding: '20px 0', borderTop: '1px solid var(--border-glass)' }}>
+          <AppFooter />
         </div>
       </footer>
     </div>

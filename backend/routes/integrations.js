@@ -127,11 +127,11 @@ router.get('/api/auth/oura/callback', async (req, res) => {
     }
 
     const data = await response.json();
-    console.log('[OAUTH OURA CALLBACK SUCCESS] Zwrócone dane tokenu:', {
-      access_token_masked: data.access_token ? data.access_token.substring(0, 10) + '...' : null,
-      refresh_token_masked: data.refresh_token ? data.refresh_token.substring(0, 10) + '...' : null,
-      scopes: data.scope || data.scopes || 'brak pola scope w response'
-    });
+    // UWAGA: nie logujemy tu access_token/refresh_token, nawet częściowo zamaskowanych -
+    // pierwsze znaki sekretu w logach kontenera to wciąż niepotrzebna ekspozycja danych
+    // uwierzytelniających. Dla konsystencji z callbackami Withings/Google Fit (które tego
+    // nie robiły) logujemy tylko fakt powodzenia, bez żadnego fragmentu tokenu.
+    console.log(`[OAUTH OURA CALLBACK SUCCESS] Token wymieniony pomyślnie dla użytkownika ${userId}.`);
     const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
 
     await db.run(`

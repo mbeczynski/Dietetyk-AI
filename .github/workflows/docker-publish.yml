@@ -310,5 +310,6 @@ jobs:
       - name: Uruchomienie testów E2E
         env:
           ADMIN_INITIAL_PASSWORD: 3bda877d518c8cf7a80b32bb
+          APP_PASSWORD: dietetyk-admin
           CI: true
         run: npm run test:e2e

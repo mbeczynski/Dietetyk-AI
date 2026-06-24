@@ -134,31 +134,54 @@ async function syncOura(userId) {
     }
 
     if (sleepData && sleepData.data) {
-      // Sortujemy wpisy snu tak, aby drzemki/krótkie sny ('sleep') były przetwarzane na początku,
-      // a główny sen ('long_sleep') na końcu. Dzięki temu główny sen nadpisze dane z drzemek
-      // dla danej daty w obiekcie metricsByDate.
-      const sortedSleep = [...sleepData.data].sort((a, b) => {
-        if (a.type === 'long_sleep' && b.type !== 'long_sleep') return 1;
-        if (a.type !== 'long_sleep' && b.type === 'long_sleep') return -1;
-        return 0;
+      // Grupujemy wpisy snu według dni, aby poprawnie obsłużyć wiele wpisów (np. drzemki).
+      const sleepByDay = {};
+      sleepData.data.forEach(item => {
+        const dateStr = item.day;
+        if (!sleepByDay[dateStr]) {
+          sleepByDay[dateStr] = [];
+        }
+        sleepByDay[dateStr].push(item);
       });
 
-      sortedSleep.forEach(item => {
-        const dateStr = item.day;
+      for (const [dateStr, items] of Object.entries(sleepByDay)) {
         if (metricsByDate[dateStr]) {
-          metricsByDate[dateStr].sleep_duration = item.total_sleep_duration ? Math.round((item.total_sleep_duration / 3600) * 10) / 10 : null;
-          metricsByDate[dateStr].sleep_deep = item.deep_sleep_duration ? Math.round((item.deep_sleep_duration / 3600) * 10) / 10 : null;
-          metricsByDate[dateStr].sleep_rem = item.rem_sleep_duration ? Math.round((item.rem_sleep_duration / 3600) * 10) / 10 : null;
-          metricsByDate[dateStr].rhr = item.lowest_heart_rate || null;
-          metricsByDate[dateStr].hrv = item.average_hrv || null;
-          // `average_breath` - mimo że dokumentacja Oury (i niektóre opisy third-party)
-          // nazywają to pole "breaths/second", realne wartości w odpowiedziach API
-          // (np. 12.1, 12.4) są w oczywisty sposób oddechami/MINUTĘ (norma snu to
-          // 12-20/min) - prawdopodobnie błąd w dokumentacji, nie w danych. Zapisujemy
-          // wartość bez konwersji, zaokrągloną do 1 miejsca po przecinku.
-          metricsByDate[dateStr].respiratory_rate = item.average_breath ? Math.round(item.average_breath * 10) / 10 : null;
+          let totalDurationSec = 0;
+          let totalDeepSec = 0;
+          let totalRemSec = 0;
+
+          // Wybieramy główny rekord (główny sen 'long_sleep', a jeśli go brak - najdłuższą drzemkę)
+          // do wyciągnięcia pozostałych parametrów fizjologicznych (tętno spoczynkowe, HRV itp.).
+          let primaryRecord = null;
+          items.forEach(item => {
+            totalDurationSec += item.total_sleep_duration || 0;
+            totalDeepSec += item.deep_sleep_duration || 0;
+            totalRemSec += item.rem_sleep_duration || 0;
+
+            if (!primaryRecord) {
+              primaryRecord = item;
+            } else if (item.type === 'long_sleep' && primaryRecord.type !== 'long_sleep') {
+              primaryRecord = item;
+            } else if (item.type === primaryRecord.type && (item.total_sleep_duration || 0) > (primaryRecord.total_sleep_duration || 0)) {
+              primaryRecord = item;
+            }
+          });
+
+          metricsByDate[dateStr].sleep_duration = totalDurationSec ? Math.round((totalDurationSec / 3600) * 10) / 10 : null;
+          metricsByDate[dateStr].sleep_deep = totalDeepSec ? Math.round((totalDeepSec / 3600) * 10) / 10 : null;
+          metricsByDate[dateStr].sleep_rem = totalRemSec ? Math.round((totalRemSec / 3600) * 10) / 10 : null;
+
+          if (primaryRecord) {
+            metricsByDate[dateStr].rhr = primaryRecord.lowest_heart_rate || null;
+            metricsByDate[dateStr].hrv = primaryRecord.average_hrv || null;
+            // `average_breath` - mimo że dokumentacja Oury nazywa to pole "breaths/second",
+            // realne wartości w odpowiedziach API (np. 12.1, 12.4) są w oczywisty sposób
+            // oddechami/MINUTĘ (norma snu to 12-20/min). Zapisujemy wartość bez konwersji,
+            // zaokrągloną do 1 miejsca po przecinku.
+            metricsByDate[dateStr].respiratory_rate = primaryRecord.average_breath ? Math.round(primaryRecord.average_breath * 10) / 10 : null;
+          }
         }
-      });
+      }
     }
 
     if (spo2Data && spo2Data.data) {

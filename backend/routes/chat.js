@@ -68,6 +68,11 @@ router.post('/api/chat', requireAuth, async (req, res) => {
       if (row) displayMuscleMass = row.muscle_mass;
     }
 
+    const latestBodyMeasurement = await db.get(
+      `SELECT date, chest, waist, hips, biceps, thigh, biceps_left, biceps_right, shoulders, waist_above, waist_below FROM body_measurements WHERE user_id = ? ORDER BY date DESC LIMIT 1`,
+      [req.user.id]
+    );
+
     // Pobranie trendów z ostatnich 7 dni przed wybraną datą
     const pastDateLimit = new Date(new Date(queryDate).getTime() - 7 * 24 * 60 * 60 * 1000);
     const pastDateStr = pastDateLimit.toISOString().slice(0, 10);
@@ -166,6 +171,18 @@ Aktualne statystyki użytkownika na dzień ${queryDate}:
 - Bilans netto: ${netCalories} kcal
 - Kroki: ${health.steps || 0}
 - Waga: ${displayWeight || 'brak danych'} kg, % Tłuszczu: ${displayFatRatio || 'brak danych'}%, Masa mięśniowa: ${displayMuscleMass || 'brak danych'} kg
+- Obwody ciała (ostatni pomiar${latestBodyMeasurement ? ' z dnia ' + latestBodyMeasurement.date : ''}): ${latestBodyMeasurement ? [
+    latestBodyMeasurement.waist != null && `Pas: ${latestBodyMeasurement.waist}cm`,
+    latestBodyMeasurement.waist_above != null && `Pas +2cm (powyżej pępka): ${latestBodyMeasurement.waist_above}cm`,
+    latestBodyMeasurement.waist_below != null && `Pas -2cm (poniżej pępka): ${latestBodyMeasurement.waist_below}cm`,
+    latestBodyMeasurement.chest != null && `Klatka: ${latestBodyMeasurement.chest}cm`,
+    latestBodyMeasurement.shoulders != null && `Barki: ${latestBodyMeasurement.shoulders}cm`,
+    latestBodyMeasurement.hips != null && `Biodra: ${latestBodyMeasurement.hips}cm`,
+    latestBodyMeasurement.biceps != null && `Biceps: ${latestBodyMeasurement.biceps}cm`,
+    latestBodyMeasurement.biceps_left != null && `Biceps lewy: ${latestBodyMeasurement.biceps_left}cm`,
+    latestBodyMeasurement.biceps_right != null && `Biceps prawy: ${latestBodyMeasurement.biceps_right}cm`,
+    latestBodyMeasurement.thigh != null && `Udo: ${latestBodyMeasurement.thigh}cm`
+  ].filter(Boolean).join(', ') || 'brak wypełnionych pól' : 'brak danych w bazie'}
 - Wynik Snu: ${health.sleep_score !== null ? health.sleep_score : 'brak danych'} (Czas: ${health.sleep_duration || 0}h, Głęboki: ${health.sleep_deep || 0}h, REM: ${health.sleep_rem || 0}h)
 - Wynik Gotowości (Readiness): ${health.readiness_score !== null ? health.readiness_score : 'brak danych'}
 - Tętno spoczynkowe: ${health.rhr || '-'} bpm, HRV: ${health.hrv || '-'} ms

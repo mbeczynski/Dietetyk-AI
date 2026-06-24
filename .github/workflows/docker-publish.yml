@@ -310,7 +310,7 @@ jobs:
           port: ${{ secrets.VPS_SSH_PORT || 22 }}
           script: |
             set -e
-            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+            export KUBECONFIG=/home/deploy/.kube/config
 
             cd /opt/dietetyk-ai
             # Synchronizacja kodu repozytorium na serwerze (dla plików chartu Helm)

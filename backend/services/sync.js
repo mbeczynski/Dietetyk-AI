@@ -149,6 +149,7 @@ async function syncOura(userId) {
           let totalDurationSec = 0;
           let totalDeepSec = 0;
           let totalRemSec = 0;
+          let hasLongSleep = false;
 
           // Wybieramy główny rekord (główny sen 'long_sleep', a jeśli go brak - najdłuższą drzemkę)
           // do wyciągnięcia pozostałych parametrów fizjologicznych (tętno spoczynkowe, HRV itp.).
@@ -157,6 +158,9 @@ async function syncOura(userId) {
             totalDurationSec += item.total_sleep_duration || 0;
             totalDeepSec += item.deep_sleep_duration || 0;
             totalRemSec += item.rem_sleep_duration || 0;
+            if (item.type === 'long_sleep') {
+              hasLongSleep = true;
+            }
 
             if (!primaryRecord) {
               primaryRecord = item;
@@ -170,6 +174,7 @@ async function syncOura(userId) {
           metricsByDate[dateStr].sleep_duration = totalDurationSec ? Math.round((totalDurationSec / 3600) * 10) / 10 : null;
           metricsByDate[dateStr].sleep_deep = totalDeepSec ? Math.round((totalDeepSec / 3600) * 10) / 10 : null;
           metricsByDate[dateStr].sleep_rem = totalRemSec ? Math.round((totalRemSec / 3600) * 10) / 10 : null;
+          metricsByDate[dateStr].has_long_sleep = hasLongSleep;
 
           if (primaryRecord) {
             metricsByDate[dateStr].rhr = primaryRecord.lowest_heart_rate || null;
@@ -253,6 +258,24 @@ async function syncOura(userId) {
     const lastSyncTime = new Date().toISOString();
     for (const [dateStr, metrics] of Object.entries(metricsByDate)) {
       if (metrics.steps !== null || metrics.sleep_score !== null || metrics.readiness_score !== null) {
+        // Sprawdzamy czy w bazie istnieje już wiersz z nie-nullowym czasem snu
+        const existing = await db.get(
+          'SELECT sleep_duration, sleep_score, sleep_deep, sleep_rem, rhr, hrv, readiness_score FROM health_metrics WHERE user_id = ? AND date = ?',
+          [userId, dateStr]
+        );
+
+        if (existing && existing.sleep_duration !== null && !metrics.has_long_sleep) {
+          // Jeśli w bazie jest już czas snu, a Oura nie ma na ten dzień głównego snu (long_sleep),
+          // tylko np. same drzemki lub brak danych snu, nie nadpisujemy istniejącego czasu snu ani wskaźników.
+          metrics.sleep_duration = existing.sleep_duration;
+          metrics.sleep_score = existing.sleep_score;
+          metrics.sleep_deep = existing.sleep_deep;
+          metrics.sleep_rem = existing.sleep_rem;
+          metrics.rhr = existing.rhr;
+          metrics.hrv = existing.hrv;
+          metrics.readiness_score = existing.readiness_score;
+        }
+
         // PRIORYTET: Apple Health jest źródłem autorytatywnym dla aktywności
         // (steps/kalorie/minuty), bo Oura i Withings i tak synchronizują się do Apple
         // Health na telefonie, a Apple Health dostarcza dane szybciej i pełniej.
@@ -269,7 +292,17 @@ async function syncOura(userId) {
         // aktywności Apple nie miała realnych danych (czyli wszystkie zostały właśnie
         // uzupełnione przez Oura) - jeśli chociaż jedna kolumna Apple była realna,
         // etykieta źródła zostaje 'apple', zgodnie z tym, co faktycznie nadpisano.
-        const activitySource = metrics.steps !== null ? 'oura' : null;
+        // POPRAWKA (runda 4 audytu): wcześniej activitySource zależał WYŁĄCZNIE od
+        // metrics.steps !== null. Jeśli Oura dla danej daty dostarczyła np. tylko
+        // active_calories/active_minutes (kroki spóźnione lub niedostępne z danego
+        // modelu pierścionka), activitySource wpadał w null mimo zapisania realnych
+        // danych aktywności z Oura - dashboard/API błędnie pokazywały brak/nieznane
+        // źródło aktywności za ten dzień. Teraz źródło 'oura' jest ustawiane, gdy
+        // JAKAKOLWIEK kolumna aktywności ma realną wartość.
+        const hasOuraActivityData = metrics.steps !== null || metrics.active_calories !== null
+          || metrics.active_minutes !== null || metrics.distance_meters !== null
+          || metrics.total_calories !== null;
+        const activitySource = hasOuraActivityData ? 'oura' : null;
         await db.run(`
           INSERT INTO health_metrics (
             user_id, date, steps, active_calories, total_calories_burned,

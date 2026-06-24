@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "dietetyk.fullname" . }}-backend
+  labels:
+    {{- include "dietetyk.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "dietetyk.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "dietetyk.fullname" . }}-frontend
+  labels:
+    {{- include "dietetyk.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "dietetyk.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend

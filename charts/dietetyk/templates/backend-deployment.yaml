@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dietetyk.fullname" . }}-backend
+  labels:
+    {{- include "dietetyk.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "dietetyk.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        {{- include "dietetyk.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: backend
+    spec:
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - containerPort: 3000
+          env:
+            - name: DATABASE_DIR
+              value: "/app/data"
+            - name: PORT
+              value: "3000"
+            - name: TZ
+              value: "Europe/Warsaw"
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+            - name: env-volume
+              mountPath: /app/.env
+              subPath: .env
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /api/healthz
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+        - name: db-viewer
+          image: "{{ .Values.dbImage.repository }}:{{ .Values.dbImage.tag }}"
+          imagePullPolicy: {{ .Values.dbImage.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SQLITE_DATABASE
+              value: "dietetyk.db"
+          volumeMounts:
+            - name: data-volume
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.dbImage.resources | nindent 12 }}
+
+      volumes:
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: {{ include "dietetyk.fullname" . }}-data-pvc
+        - name: env-volume
+          secret:
+            secretName: {{ .Values.backend.secretName }}
+            items:
+              - key: dotenv
+                path: .env

@@ -301,7 +301,7 @@ jobs:
       (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
-      - name: SSH - docker compose pull && up -d + czekanie na healthcheck
+      - name: SSH - helm upgrade && kubectl rollout restart + weryfikacja
         uses: appleboy/ssh-action@v1.2.4
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -310,29 +310,22 @@ jobs:
           port: ${{ secrets.VPS_SSH_PORT || 22 }}
           script: |
             set -e
-            cd /opt/dietetyk-ai
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker image prune -f
+            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-            echo "Czekam, aż dietetyk-backend zgłosi status 'healthy' (docker HEALTHCHECK -> GET /api/healthz)..."
-            for i in $(seq 1 20); do
-              status=$(docker inspect --format='{{.State.Health.Status}}' dietetyk-backend 2>/dev/null || echo "brak")
-              echo "  [$i/20] status: $status"
-              if [ "$status" = "healthy" ]; then
-                echo "Backend jest healthy."
-                exit 0
-              fi
-              if [ "$status" = "unhealthy" ]; then
-                echo "BŁĄD: backend zgłosił status 'unhealthy'. Logi:"
-                docker logs --tail 50 dietetyk-backend
-                exit 1
-              fi
-              sleep 3
-            done
-            echo "BŁĄD: backend nie osiągnął statusu 'healthy' w wyznaczonym czasie. Logi:"
-            docker logs --tail 50 dietetyk-backend
-            exit 1
+            cd /opt/dietetyk-ai
+            # Synchronizacja kodu repozytorium na serwerze (dla plików chartu Helm)
+            git pull origin main || true
+
+            echo "=== Wdrażanie Chartu Helm ==="
+            helm upgrade --install dietetyk /opt/dietetyk-ai/charts/dietetyk --namespace default
+
+            echo "=== Restartowanie Deploymentów (wymuszenie pobrania najnowszego obrazu :latest) ==="
+            kubectl rollout restart deployment/dietetyk-backend
+            kubectl rollout restart deployment/dietetyk-frontend
+
+            echo "=== Oczekiwanie na status Healthy ==="
+            kubectl rollout status deployment/dietetyk-backend --timeout=120s
+            kubectl rollout status deployment/dietetyk-frontend --timeout=120s
 
       - name: Weryfikacja health-checku end-to-end (przez domenę publiczną)
         run: |

@@ -1,0 +1,53 @@
+replicaCount: 1
+
+backend:
+  image:
+    repository: ghcr.io/mbeczynski/dietetyk-ai-backend
+    tag: latest
+    pullPolicy: Always
+  secretName: dietetyk-backend-secret
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+frontend:
+  image:
+    repository: ghcr.io/mbeczynski/dietetyk-ai-frontend
+    tag: latest
+    pullPolicy: Always
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+dbImage:
+  repository: coleifer/sqlite-web
+  tag: latest
+  pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+  host: dietetyk.renacode.com
+  tlsSecret: dietetyk-tls-cert
+
+persistence:
+  size: 2Gi
+  storageClass: local-path

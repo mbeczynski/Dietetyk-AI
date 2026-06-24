@@ -19,11 +19,17 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
 
   useEffect(() => {
     if (summary) {
+      // POPRAWKA (runda 4 audytu): `||` nadpisywał świadomo zapisane 0 (cel wyłączony)
+      // domyślną wartością przy każdym odświeżeniu `summary` (np. po zapisaniu celów -
+      // onGoalsUpdate odpytuje dashboard na nowo), więc pole formularza "skakało" z
+      // powrotem na domyślną wartość mimo poprawnie zapisanego 0 w backendzie (patrz
+      // poprawiony /api/dashboard w dashboard.js). `??` odróżnia realne 0 od
+      // null/undefined (brak danych z backendu).
       setGoals({
-        target_steps: summary.target_steps || 10000,
-        target_active_calories: summary.target_active_calories || 500,
-        target_sleep_duration: summary.target_sleep_duration || 7.2,
-        target_active_minutes: summary.target_active_minutes || 30
+        target_steps: summary.target_steps ?? 10000,
+        target_active_calories: summary.target_active_calories ?? 500,
+        target_sleep_duration: summary.target_sleep_duration ?? 7.2,
+        target_active_minutes: summary.target_active_minutes ?? 30
       });
     }
   }, [summary]);

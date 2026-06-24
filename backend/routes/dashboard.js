@@ -327,7 +327,11 @@ router.get('/api/dashboard', async (req, res) => {
       [req.user.id]
     );
     const sleepMap = new Map(sleepRows.map(r => [r.date, r.sleep_duration]));
-    const targetSleepForStreak = isNaN(settings.target_sleep_duration) || !settings.target_sleep_duration ? 7.2 : settings.target_sleep_duration;
+    // POPRAWKA (runda 4 audytu): !settings.target_sleep_duration traktował realne,
+    // zapisane przez użytkownika 0 (cel snu wyłączony) tak samo jak "nie ustawiono celu"
+    // (settings.target_sleep_duration === undefined, gdy nie ma wiersza w tabeli settings).
+    // Teraz fallback 7.2h włącza się tylko, gdy wartości faktycznie nie ma / jest NaN.
+    const targetSleepForStreak = (settings.target_sleep_duration === undefined || isNaN(settings.target_sleep_duration)) ? 7.2 : settings.target_sleep_duration;
     const sleepStreakDays = computeStreak(sleepMap, date, (duration) => duration >= targetSleepForStreak);
 
     // Generowanie porady od Dietetyka AI na bazie dzisiejszych danych (opcjonalne/throttled co 30 min)
@@ -531,11 +535,18 @@ Używaj **pogrubienia** dla kluczowych liczb i fraz w Analizie i Rekomendacjach.
         target_protein: settings.target_protein,
         target_carbs: settings.target_carbs,
         target_fat: settings.target_fat,
-        target_steps: isNaN(settings.target_steps) || !settings.target_steps ? 10000 : settings.target_steps,
-        target_active_calories: isNaN(settings.target_active_calories) || !settings.target_active_calories ? 500 : settings.target_active_calories,
-        target_sleep_duration: isNaN(settings.target_sleep_duration) || !settings.target_sleep_duration ? 7.2 : settings.target_sleep_duration,
-        target_active_minutes: isNaN(settings.target_active_minutes) || !settings.target_active_minutes ? 30 : settings.target_active_minutes,
-        target_water_ml: isNaN(settings.target_water_ml) || !settings.target_water_ml ? 2500 : settings.target_water_ml,
+        // POPRAWKA (runda 4 audytu): te pola to cele aktywności edytowalne w
+        // ActivityTracker/Ustawieniach z atrybutem min="0" - użytkownik może świadomie
+        // zapisać 0 (np. wyłączyć śledzenie celu kroków). Poprzedni warunek `!wartość`
+        // traktował to zapisane 0 identycznie jak "brak wiersza w settings" (undefined)
+        // i bezpowrotnie nadpisywał je domyślną wartością przy każdym odświeżeniu
+        // dashboardu - 0 nigdy nie wracało do frontu. Teraz fallback działa tylko
+        // faktycznie brakującej (undefined) lub niepoprawnej (NaN) wartości.
+        target_steps: (settings.target_steps === undefined || isNaN(settings.target_steps)) ? 10000 : settings.target_steps,
+        target_active_calories: (settings.target_active_calories === undefined || isNaN(settings.target_active_calories)) ? 500 : settings.target_active_calories,
+        target_sleep_duration: (settings.target_sleep_duration === undefined || isNaN(settings.target_sleep_duration)) ? 7.2 : settings.target_sleep_duration,
+        target_active_minutes: (settings.target_active_minutes === undefined || isNaN(settings.target_active_minutes)) ? 30 : settings.target_active_minutes,
+        target_water_ml: (settings.target_water_ml === undefined || isNaN(settings.target_water_ml)) ? 2500 : settings.target_water_ml,
         height_cm: isNaN(settings.height_cm) || !settings.height_cm || settings.height_cm <= 0 ? null : settings.height_cm,
         bmr,
         calories_eaten: totalEaten.calories,

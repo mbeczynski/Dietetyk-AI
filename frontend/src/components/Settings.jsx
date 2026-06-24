@@ -235,9 +235,15 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     const numericFields = ['target_calories', 'target_protein', 'target_carbs', 'target_fat', 'bmr', 'target_water_ml', 'height_cm'];
+    // POPRAWKA (runda 4 audytu): Number('') === 0, więc wyczyszczenie pola liczbowego
+    // (np. żeby zostawić je puste do późniejszego wypełnienia) zapisywało w stanie
+    // formularza realne 0 - np. dla "Wzrost" trwale wyłączało liczenie BMI, mimo że
+    // backend (GET /api/settings, patrz komentarz przy `r.value === ''`) jest już
+    // przygotowany na przechowywanie i poprawny odczyt pustej wartości. Teraz puste
+    // pole zostaje pustym stringiem, a nie liczbą 0.
     setSettings(prev => ({
       ...prev,
-      [name]: numericFields.includes(name) ? Number(value) : value
+      [name]: numericFields.includes(name) ? (value === '' ? '' : Number(value)) : value
     }));
   };
 

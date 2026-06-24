@@ -108,14 +108,28 @@ function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
 
   const workoutsCount = healthMetrics.filter(h => (h.active_calories || 0) > 0).length;
 
-  const avgEatenCalories = Math.round(totalEatenCal / numDays);
-  const avgProtein = Math.round((totalProtein / numDays) * 10) / 10;
-  const avgCarbs = Math.round((totalCarbs / numDays) * 10) / 10;
-  const avgFat = Math.round((totalFat / numDays) * 10) / 10;
+  // POPRAWKA (runda 4 audytu): średnie dzienne liczone tu były dzielone przez STAŁĄ
+  // długość okna (numDays=7 lub 30), niezależnie od tego, ile dni w tym okresie
+  // użytkownik faktycznie zalogował posiłki/miał zsynchronizowane dane - w
+  // odróżnieniu od routes/dashboard.js (funkcja aggregateNutrition), gdzie świadomie
+  // dzieli się przez rzeczywistą liczbę dni z danymi (daysLogged), żeby nieregularne
+  // logowanie nie zaniżało sztucznie średniej (np. 2 dni x 2000 kcal / 7 dni = ~571
+  // kcal/dzień, zamiast prawdziwych 2000 kcal/dzień). Tu liczymy analogiczny
+  // licznik dni z realnymi danymi - osobno dla posiłków (po unikalnych datach) i
+  // osobno dla metryk zdrowia (jeden wiersz health_metrics = jeden dzień synchronizacji).
+  const mealDaysLogged = new Set(meals.map(m => m.date)).size;
+  const nutritionDivisor = mealDaysLogged > 0 ? mealDaysLogged : numDays;
+  const healthDaysLogged = sortedHealthMetrics.length;
+  const activityDivisor = healthDaysLogged > 0 ? healthDaysLogged : numDays;
 
-  const avgSteps = Math.round(totalSteps / numDays);
-  const avgActiveCalories = Math.round(totalActiveCal / numDays);
-  const avgWaterMl = Math.round(totalWaterMl / numDays);
+  const avgEatenCalories = Math.round(totalEatenCal / nutritionDivisor);
+  const avgProtein = Math.round((totalProtein / nutritionDivisor) * 10) / 10;
+  const avgCarbs = Math.round((totalCarbs / nutritionDivisor) * 10) / 10;
+  const avgFat = Math.round((totalFat / nutritionDivisor) * 10) / 10;
+
+  const avgSteps = Math.round(totalSteps / activityDivisor);
+  const avgActiveCalories = Math.round(totalActiveCal / activityDivisor);
+  const avgWaterMl = Math.round(totalWaterMl / activityDivisor);
 
   const avgSleepScore = sleepScoreCount > 0 ? Math.round(sleepScoreSum / sleepScoreCount) : null;
   const avgReadinessScore = readinessScoreCount > 0 ? Math.round(readinessScoreSum / readinessScoreCount) : null;
@@ -124,9 +138,9 @@ function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
   const avgMuscleMass = muscleMassCount > 0 ? Math.round((muscleMassSum / muscleMassCount) * 10) / 10 : null;
   const avgBpSystolic = bpCount > 0 ? Math.round(bpSystolicSum / bpCount) : null;
   const avgBpDiastolic = bpCount > 0 ? Math.round(bpDiastolicSum / bpCount) : null;
-  const avgFiber = Math.round((totalFiber / numDays) * 10) / 10;
-  const avgSugar = Math.round((totalSugar / numDays) * 10) / 10;
-  const avgSodium = Math.round(totalSodium / numDays);
+  const avgFiber = Math.round((totalFiber / nutritionDivisor) * 10) / 10;
+  const avgSugar = Math.round((totalSugar / nutritionDivisor) * 10) / 10;
+  const avgSodium = Math.round(totalSodium / nutritionDivisor);
 
   const weightChange = (firstWeight !== null && lastWeight !== null) ? Math.round((lastWeight - firstWeight) * 10) / 10 : null;
   const fatRatioChange = (firstFatRatio !== null && lastFatRatio !== null) ? Math.round((lastFatRatio - firstFatRatio) * 10) / 10 : null;

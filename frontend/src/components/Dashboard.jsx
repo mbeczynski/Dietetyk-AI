@@ -443,11 +443,29 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const sleepScore = summary.sleep_score ?? 0;
   const readinessScore = summary.readiness_score ?? 0;
 
+  // POPRAWKA (runda 4 audytu): cele dzienne (kroki, kalorie, sen, minuty ćwiczeń) mogą
+  // być świadomie zapisane jako 0 (cel wyłączony - patrz `??` w kartach celów niżej oraz
+  // poprawka w dashboard.js/ActivityTracker.jsx, gdzie `||` wcześniej bezpowrotnie
+  // nadpisywało takie 0 domyślną wartością). Samo dzielenie przez cel=0 dawałoby
+  // Infinity/NaN w procencie paska postępu - helper jawnie traktuje wyłączony cel jako
+  // "0% do pokazania" zamiast renderować NaN%.
+  const goalProgressPct = (value, target) => target > 0 ? Math.min(Math.round((value / target) * 100), 100) : 0;
+
   const steps = summary.steps || 0;
   // activeCalories: 0 i "brak danych" są tu równoważne (brak treningu = 0 kalorii
   // aktywnych), więc || 0 zostaje - w odróżnieniu od rhr/hrv poniżej.
   const activeCalories = summary.calories_burned_active || 0;
-  const effortScore = activeCalories > 0 ? Math.round(Math.min((activeCalories / 800) * 100, 100)) : 0;
+  // POPRAWKA (runda 4 audytu): effortScore liczył % wysiłku względem sztywnych 800
+  // kcal, a "Bateria energii" niżej liczy rozładowanie względem
+  // targetActiveCaloriesForBattery (cel z ustawień, domyślnie 500 kcal) - dwie karty
+  // opisujące tę samą aktywność dnia dawały niespójne, nieporównywalne ze sobą %,
+  // gdy cel użytkownika różnił się od 800 kcal. Ujednolicone na wspólny mianownik.
+  // POPRAWKA (runda 4 audytu): `||` nadpisywał świadomie zapisany cel=0 (wyłączony cel
+  // aktywnych kalorii, patrz dashboard.js/ActivityTracker.jsx) domyślnym 500. `??`
+  // zachowuje realne 0 - dzielenie przez nie jest bezpieczne tutaj, bo effortScore i
+  // batteryDepletion niżej mają osobne zabezpieczenie przed 0/0 (NaN).
+  const targetActiveCaloriesForBattery = summary.target_active_calories ?? 500;
+  const effortScore = activeCalories > 0 ? Math.round(Math.min((activeCalories / targetActiveCaloriesForBattery) * 100, 100)) : 0;
   const activeMinutes = summary.active_minutes || 0;
 
   const sleepDurationHours = summary.sleep_duration ?? 0;
@@ -513,8 +531,11 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
 
   // Licznik wody
   const waterMl = summary.water_ml || 0;
-  const targetWaterMl = summary.target_water_ml || 2500;
-  const waterPct = Math.min(Math.round((waterMl / targetWaterMl) * 100), 100);
+  // POPRAWKA (runda 4 audytu): jak wyżej - `??` zachowuje świadomie zapisane 0 (cel
+  // wyłączony), a waterPct dostaje jawne zabezpieczenie przed dzieleniem 0/0 (NaN),
+  // gdy cel=0 i nic jeszcze nie wypito.
+  const targetWaterMl = summary.target_water_ml ?? 2500;
+  const waterPct = targetWaterMl > 0 ? Math.min(Math.round((waterMl / targetWaterMl) * 100), 100) : 0;
 
   // Cel obciążenia (Athlytic/WHOOP style)
   // Wyznacza przedział docelowy w oparciu o readiness
@@ -529,8 +550,12 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   // aktywności użytkownika (im więcej wysiłku względem celu, tym większy spadek -
   // analogicznie do "Body Battery" w urządzeniach typu Garmin, ale z realnych danych).
   // Brak readinessScore (brak synchronizacji urządzenia) = brak baterii, nie zgadujemy.
-  const targetActiveCaloriesForBattery = summary.target_active_calories || 500;
-  const batteryDepletion = readinessScore > 0
+  // POPRAWKA (runda 4 audytu): gdy cel aktywnych kalorii jest świadomie ustawiony na 0
+  // (patrz `??` powyżej), a użytkownik nie spalił żadnych aktywnych kalorii, samo
+  // dzielenie 0/0 dawało NaN i psuło całą "baterię energii" - dodane jawne
+  // zabezpieczenie: cel=0 oznacza brak rozładowania (rozładowanie tylko gdy jest realny
+  // cel do przekroczenia).
+  const batteryDepletion = readinessScore > 0 && targetActiveCaloriesForBattery > 0
     ? Math.round(Math.min(activeCalories / targetActiveCaloriesForBattery, 1) * 20)
     : 0;
   const batteryPct = readinessScore > 0
@@ -881,34 +906,34 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
           )}
           <div className="premium-grid-2">
-            <DailyGoalCard 
-              title="Kroki" 
-              val1={steps.toLocaleString('pl-PL')} 
-              unit1="kroki" 
-              percentage={Math.min(Math.round((steps / (summary?.target_steps || 10000)) * 100), 100)} 
-              barType={Math.min(Math.round((steps / (summary?.target_steps || 10000)) * 100), 100) < 30 ? "red" : "gradient"} 
+            <DailyGoalCard
+              title="Kroki"
+              val1={steps.toLocaleString('pl-PL')}
+              unit1="kroki"
+              percentage={goalProgressPct(steps, summary?.target_steps ?? 10000)}
+              barType={goalProgressPct(steps, summary?.target_steps ?? 10000) < 30 ? "red" : "gradient"}
             />
-            <DailyGoalCard 
-              title="Aktywne kalorie" 
-              val1={String(activeCalories)} 
-              unit1="kcal" 
-              percentage={Math.min(Math.round((activeCalories / (summary?.target_active_calories || 500)) * 100), 100)} 
-              barType="gradient" 
+            <DailyGoalCard
+              title="Aktywne kalorie"
+              val1={String(activeCalories)}
+              unit1="kcal"
+              percentage={goalProgressPct(activeCalories, summary?.target_active_calories ?? 500)}
+              barType="gradient"
             />
-            <DailyGoalCard 
-              title="Czas snu" 
-              val1={String(Math.floor(sleepDurationHours))} 
-              unit1="godz" 
-              val2={String(Math.round((sleepDurationHours - Math.floor(sleepDurationHours)) * 60))} 
-              unit2="min" 
-              percentage={Math.min(Math.round((sleepDurationHours / (summary?.target_sleep_duration || 7.2)) * 100), 100)} 
-              barType="gradient" 
+            <DailyGoalCard
+              title="Czas snu"
+              val1={String(Math.floor(sleepDurationHours))}
+              unit1="godz"
+              val2={String(Math.round((sleepDurationHours - Math.floor(sleepDurationHours)) * 60))}
+              unit2="min"
+              percentage={goalProgressPct(sleepDurationHours, summary?.target_sleep_duration ?? 7.2)}
+              barType="gradient"
             />
             <DailyGoalCard
               title="Minuty ćwiczeń"
               val1={String(activeMinutes)}
               unit1="min"
-              percentage={Math.min(Math.round((activeMinutes / (summary?.target_active_minutes || 30)) * 100), 100)}
+              percentage={goalProgressPct(activeMinutes, summary?.target_active_minutes ?? 30)}
               barType={activeMinutes > 0 ? "gradient" : "grey"}
             />
             <DailyGoalCard
@@ -1464,7 +1489,13 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             const musclePercentage = (weight > 0 && muscleMass > 0) ? Math.round((muscleMass / weight) * 100 * 10) / 10 : 0;
             const otherMass = (weight > 0) ? Math.max(0, Math.round((weight - muscleMass - fatMass) * 10) / 10) : 0;
             const otherPercentage = (weight > 0) ? Math.max(0, Math.round((otherMass / weight) * 100 * 10) / 10) : 0;
-            const leanBodyMassPct = fatRatio > 0 ? 100 - fatRatio : 100;
+            // POPRAWKA (runda 4 audytu): fatRatio===0 oznacza "brak pomiaru tkanki
+            // tłuszczowej" (fallback ?? 0 wyżej), a NIE "realne 0% tłuszczu" - tak
+            // samo jak interpretuje to fatPercentage powyżej. Wcześniej przy braku
+            // danych leanBodyMassPct wynosił 100, więc nowy użytkownik bez
+            // zsynchronizowanej wagi widział w pełni wypełniony, "idealny" pierścień
+            // składu ciała mimo braku jakichkolwiek danych z Withings.
+            const leanBodyMassPct = (weight > 0 && fatRatio > 0) ? 100 - fatRatio : 0;
 
             return (
               <div style={{ display: 'flex', alignItems: 'center', gap: '24px', margin: '8px 0' }}>

@@ -955,8 +955,13 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
         </form>
       </div>
 
-      {/* Panel Profilu (Avatar) oraz Zmiany Hasła */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
+      {/* Panel Profilu (Avatar) oraz Zmiany Hasła.
+          alignItems: 'start' - bez tego siatka domyślnie rozciąga (align-items: stretch)
+          każdą kartę w danym "rzędzie" do wysokości najwyższej z nich. Karta Profilu
+          jest dużo wyższa niż np. Zmiana Hasła czy Cel Sylwetki, więc bez tej własności
+          krótsze karty były rozciągane i zostawały z dużą, dziwnie wyglądającą "pustą
+          przestrzenią" pod treścią. Z 'start' każda karta ma wysokość swojej treści. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px', alignItems: 'start' }}>
         
         {/* Panel Profilu i Avatara */}
         <div className="glass-card">
@@ -1057,7 +1062,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 className="input-field" 
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
-                placeholder="np. mbeczynski@gmail.com"
+                placeholder="np. jan.kowalski@example.com"
                 required
               />
             </div>

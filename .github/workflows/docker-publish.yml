@@ -34,7 +34,7 @@ env:
   IMAGE_OWNER: ${{ github.repository_owner }}
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -313,3 +313,32 @@ jobs:
           APP_PASSWORD: dietetyk-admin
           CI: true
         run: npm run test:e2e
+
+  update-git:
+    name: Update Helm values in Git
+    needs: [build-backend, build-frontend]
+    if: |
+      always() &&
+      (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
+      (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kodu
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Update image tags in values.yaml
+        run: |
+          sed -i '/backend:/,/tag:/ { s/tag: .*/tag: "sha-${{ steps.vars.outputs.sha_short }}"/ }' charts/dietetyk/values.yaml
+          sed -i '/frontend:/,/tag:/ { s/tag: .*/tag: "sha-${{ steps.vars.outputs.sha_short }}"/ }' charts/dietetyk/values.yaml
+          
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add charts/dietetyk/values.yaml
+          git commit -m "chore: update image tags to sha-${{ steps.vars.outputs.sha_short }} [skip ci]" || exit 0
+          git push

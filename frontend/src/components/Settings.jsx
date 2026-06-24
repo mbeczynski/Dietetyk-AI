@@ -1317,59 +1317,6 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           </p>
         </div>
 
-        {/* Panel Zmiany Hasła */}
-        <div className="glass-card">
-          <h3 className="card-title">🔑 Zmiana Hasła</h3>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
-            Zmień hasło logowania dla swojego konta.
-          </p>
-
-          {passwordMessage.text && (
-            <div className={`alert alert-${passwordMessage.type}`} style={{ marginBottom: '16px' }}>
-              {passwordMessage.text}
-            </div>
-          )}
-
-          <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div className="input-group">
-              <label className="input-label">Obecne hasło</label>
-              <input 
-                type="password" 
-                className="input-field" 
-                value={passwordData.currentPassword}
-                onChange={(e) => setPasswordData(prev => ({ ...prev, currentPassword: e.target.value }))}
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Nowe hasło</label>
-              <input 
-                type="password" 
-                className="input-field" 
-                value={passwordData.newPassword}
-                onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Powtórz nowe hasło</label>
-              <input 
-                type="password" 
-                className="input-field" 
-                value={passwordData.confirmPassword}
-                onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                required
-              />
-            </div>
-
-            <button type="submit" className="btn-primary" disabled={isChangingPassword} style={{ marginTop: '8px' }}>
-              {isChangingPassword ? 'Zmienianie...' : 'Zmień hasło'}
-            </button>
-          </form>
-        </div>
-
         {/* Panel Twoje Dane (RODO) - eksport i usunięcie konta */}
         <div className="glass-card">
           <h3 className="card-title">📦 Twoje Dane</h3>
@@ -1417,6 +1364,59 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
             </div>
             <button type="submit" className="btn-danger" disabled={isDeletingAccount}>
               {isDeletingAccount ? 'Usuwanie...' : 'Usuń moje konto na zawsze'}
+            </button>
+          </form>
+        </div>
+
+        {/* Panel Zmiany Hasła */}
+        <div className="glass-card">
+          <h3 className="card-title">🔑 Zmiana Hasła</h3>
+          <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+            Zmień hasło logowania dla swojego konta.
+          </p>
+
+          {passwordMessage.text && (
+            <div className={`alert alert-${passwordMessage.type}`} style={{ marginBottom: '16px' }}>
+              {passwordMessage.text}
+            </div>
+          )}
+
+          <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="input-group">
+              <label className="input-label">Obecne hasło</label>
+              <input
+                type="password"
+                className="input-field"
+                value={passwordData.currentPassword}
+                onChange={(e) => setPasswordData(prev => ({ ...prev, currentPassword: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">Nowe hasło</label>
+              <input
+                type="password"
+                className="input-field"
+                value={passwordData.newPassword}
+                onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">Powtórz nowe hasło</label>
+              <input
+                type="password"
+                className="input-field"
+                value={passwordData.confirmPassword}
+                onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                required
+              />
+            </div>
+
+            <button type="submit" className="btn-primary" disabled={isChangingPassword} style={{ marginTop: '8px' }}>
+              {isChangingPassword ? 'Zmienianie...' : 'Zmień hasło'}
             </button>
           </form>
         </div>

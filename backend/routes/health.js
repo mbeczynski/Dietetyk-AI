@@ -22,7 +22,7 @@ router.get('/api/health/history', requireAuth, async (req, res) => {
 router.get('/api/body-measurements', requireAuth, async (req, res) => {
   try {
     const rows = await db.all(`
-      SELECT id, date, chest, waist, hips, biceps, thigh 
+      SELECT id, date, chest, waist, hips, biceps, thigh, biceps_left, biceps_right, shoulders, waist_above, waist_below
       FROM body_measurements 
       WHERE user_id = ? 
       ORDER BY date ASC
@@ -36,31 +36,39 @@ router.get('/api/body-measurements', requireAuth, async (req, res) => {
 
 // Zapisz/aktualizuj obwody ciała
 router.post('/api/body-measurements', requireAuth, async (req, res) => {
-  const { date, chest, waist, hips, biceps, thigh } = req.body;
+  const { date, chest, waist, hips, biceps, thigh, biceps_left, biceps_right, shoulders, waist_above, waist_below } = req.body;
   if (!date) return res.status(400).json({ error: 'Data jest wymagana.' });
   try {
     await db.run(`
-      INSERT INTO body_measurements (user_id, date, chest, waist, hips, biceps, thigh)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO body_measurements (
+        user_id, date, chest, waist, hips, biceps, thigh, 
+        biceps_left, biceps_right, shoulders, waist_above, waist_below
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, date) DO UPDATE SET
         chest = COALESCE(excluded.chest, chest),
         waist = COALESCE(excluded.waist, waist),
         hips = COALESCE(excluded.hips, hips),
         biceps = COALESCE(excluded.biceps, biceps),
-        thigh = COALESCE(excluded.thigh, thigh)
+        thigh = COALESCE(excluded.thigh, thigh),
+        biceps_left = COALESCE(excluded.biceps_left, biceps_left),
+        biceps_right = COALESCE(excluded.biceps_right, biceps_right),
+        shoulders = COALESCE(excluded.shoulders, shoulders),
+        waist_above = COALESCE(excluded.waist_above, waist_above),
+        waist_below = COALESCE(excluded.waist_below, waist_below)
     `, [
       req.user.id,
       date,
-      // UWAGA: sprawdzamy "!== undefined && !== '' " (czy pole zostało przesłane), a NIE
-      // samą prawdziwość wartości (truthy check) - "wartość ? Number(wartość) : null" myliło
-      // "pole nie zostało podane" z "podano poprawną, ale falsy liczbę" (np. 0), co przy
-      // ewentualnym 0 zamieniałoby je w NULL (i przez COALESCE wyżej nigdy nie nadpisywałoby
-      // istniejącej wartości) zamiast faktycznie zapisać 0.
       chest !== undefined && chest !== null && chest !== '' ? Number(chest) : null,
       waist !== undefined && waist !== null && waist !== '' ? Number(waist) : null,
       hips !== undefined && hips !== null && hips !== '' ? Number(hips) : null,
       biceps !== undefined && biceps !== null && biceps !== '' ? Number(biceps) : null,
-      thigh !== undefined && thigh !== null && thigh !== '' ? Number(thigh) : null
+      thigh !== undefined && thigh !== null && thigh !== '' ? Number(thigh) : null,
+      biceps_left !== undefined && biceps_left !== null && biceps_left !== '' ? Number(biceps_left) : null,
+      biceps_right !== undefined && biceps_right !== null && biceps_right !== '' ? Number(biceps_right) : null,
+      shoulders !== undefined && shoulders !== null && shoulders !== '' ? Number(shoulders) : null,
+      waist_above !== undefined && waist_above !== null && waist_above !== '' ? Number(waist_above) : null,
+      waist_below !== undefined && waist_below !== null && waist_below !== '' ? Number(waist_below) : null
     ]);
     res.json({ success: true, message: 'Pomiary obwodów ciała zostały zapisane.' });
   } catch (err) {

@@ -72,7 +72,12 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
     waist: '',
     hips: '',
     biceps: '',
-    thigh: ''
+    thigh: '',
+    biceps_left: '',
+    biceps_right: '',
+    shoulders: '',
+    waist_above: '',
+    waist_below: ''
   });
 
   useEffect(() => {
@@ -147,7 +152,12 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
           waist: '',
           hips: '',
           biceps: '',
-          thigh: ''
+          thigh: '',
+          biceps_left: '',
+          biceps_right: '',
+          shoulders: '',
+          waist_above: '',
+          waist_below: ''
         });
         fetchMeasurements();
         setTimeout(() => setMeasurementMessage({ type: '', text: '' }), 5000);
@@ -186,9 +196,14 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
   const getMeasureLabel = (key) => {
     switch(key) {
       case 'waist': return 'Talia / Pas (cm)';
+      case 'waist_above': return 'Pas +2cm (cm)';
+      case 'waist_below': return 'Pas -2cm (cm)';
       case 'chest': return 'Klatka piersiowa (cm)';
+      case 'shoulders': return 'Barki (cm)';
       case 'hips': return 'Biodra (cm)';
       case 'biceps': return 'Biceps (cm)';
+      case 'biceps_left': return 'Biceps lewy (cm)';
+      case 'biceps_right': return 'Biceps prawy (cm)';
       case 'thigh': return 'Udo (cm)';
       default: return 'Obwód (cm)';
     }
@@ -858,7 +873,36 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label" style={{ fontSize: '0.75rem' }}>Pas +2cm (powyżej pępka)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  name="waist_above"
+                  className="input-field"
+                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                  value={formMeasurement.waist_above}
+                  onChange={handleFormMeasurementChange}
+                  placeholder="np. 83"
+                />
+              </div>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label" style={{ fontSize: '0.75rem' }}>Pas -2cm (poniżej pępka)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  name="waist_below"
+                  className="input-field"
+                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                  value={formMeasurement.waist_below}
+                  onChange={handleFormMeasurementChange}
+                  placeholder="np. 87"
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
               <div className="input-group" style={{ marginBottom: 0 }}>
                 <label className="input-label" style={{ fontSize: '0.75rem' }}>Klatka (cm)</label>
                 <input
@@ -870,6 +914,19 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                   value={formMeasurement.chest}
                   onChange={handleFormMeasurementChange}
                   placeholder="np. 100"
+                />
+              </div>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label" style={{ fontSize: '0.75rem' }}>Barki (cm)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  name="shoulders"
+                  className="input-field"
+                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                  value={formMeasurement.shoulders}
+                  onChange={handleFormMeasurementChange}
+                  placeholder="np. 120"
                 />
               </div>
               <div className="input-group" style={{ marginBottom: 0 }}>
@@ -885,8 +942,11 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                   placeholder="np. 95"
                 />
               </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
               <div className="input-group" style={{ marginBottom: 0 }}>
-                <label className="input-label" style={{ fontSize: '0.75rem' }}>Biceps (cm)</label>
+                <label className="input-label" style={{ fontSize: '0.75rem' }}>Biceps (ogólny)</label>
                 <input
                   type="number"
                   step="0.1"
@@ -896,6 +956,32 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                   value={formMeasurement.biceps}
                   onChange={handleFormMeasurementChange}
                   placeholder="np. 37"
+                />
+              </div>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label" style={{ fontSize: '0.75rem' }}>Biceps lewy (cm)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  name="biceps_left"
+                  className="input-field"
+                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                  value={formMeasurement.biceps_left}
+                  onChange={handleFormMeasurementChange}
+                  placeholder="np. 36.5"
+                />
+              </div>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label" style={{ fontSize: '0.75rem' }}>Biceps prawy (cm)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  name="biceps_right"
+                  className="input-field"
+                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                  value={formMeasurement.biceps_right}
+                  onChange={handleFormMeasurementChange}
+                  placeholder="np. 36.5"
                 />
               </div>
             </div>
@@ -936,9 +1022,14 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 onChange={(e) => setSelectedMeasure(e.target.value)}
               >
                 <option value="waist">Talia / Pas</option>
+                <option value="waist_above">Pas +2cm</option>
+                <option value="waist_below">Pas -2cm</option>
                 <option value="chest">Klatka piersiowa</option>
+                <option value="shoulders">Barki</option>
                 <option value="hips">Biodra</option>
                 <option value="biceps">Biceps</option>
+                <option value="biceps_left">Biceps lewy</option>
+                <option value="biceps_right">Biceps prawy</option>
                 <option value="thigh">Udo</option>
               </select>
             </div>
@@ -969,10 +1060,11 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-dim)' }}>
                     <th style={{ padding: '8px 4px' }}>Data</th>
-                    <th style={{ padding: '8px 4px' }}>Talia</th>
+                    <th style={{ padding: '8px 4px' }}>Pas (+2 / -2)</th>
                     <th style={{ padding: '8px 4px' }}>Klatka</th>
+                    <th style={{ padding: '8px 4px' }}>Barki</th>
                     <th style={{ padding: '8px 4px' }}>Biodra</th>
-                    <th style={{ padding: '8px 4px' }}>Bic</th>
+                    <th style={{ padding: '8px 4px' }}>Bic (L / P)</th>
                     <th style={{ padding: '8px 4px' }}>Udo</th>
                     <th style={{ padding: '8px 4px', textAlign: 'center' }}>Akcje</th>
                   </tr>
@@ -981,10 +1073,17 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                   {[...measurementsData].reverse().map((m) => (
                     <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', color: 'var(--text-muted)' }}>
                       <td style={{ padding: '8px 4px', fontWeight: 600, color: '#fff' }}>{m.date}</td>
-                      <td style={{ padding: '8px 4px' }}>{m.waist ? `${m.waist} cm` : '--'}</td>
+                      <td style={{ padding: '8px 4px' }}>
+                        {m.waist !== null && m.waist !== undefined ? `${m.waist}` : '--'}
+                        {(m.waist_above !== null || m.waist_below !== null) && ` (${m.waist_above !== null && m.waist_above !== undefined ? m.waist_above : '--'} / ${m.waist_below !== null && m.waist_below !== undefined ? m.waist_below : '--'})`} cm
+                      </td>
                       <td style={{ padding: '8px 4px' }}>{m.chest ? `${m.chest} cm` : '--'}</td>
+                      <td style={{ padding: '8px 4px' }}>{m.shoulders ? `${m.shoulders} cm` : '--'}</td>
                       <td style={{ padding: '8px 4px' }}>{m.hips ? `${m.hips} cm` : '--'}</td>
-                      <td style={{ padding: '8px 4px' }}>{m.biceps ? `${m.biceps} cm` : '--'}</td>
+                      <td style={{ padding: '8px 4px' }}>
+                        {m.biceps !== null && m.biceps !== undefined ? `${m.biceps}` : '--'}
+                        {(m.biceps_left !== null || m.biceps_right !== null) && ` (${m.biceps_left !== null && m.biceps_left !== undefined ? m.biceps_left : '--'} / ${m.biceps_right !== null && m.biceps_right !== undefined ? m.biceps_right : '--'})`} cm
+                      </td>
                       <td style={{ padding: '8px 4px' }}>{m.thigh ? `${m.thigh} cm` : '--'}</td>
                       <td style={{ padding: '8px 4px', textAlign: 'center' }}>
                         <button

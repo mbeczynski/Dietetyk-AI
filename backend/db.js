@@ -535,11 +535,23 @@ const initDb = async () => {
       hips REAL DEFAULT NULL,
       biceps REAL DEFAULT NULL,
       thigh REAL DEFAULT NULL,
+      biceps_left REAL DEFAULT NULL,
+      biceps_right REAL DEFAULT NULL,
+      shoulders REAL DEFAULT NULL,
+      waist_above REAL DEFAULT NULL,
+      waist_below REAL DEFAULT NULL,
       created_at TEXT DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       UNIQUE(user_id, date)
     )
   `);
+
+  // Pomocnicze ALTER TABLE dla rozszerzonych obwodów ciała
+  try { await run("ALTER TABLE body_measurements ADD COLUMN biceps_left REAL DEFAULT NULL"); } catch (e) {}
+  try { await run("ALTER TABLE body_measurements ADD COLUMN biceps_right REAL DEFAULT NULL"); } catch (e) {}
+  try { await run("ALTER TABLE body_measurements ADD COLUMN shoulders REAL DEFAULT NULL"); } catch (e) {}
+  try { await run("ALTER TABLE body_measurements ADD COLUMN waist_above REAL DEFAULT NULL"); } catch (e) {}
+  try { await run("ALTER TABLE body_measurements ADD COLUMN waist_below REAL DEFAULT NULL"); } catch (e) {}
 
   // 9. Tabela Logów Aplikacji (app_logs)
   await run(`

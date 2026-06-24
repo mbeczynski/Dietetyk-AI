@@ -264,7 +264,7 @@ router.get('/api/dashboard', async (req, res) => {
     // główny Dashboard wcześniej nie pokazywał nawet ostatniej wartości, mimo że pełny
     // CRUD + wykres trendu już istnieje w ActivityTracker.jsx.
     const latestBodyMeasurement = await db.get(
-      `SELECT date, chest, waist, hips, biceps, thigh FROM body_measurements WHERE user_id = ? ORDER BY date DESC LIMIT 1`,
+      `SELECT date, chest, waist, hips, biceps, thigh, biceps_left, biceps_right, shoulders, waist_above, waist_below FROM body_measurements WHERE user_id = ? ORDER BY date DESC LIMIT 1`,
       [req.user.id]
     );
 
@@ -473,9 +473,14 @@ Dane gotowości, snu (Oura) i składu ciała (Withings):
 - Ciśnienie tętnicze (Withings): ${displayBpSystolic !== null && displayBpDiastolic !== null ? `${displayBpSystolic}/${displayBpDiastolic} mmHg` : 'brak danych'}
 - Obwody ciała (ostatni zapisany pomiar${latestBodyMeasurement ? ', ' + latestBodyMeasurement.date : ''}): ${latestBodyMeasurement ? [
     latestBodyMeasurement.waist != null && `Pas: ${latestBodyMeasurement.waist}cm`,
+    latestBodyMeasurement.waist_above != null && `Pas +2cm: ${latestBodyMeasurement.waist_above}cm`,
+    latestBodyMeasurement.waist_below != null && `Pas -2cm: ${latestBodyMeasurement.waist_below}cm`,
     latestBodyMeasurement.chest != null && `Klatka: ${latestBodyMeasurement.chest}cm`,
+    latestBodyMeasurement.shoulders != null && `Barki: ${latestBodyMeasurement.shoulders}cm`,
     latestBodyMeasurement.hips != null && `Biodra: ${latestBodyMeasurement.hips}cm`,
     latestBodyMeasurement.biceps != null && `Biceps: ${latestBodyMeasurement.biceps}cm`,
+    latestBodyMeasurement.biceps_left != null && `Biceps lewy: ${latestBodyMeasurement.biceps_left}cm`,
+    latestBodyMeasurement.biceps_right != null && `Biceps prawy: ${latestBodyMeasurement.biceps_right}cm`,
     latestBodyMeasurement.thigh != null && `Udo: ${latestBodyMeasurement.thigh}cm`
   ].filter(Boolean).join(', ') || 'brak wypełnionych pól' : 'brak danych w bazie'}
 

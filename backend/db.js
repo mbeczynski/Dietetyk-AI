@@ -175,10 +175,11 @@ const initDb = async () => {
     const adminHash = await bcrypt.hash(initialPassword, 10);
     const adminSyncToken = crypto.randomBytes(16).toString('hex');
 
+    const forcePasswordChange = (process.env.CI === 'true' || process.env.ADMIN_INITIAL_PASSWORD) ? 0 : 1;
     await run(`
       INSERT INTO users (id, username, password_hash, sync_token, totp_enabled, email, role, status, force_password_change)
-      VALUES (1, 'admin', ?, ?, 0, 'mbeczynski@gmail.com', 'admin', 'active', 1)
-    `, [adminHash, adminSyncToken]);
+      VALUES (1, 'admin', ?, ?, 0, 'mbeczynski@gmail.com', 'admin', 'active', ?)
+    `, [adminHash, adminSyncToken, forcePasswordChange]);
 
     console.log('========================================================');
     console.log('[DB INIT] Utworzono konto admina. Tymczasowe hasło logowania:');

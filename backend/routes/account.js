@@ -14,6 +14,15 @@ const { summaryEmailLimiter } = require('../middleware/rateLimit');
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Format godziny HH:MM (00-23 : 00-59), używany przy planowaniu wysyłki podsumowań.
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+// Limit długości opisu celu sylwetki - bez tego nic nie ograniczało rozmiaru
+// tekstu trafiającego później do promptu Gemini (patrz dashboard.js/chat.js),
+// analogicznie do MAX_CHAT_MESSAGE_LENGTH w chat.js.
+const MAX_BODY_GOAL_TEXT_LENGTH = 1000;
+// Limit rozmiaru zdjęcia celu sylwetki w postaci base64 (ok. 3MB danego pliku
+// po zakodowaniu base64, ~2.2MB realnego rozmiaru pliku) - zdjęcie jest
+// kompresowane/skalowane po stronie frontendu (patrz Settings.jsx), ale to
+// jedyna realna ochrona przed kimś, kto wysyła żądanie bezpośrednio do API.
+const MAX_BODY_GOAL_PHOTO_LENGTH = 4 * 1024 * 1024;
 
 router.get('/api/settings', async (req, res) => {
   try {
@@ -86,7 +95,7 @@ router.post('/api/settings', async (req, res) => {
 // 6a. Pobranie profilu użytkownika (nazwa, email, avatar, rola i status 2FA)
 router.get('/api/user/profile', async (req, res) => {
   try {
-    const user = await db.get(`SELECT username, email, avatar_base64, role, totp_enabled, first_name, last_name, google_id, birth_year FROM users WHERE id = ?`, [req.user.id]);
+    const user = await db.get(`SELECT username, email, avatar_base64, role, totp_enabled, first_name, last_name, google_id, birth_year, body_goal_text, body_goal_photo_base64 FROM users WHERE id = ?`, [req.user.id]);
     if (!user) {
       return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
     }
@@ -113,6 +122,11 @@ router.get('/api/user/profile', async (req, res) => {
       // birth_year to liczba (albo brak danych) - w odróżnieniu od first_name/last_name
       // NIE zamieniamy braku wartości na pusty string, żeby front mógł rozróżnić "nie ustawiono"
       birth_year: user.birth_year || null,
+      // Cel sylwetki (opis tekstowy + opcjonalne zdjęcie referencyjne) - patrz
+      // migracja w db.js. Brak wartości = pusty string/null, analogicznie do
+      // pozostałych opcjonalnych pól profilu powyżej.
+      body_goal_text: user.body_goal_text || '',
+      body_goal_photo_base64: user.body_goal_photo_base64 || null,
       totp_enabled: user.totp_enabled === 1,
       weekly_summary_enabled: summaryEnabledRow ? summaryEnabledRow.value === '1' : false,
       weekly_summary_day: summaryDayRow ? Number(summaryDayRow.value) : 1,
@@ -133,7 +147,7 @@ router.get('/api/user/profile', async (req, res) => {
 
 // 6b. Aktualizacja profilu użytkownika (avatar, email, syncToken)
 router.post('/api/user/profile', async (req, res) => {
-  const { avatar, email, syncToken, first_name, last_name, birth_year, weekly_summary_enabled, weekly_summary_day, weekly_summary_time, monthly_summary_enabled, monthly_summary_day, monthly_summary_time } = req.body;
+  const { avatar, email, syncToken, first_name, last_name, birth_year, weekly_summary_enabled, weekly_summary_day, weekly_summary_time, monthly_summary_enabled, monthly_summary_day, monthly_summary_time, body_goal_text, body_goal_photo } = req.body;
   try {
     if (syncToken !== undefined) {
       const trimmedToken = syncToken.trim();
@@ -188,6 +202,33 @@ router.post('/api/user/profile', async (req, res) => {
           return res.status(400).json({ error: 'Nieprawidłowy rok urodzenia.' });
         }
         await db.run(`UPDATE users SET birth_year = ? WHERE id = ?`, [birthYearNum, req.user.id]);
+      }
+    }
+
+    // Cel sylwetki - opis tekstowy. Pusty string/null = czyszczenie pola, tak jak
+    // przy imieniu/nazwisku powyżej. Algorytm AI (dashboard.js, chat.js) czyta tę
+    // wartość przy każdej generacji porady/odpowiedzi czatu.
+    if (body_goal_text !== undefined) {
+      const trimmedGoalText = String(body_goal_text || '').trim();
+      if (trimmedGoalText.length > MAX_BODY_GOAL_TEXT_LENGTH) {
+        return res.status(400).json({ error: `Opis celu sylwetki jest zbyt długi (maks. ${MAX_BODY_GOAL_TEXT_LENGTH} znaków).` });
+      }
+      await db.run(`UPDATE users SET body_goal_text = ? WHERE id = ?`, [trimmedGoalText || null, req.user.id]);
+    }
+
+    // Cel sylwetki - zdjęcie referencyjne. body_goal_photo === null oznacza
+    // usunięcie zdjęcia (analogicznie do usuwania avatara w Settings.jsx).
+    if (body_goal_photo !== undefined) {
+      if (body_goal_photo === null) {
+        await db.run(`UPDATE users SET body_goal_photo_base64 = NULL WHERE id = ?`, [req.user.id]);
+      } else {
+        if (typeof body_goal_photo !== 'string' || !body_goal_photo.startsWith('data:image/')) {
+          return res.status(400).json({ error: 'Nieprawidłowy format zdjęcia.' });
+        }
+        if (body_goal_photo.length > MAX_BODY_GOAL_PHOTO_LENGTH) {
+          return res.status(400).json({ error: 'Zdjęcie jest zbyt duże.' });
+        }
+        await db.run(`UPDATE users SET body_goal_photo_base64 = ? WHERE id = ?`, [body_goal_photo, req.user.id]);
       }
     }
 

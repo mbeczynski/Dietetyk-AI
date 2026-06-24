@@ -422,6 +422,26 @@ router.get('/api/dashboard', async (req, res) => {
           [req.user.id]
         );
 
+        // Cel sylwetki (opis tekstowy + opcjonalne zdjęcie referencyjne, ustawiane
+        // w Ustawieniach - patrz routes/account.js i migracja w db.js). Nie trzymamy
+        // tego w req.user (middleware/auth.js), bo zdjęcie base64 mogłoby być duże
+        // i niepotrzebnie obciążałoby KAŻDE uwierzytelnione żądanie - pobieramy je
+        // tylko tutaj, raz na faktyczne generowanie porady AI.
+        const bodyGoalRow = await db.get(`SELECT body_goal_text, body_goal_photo_base64 FROM users WHERE id = ?`, [req.user.id]);
+        const bodyGoalText = bodyGoalRow && bodyGoalRow.body_goal_text ? bodyGoalRow.body_goal_text : null;
+        let bodyGoalImagePart = null;
+        if (bodyGoalRow && bodyGoalRow.body_goal_photo_base64) {
+          const goalPhotoMatch = bodyGoalRow.body_goal_photo_base64.match(/^data:([^;]+);base64,(.+)$/);
+          if (goalPhotoMatch) {
+            bodyGoalImagePart = {
+              inlineData: {
+                data: goalPhotoMatch[2],
+                mimeType: goalPhotoMatch[1]
+              }
+            };
+          }
+        }
+
         const advicePrompt = `
 Jesteś profesjonalnym, przyjaznym dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
 Przeanalizuj dzisiejszy bilans użytkownika ${displayName} dla dnia ${date}:
@@ -429,6 +449,7 @@ Cele użytkownika:
 - Cel kaloryczny spożycia: ${settings.target_calories} kcal
 - Cel Białka: ${settings.target_protein}g, Węglowodanów: ${settings.target_carbs}g, Tłuszczu: ${settings.target_fat}g
 - BMR (Podstawowa Przemiana Materii): ${bmr} kcal
+- Cel sylwetki opisany przez użytkownika: ${bodyGoalText || 'użytkownik nie opisał celu sylwetki w Ustawieniach'}${bodyGoalImagePart ? '\n- Użytkownik dołączył też zdjęcie referencyjne celu sylwetki (patrz załączony obraz) - przeanalizuj je wizualnie i odnieś rekomendacje do tego, jak wygląda sylwetka na zdjęciu (np. poziom umięśnienia, tkanki tłuszczowej, proporcje), w kontekście pozostałych danych.' : ''}
 
 Aktualny bilans dzisiejszy:
 - Łącznie zjedzone: ${totalEaten.calories} kcal (Białko: ${totalEaten.protein}g, Węgle: ${totalEaten.carbs}g, Tłuszcz: ${totalEaten.fat}g, Błonnik: ${totalEaten.fiber}g, Cukry: ${totalEaten.sugar}g, Sód: ${totalEaten.sodium}mg)
@@ -490,6 +511,7 @@ Twoja analiza MUSI uwzględniać WSZYSTKIE dane podane powyżej (dzisiejsze posi
 6. Ciśnienie tętnicze: jeśli dostępne są pomiary ciśnienia, oceń czy wartości są w normie (orientacyjnie <120/80 mmHg optymalnie, 120-129/<80 podwyższone prawidłowe, ≥130/80 nadciśnienie) i czy trend z ostatnich pomiarów jest stabilny, rosnący czy spadkowy - jeśli widzisz niepokojący trend lub wartości podwyższone, zalecaj konsultację lekarską (nie diagnozuj).
 7. Regeneracja i stres: jeśli dostępne są dane o stresie (Oura), SpO2, częstości oddechów czy temperaturze nadgarstka, skomentuj ogólny stan regeneracji organizmu i zasugeruj, czy potrzebny jest dzień odpoczynku.
 8. Konsekwencja (streaki): jeśli użytkownik ma passę trafiania w cel kaloryczny lub cel snu, doceń to krótko - jeśli passa jest przerwana lub bliska zera, zachęcająco zasugeruj, jak wrócić na właściwe tory.
+9. Cel sylwetki: jeśli użytkownik opisał swój cel sylwetki (i/lub dołączył zdjęcie referencyjne), odnieś dzisiejsze i historyczne dane DO TEGO CELU - oceń, czy obecne tempo, dieta i trening realnie do niego prowadzą, i jeśli nie, zaproponuj konkretną korektę. Jeśli cel nie został opisany, pomiń ten punkt bez komentowania jego braku.
 
 Sformatuj odpowiedź WYŁĄCZNIE w tej strukturze Markdown (frontend renderuje nagłówki, pogrubienia i listy punktowane):
 1. Jedno krótkie, spersonalizowane zdanie wstępu, zwracające się do użytkownika po imieniu (${displayName}).
@@ -504,7 +526,7 @@ Używaj **pogrubienia** dla kluczowych liczb i fraz w Analizie i Rekomendacjach.
         pendingAdviceGeneration.add(adviceLockKey);
 
         // Fire-and-forget: NIE czekamy na wynik w tym żądaniu (patrz komentarz wyżej).
-        generateContentWithFallback(advicePrompt, false, null, userApiKey, forceCustomKeyOnly)
+        generateContentWithFallback(advicePrompt, false, bodyGoalImagePart, userApiKey, forceCustomKeyOnly)
           .then(async (text) => {
             const trimmed = text.trim();
             const nowStr = new Date().toISOString();

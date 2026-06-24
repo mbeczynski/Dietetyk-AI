@@ -154,6 +154,20 @@ const initDb = async () => {
     await run("ALTER TABLE users ADD COLUMN birth_year INTEGER");
   } catch (e) {}
 
+  // Migracja: "Cel sylwetki" - opcjonalny opis tekstowy oraz zdjęcie referencyjne
+  // (np. zdjęcie sylwetki, do której użytkownik chce dążyć). Trzymane bezpośrednio
+  // na users (tak jak avatar_base64), a nie w tabeli settings (key-value), bo to
+  // dane podobne do profilu, nie liczbowy cel/przełącznik. Wykorzystywane przez
+  // dashboard.js (porada AI) i chat.js (czat z dietetykiem AI), żeby algorytm
+  // realnie brał pod uwagę zarówno opis celu, jak i samo zdjęcie (analiza wizualna).
+  try {
+    await run("ALTER TABLE users ADD COLUMN body_goal_text TEXT");
+  } catch (e) {}
+
+  try {
+    await run("ALTER TABLE users ADD COLUMN body_goal_photo_base64 TEXT");
+  } catch (e) {}
+
 
   // 1a. Tabela globalnej konfiguracji (np. ustawienia Mailgun)
   await run(`

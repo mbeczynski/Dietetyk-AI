@@ -139,6 +139,14 @@ router.post('/api/chat', requireAuth, async (req, res) => {
     const apiKeyRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'gemini_api_key'", [req.user.id]);
     const userApiKey = apiKeyRow ? apiKeyRow.value : null;
 
+    // Cel sylwetki (opis tekstowy, ustawiany w Ustawieniach - patrz routes/account.js).
+    // W czacie wykorzystujemy tylko tekst, NIE zdjęcie referencyjne - w odróżnieniu od
+    // dashboard.js (gdzie porada AI generowana jest raz dziennie, w tle, z cache),
+    // czat odpowiada na KAŻDĄ wiadomość użytkownika "na żywo", więc dociąganie obrazu
+    // do każdego zapytania Gemini niepotrzebnie zwiększałoby czas odpowiedzi i koszt.
+    const bodyGoalRow = await db.get(`SELECT body_goal_text FROM users WHERE id = ?`, [req.user.id]);
+    const bodyGoalText = bodyGoalRow && bodyGoalRow.body_goal_text ? bodyGoalRow.body_goal_text : null;
+
     // Imię (jeśli ustawione w Ustawieniach) ma priorytet nad loginem technicznym.
     const displayName = req.user.first_name || req.user.username;
     const chatPrompt = `
@@ -149,6 +157,7 @@ Informacje o profilu i celach użytkownika:
 - Cel kaloryczny spożycia: ${settings.target_calories || 2000} kcal
 - Cel makroskładników: Białko: ${settings.target_protein || 150}g, Węglowodany: ${settings.target_carbs || 250}g, Tłuszcz: ${settings.target_fat || 80}g
 - BMR (Podstawowa Przemiana Materii): ${bmr} kcal
+- Cel sylwetki opisany przez użytkownika: ${bodyGoalText || 'nie opisany w Ustawieniach'}
 
 Aktualne statystyki użytkownika na dzień ${queryDate}:
 - Spożycie: ${totalEaten.calories} kcal (B: ${totalEaten.protein}g, W: ${totalEaten.carbs}g, T: ${totalEaten.fat}g)
@@ -165,7 +174,7 @@ ${weeklyTrendSummary}
 ${historyContext}
 Pytanie użytkownika: "${message}"
 
-Odpowiedz zwięźle, merytorycznie i praktycznie w języku polskim (maksymalnie 3-4 krótkie akapity). Skup się na bezpośrednich zaleceniach odnoszących się do powyższych danych zdrowotnych użytkownika. Nawiąż do historii rozmowy lub trendów z ubiegłego tygodnia, jeśli to istotne i odpowiada na pytanie. Możesz używać formatowania markdown (listy wypunktowane, pogrubienia). Odpowiedź powinna być profesjonalna, życzliwa i motywująca.
+Odpowiedz zwięźle, merytorycznie i praktycznie w języku polskim (maksymalnie 3-4 krótkie akapity). Skup się na bezpośrednich zaleceniach odnoszących się do powyższych danych zdrowotnych użytkownika. Nawiąż do historii rozmowy lub trendów z ubiegłego tygodnia, jeśli to istotne i odpowiada na pytanie. Jeśli użytkownik opisał swój cel sylwetki, odnoś rekomendacje do tego celu tam, gdzie to ma sens dla zadanego pytania - ale nie wspominaj o nim, jeśli pytanie go nie dotyczy. Możesz używać formatowania markdown (listy wypunktowane, pogrubienia). Odpowiedź powinna być profesjonalna, życzliwa i motywująca.
 `;
 
     const forceCustomKeyOnly = req.user.role !== 'admin';

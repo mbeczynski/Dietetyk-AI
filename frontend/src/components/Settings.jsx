@@ -50,6 +50,12 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   // maksymalnego tętna (220 - wiek) w strefach kardio na Dashboardzie. Trzymany
   // jako string w stanie inputu (pole number w JSX i tak je sparsuje przy zapisie).
   const [birthYearInput, setBirthYearInput] = useState(userProfile.birth_year || '');
+  // Cel sylwetki (opis tekstowy) - AI dietetyk bierze go pod uwagę przy generowaniu
+  // porad (dashboard.js) i odpowiedzi czatu (chat.js). Zdjęcie celu sylwetki ma
+  // własny, niezależny stan/upload poniżej - mirror wzorca avatara.
+  const [bodyGoalTextInput, setBodyGoalTextInput] = useState(userProfile.body_goal_text || '');
+  const [bodyGoalPhotoMessage, setBodyGoalPhotoMessage] = useState({ type: '', text: '' });
+  const [isUploadingBodyGoalPhoto, setIsUploadingBodyGoalPhoto] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [isRegeneratingToken, setIsRegeneratingToken] = useState(false);
@@ -80,6 +86,9 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     }
     if (userProfile.birth_year !== undefined) {
       setBirthYearInput(userProfile.birth_year || '');
+    }
+    if (userProfile.body_goal_text !== undefined) {
+      setBodyGoalTextInput(userProfile.body_goal_text || '');
     }
     if (userProfile.weekly_summary_enabled !== undefined) {
       setWeeklySummaryEnabled(userProfile.weekly_summary_enabled);
@@ -349,6 +358,85 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     submitAvatar(null);
   };
 
+  // Zdjęcie celu sylwetki - w odróżnieniu od avatara (150x150, mała ikonka) skalujemy
+  // do 800x800 / jakość 0.7, bo to realne zdjęcie referencyjne, które AI dietetyk
+  // analizuje wizualnie (patrz backend/routes/dashboard.js) - przy mniejszej
+  // rozdzielczości analiza wizualna byłaby zbyt niedokładna. Wzorzec kompresji
+  // identyczny jak w MealLogger.jsx (zdjęcia posiłków).
+  const handleBodyGoalPhotoUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploadingBodyGoalPhoto(true);
+    setBodyGoalPhotoMessage({ type: '', text: '' });
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        submitBodyGoalPhoto(dataUrl);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const submitBodyGoalPhoto = async (base64Data) => {
+    try {
+      const res = await fetch('/api/user/profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`
+        },
+        body: JSON.stringify({ body_goal_photo: base64Data })
+      });
+
+      if (res.ok) {
+        setBodyGoalPhotoMessage({ type: 'success', text: 'Zdjęcie celu sylwetki zostało zapisane!' });
+        onProfileUpdate();
+        setTimeout(() => setBodyGoalPhotoMessage({ type: '', text: '' }), 5000);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setBodyGoalPhotoMessage({ type: 'error', text: data.error || 'Błąd podczas wgrywania zdjęcia.' });
+      }
+    } catch (err) {
+      setBodyGoalPhotoMessage({ type: 'error', text: 'Błąd połączenia z serwerem.' });
+    } finally {
+      setIsUploadingBodyGoalPhoto(false);
+    }
+  };
+
+  const handleRemoveBodyGoalPhoto = async () => {
+    if (!confirm('Czy chcesz usunąć zdjęcie celu sylwetki?')) return;
+    setIsUploadingBodyGoalPhoto(true);
+    submitBodyGoalPhoto(null);
+  };
+
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setPasswordMessage({ type: '', text: '' });
@@ -471,6 +559,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           // Pusty input -> null (backend liczy HRmax z fallbackiem), a nie ''
           // czy NaN z Number('').
           birth_year: birthYearInput ? Number(birthYearInput) : null,
+          body_goal_text: bodyGoalTextInput,
           weekly_summary_enabled: weeklySummaryEnabled ? '1' : '0',
           weekly_summary_day: String(weeklySummaryDay),
           weekly_summary_time: weeklySummaryTime,
@@ -1150,6 +1239,77 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               </div>
             </div>
           </form>
+        </div>
+
+        {/* Panel Celu Sylwetki - opis tekstowy + zdjęcie referencyjne, brane pod uwagę
+            przez AI dietetyka przy generowaniu porad (dashboard.js) i odpowiedzi
+            czatu (chat.js). Zapisywane na backendzie w users.body_goal_text /
+            users.body_goal_photo_base64 (patrz migracja w db.js). */}
+        <div className="glass-card">
+          <h3 className="card-title">🎯 Cel Sylwetki</h3>
+          <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+            Opisz, do jakiej sylwetki/celu dążysz (np. "redukcja tkanki tłuszczowej, widoczne mięśnie brzucha" albo "budowa masy mięśniowej, +5kg"), opcjonalnie dołącz zdjęcie referencyjne. AI dietetyk weźmie to pod uwagę przy poradach i w czacie.
+          </p>
+
+          {bodyGoalPhotoMessage.text && (
+            <div className={`alert alert-${bodyGoalPhotoMessage.type}`} style={{ marginBottom: '16px' }}>
+              {bodyGoalPhotoMessage.text}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap', marginBottom: '20px' }}>
+            {userProfile.body_goal_photo_base64 ? (
+              <img
+                src={userProfile.body_goal_photo_base64}
+                alt="Cel sylwetki"
+                style={{ width: '100px', height: '100px', borderRadius: '12px', objectFit: 'cover', border: '2px solid var(--primary-color)' }}
+              />
+            ) : (
+              <div style={{ width: '100px', height: '100px', borderRadius: '12px', background: 'rgba(255, 255, 255, 0.04)', border: '2px dashed var(--border-glass)', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '2rem', color: 'var(--text-dim)' }}>
+                🖼️
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.9rem', display: 'inline-block', cursor: 'pointer', textAlign: 'center' }}>
+                {isUploadingBodyGoalPhoto ? 'Wgrywanie...' : 'Wybierz zdjęcie'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleBodyGoalPhotoUpload}
+                  style={{ display: 'none' }}
+                  disabled={isUploadingBodyGoalPhoto}
+                />
+              </label>
+              {userProfile.body_goal_photo_base64 && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleRemoveBodyGoalPhoto}
+                  disabled={isUploadingBodyGoalPhoto}
+                  style={{ padding: '6px 12px', fontSize: '0.8rem', background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+                >
+                  Usuń zdjęcie
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">Opis celu sylwetki</label>
+            <textarea
+              className="input-field"
+              value={bodyGoalTextInput}
+              onChange={(e) => setBodyGoalTextInput(e.target.value)}
+              placeholder="np. Redukcja tkanki tłuszczowej do ~15%, zachowanie masy mięśniowej"
+              maxLength={1000}
+              rows={3}
+              style={{ resize: 'vertical', minHeight: '80px' }}
+            />
+          </div>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '8px 0 16px' }}>
+            Opis zapisuje się razem z przyciskiem "Zapisz profil" powyżej. Zdjęcie zapisuje się od razu po wybraniu pliku.
+          </p>
         </div>
 
         {/* Panel Zmiany Hasła */}

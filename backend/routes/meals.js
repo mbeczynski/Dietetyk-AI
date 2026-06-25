@@ -259,7 +259,15 @@ router.get('/api/meals', async (req, res) => {
         timestamp: r.timestamp,
         raw_text: r.raw_text,
         image_base64: r.image_base64,
-        ...analysis
+        ...analysis,
+        // Kolumny bazy zawierają wartości PO sanityzacji (sanitizeNumber/sanitizeNullableNumber
+        // przy zapisie) - mogą się różnić od niesanityzowanego analysis_json zwróconego przez AI.
+        // Muszą nadpisać spread z `analysis`, inaczej GET zwróci inne wartości niż te faktycznie
+        // użyte w agregacjach (dashboard, podsumowania).
+        calories: r.calories,
+        protein: r.protein,
+        carbs: r.carbs,
+        fat: r.fat
       };
     });
 

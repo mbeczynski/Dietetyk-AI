@@ -10,12 +10,16 @@ function getLocalDateString() {
   return dateObjToLocalDateString(new Date());
 }
 
-// Formatowanie daty YYYY-MM-DD
+// Formatowanie daty YYYY-MM-DD.
+// UWAGA: poprzednio liczone przez dateObj.getFullYear()/getMonth()/getDate() - strefa
+// czasowa PROCESU NODE, nie Europe/Warsaw. services/sync.js używa tej funkcji do budowania
+// kluczy dat (metricsByDate) dla danych z Oura, której pole `day` jest podawane w lokalnej
+// dacie użytkownika/urządzenia. Na serwerze działającym w UTC, w oknie nocnym czasu polskiego,
+// klucz wyliczony tu nie zgadzał się z kluczem z Oury i dane danego dnia gubiły się po cichu
+// (metricsByDate[dateStr] było undefined). Delegujemy do dateObjToLocalDateString, która
+// poprawnie wymusza Europe/Warsaw - tak jak resztę funkcji w tym pliku.
 function formatDateString(dateObj) {
-  const y = dateObj.getFullYear();
-  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const d = String(dateObj.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return dateObjToLocalDateString(dateObj);
 }
 
 // Konwersja timestamp Unix do daty YYYY-MM-DD w strefie Europe/Warsaw
@@ -55,10 +59,46 @@ function dateObjToLocalDateString(date) {
   return formatter.format(date);
 }
 
+// Zwraca "zegarowe" wartości dnia tygodnia/godziny/minuty w strefie Europe/Warsaw,
+// niezależnie od strefy czasowej procesu Node. Potrzebne wszędzie, gdzie harmonogram
+// (scheduler.js) porównuje aktualny czas z czasem ustawionym przez użytkownika
+// (np. "wyślij podsumowanie w poniedziałek 18:00") - te ustawienia są w czasie polskim,
+// a goła `new Date().getHours()/getDay()` zwraca czas strefy serwera (na hostingu
+// typowo UTC), co przy serwerze w UTC przesuwało harmonogram o 1-2h względem
+// intencji użytkownika. Trik: sformatuj datę w Europe/Warsaw, a potem zbuduj z tych
+// składowych nowy Date metodą Date.UTC - dzięki temu gołe gettery getUTCDay()/
+// getUTCHours()/getUTCMinutes() na zwróconym obiekcie dają wartości zegara warszawskiego,
+// bez względu na to w jakiej strefie działa proces Node.
+function getWarsawWallClock(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Warsaw',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+
+  const map = {};
+  parts.forEach(p => { if (p.type !== 'literal') map[p.type] = p.value; });
+
+  return new Date(Date.UTC(
+    Number(map.year),
+    Number(map.month) - 1,
+    Number(map.day),
+    Number(map.hour),
+    Number(map.minute),
+    Number(map.second)
+  ));
+}
+
 module.exports = {
   getLocalDateString,
   formatDateString,
   timestampToDateString,
   parseHealthAutoExportDate,
-  dateObjToLocalDateString
+  dateObjToLocalDateString,
+  getWarsawWallClock
 };

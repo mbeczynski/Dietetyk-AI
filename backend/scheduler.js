@@ -1,5 +1,5 @@
 const db = require('./db');
-const { getLocalDateString } = require('./utils/dates');
+const { getLocalDateString, getWarsawWallClock } = require('./utils/dates');
 const { syncAllOura, syncAllWithings, syncAllGoogleFit } = require('./services/sync');
 const { sendWeeklySummaryForUser, sendDailySummaryForUser, sendMonthlySummaryForUser } = require('./services/summaries');
 const { sendWeeklyAdminReport } = require('./services/adminReport');
@@ -10,10 +10,14 @@ async function checkAndSendAutomatedSummaries() {
     const todayStr = getLocalDateString();
     
     const now = new Date();
-    // getDay(): 0 (niedziela) do 6 (sobota). Mapujemy 0 na 7, pozostałe bez zmian.
-    const currentDay = now.getDay() === 0 ? 7 : now.getDay();
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
+    // Harmonogramy (scheduled_day/scheduled_time) są ustawiane przez użytkownika w czasie
+    // polskim - liczymy dzień/godzinę/minutę z "zegara warszawskiego", a nie ze strefy
+    // procesu Node (patrz komentarz przy getWarsawWallClock w utils/dates.js).
+    const warsawNow = getWarsawWallClock(now);
+    // getUTCDay(): 0 (niedziela) do 6 (sobota). Mapujemy 0 na 7, pozostałe bez zmian.
+    const currentDay = warsawNow.getUTCDay() === 0 ? 7 : warsawNow.getUTCDay();
+    const currentHour = warsawNow.getUTCHours();
+    const currentMinute = warsawNow.getUTCMinutes();
     const currentTimeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
 
     console.log(`[SCHEDULER] Sprawdzanie harmonogramów podsumowań. Dzień tygodnia: ${currentDay}, Czas: ${currentTimeStr}, Data: ${todayStr}`);
@@ -43,10 +47,10 @@ async function checkAndSendAutomatedSummaries() {
         // Dopasowanie do ostatniego dnia miesiąca, gdy skonfigurowany dzień (np. 31) nie istnieje
         // w danym miesiącu (luty, kwiecień, itd.) - w takim przypadku wysyłka następuje
         // w ostatnim dniu danego miesiąca.
-        const daysInCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const daysInCurrentMonth = new Date(Date.UTC(warsawNow.getUTCFullYear(), warsawNow.getUTCMonth() + 1, 0)).getUTCDate();
         const effectiveMonthlyDay = Math.min(monthlyScheduledDayRaw, daysInCurrentMonth);
 
-        if (now.getDate() === effectiveMonthlyDay) {
+        if (warsawNow.getUTCDate() === effectiveMonthlyDay) {
           if (currentTimeStr >= monthlyScheduledTime) {
             if (lastMonthlySent !== currentYearMonthStr) {
               console.log(`[SCHEDULER] Uruchamianie wysyłki miesięcznej dla ${user.username} (${user.email || 'brak e-maila'})`);
@@ -131,7 +135,9 @@ const SYNC_WINDOW_START_HOUR = 5;  // 5:00 rano
 const SYNC_WINDOW_END_HOUR = 22;   // do 22:00 (10 wieczorem) włącznie
 
 function isWithinSyncWindow(date = new Date()) {
-  const hour = date.getHours();
+  // Okno 5:00-22:00 ma sens biznesowy w czasie polskim użytkowników aplikacji - liczymy
+  // godzinę z zegara warszawskiego, nie ze strefy procesu (patrz getWarsawWallClock).
+  const hour = getWarsawWallClock(date).getUTCHours();
   return hour >= SYNC_WINDOW_START_HOUR && hour <= SYNC_WINDOW_END_HOUR;
 }
 
@@ -189,11 +195,14 @@ async function runWeeklyAdminReportIfDue() {
   try {
     const todayStr = getLocalDateString(); // 'YYYY-MM-DD'
     const now = new Date();
-    
-    // getDay() = 1 (Poniedziałek)
-    const currentDay = now.getDay() === 0 ? 7 : now.getDay();
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
+    // Raport ma wychodzić w poniedziałek 08:00 czasu polskiego - liczymy z zegara
+    // warszawskiego, nie ze strefy procesu (patrz getWarsawWallClock w utils/dates.js).
+    const warsawNow = getWarsawWallClock(now);
+
+    // getUTCDay() = 1 (Poniedziałek)
+    const currentDay = warsawNow.getUTCDay() === 0 ? 7 : warsawNow.getUTCDay();
+    const currentHour = warsawNow.getUTCHours();
+    const currentMinute = warsawNow.getUTCMinutes();
     const currentTimeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
     
     // Chcemy wysyłać w każdy poniedziałek (1) od godziny 08:00

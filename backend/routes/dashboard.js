@@ -124,7 +124,10 @@ router.get('/api/dashboard', async (req, res) => {
       totalEaten.fiber += r.fiber || 0;
       totalEaten.sugar += r.sugar || 0;
       totalEaten.sodium += r.sodium || 0;
-      return { id: r.id, raw_text: r.raw_text, timestamp: r.timestamp, image_base64: r.image_base64, ...analysis };
+      // Kolumny bazy (po sanityzacji przy zapisie) muszą nadpisać spread z `analysis`
+      // (niesanityzowany JSON z AI) - inaczej karta posiłku pokaże inne wartości niż
+      // te użyte tuż wyżej do totalEaten.
+      return { id: r.id, raw_text: r.raw_text, timestamp: r.timestamp, image_base64: r.image_base64, ...analysis, calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat };
     });
 
     // Zaokrąglenie makr zjedzonych

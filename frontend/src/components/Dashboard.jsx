@@ -520,11 +520,14 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const hrZone5Min = Math.round(hrReserve * 0.9 + rhrForZones);
   
   // Odżywianie
-  const targetCalories = summary.target_calories || 2000;
+  // Użyto ?? (nie ||), bo cel ustawiony świadomie na 0 (np. dieta eliminacyjna jednego
+  // makroskładnika) nie powinien być nadpisywany domyślną wartością - ten sam wzorzec
+  // błędu naprawiony już wcześniej dla target_steps/target_active_calories/itd.
+  const targetCalories = summary.target_calories ?? 2000;
   const eatenCalories = summary.calories_eaten || 0;
-  const targetProtein = summary.target_protein || 150;
-  const targetCarbs = summary.target_carbs || 250;
-  const targetFat = summary.target_fat || 80;
+  const targetProtein = summary.target_protein ?? 150;
+  const targetCarbs = summary.target_carbs ?? 250;
+  const targetFat = summary.target_fat ?? 80;
   const eatenProtein = summary.eaten_protein || 0;
   const eatenCarbs = summary.eaten_carbs || 0;
   const eatenFat = summary.eaten_fat || 0;
@@ -624,10 +627,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
 
   // Lista ostatnich aktywności - tylko rzeczywiste treningi z bazy.
   // Gdy brak treningów, lista jest pusta (patrz pusty stan w renderze).
+  // UWAGA: poprzednio dateLabel był zahardkodowany na 'dzisiaj' niezależnie od
+  // selectedDate - przy przeglądaniu dashboardu za inny dzień (date picker w App.jsx)
+  // karta treningu błędnie pokazywała "dzisiaj" dla treningów z tamtego dnia.
+  const todayLocalStr = (() => {
+    const d = new Date();
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - tzOffset).toISOString().slice(0, 10);
+  })();
   const activities = (summary.workouts && summary.workouts.length > 0)
     ? summary.workouts.map(w => ({
         type: w.type,
-        dateLabel: 'dzisiaj',
+        dateLabel: (!selectedDate || selectedDate === todayLocalStr) ? 'dzisiaj' : selectedDate,
         duration: `${w.duration_mins} min`,
         calories: w.calories
       }))

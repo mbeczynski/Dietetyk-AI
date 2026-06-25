@@ -175,12 +175,14 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
   };
 
   // Renderowanie wykresu słupkowego (Kroki, Kalorie, Czas Snu)
-  const renderBarChart = (title, key, unit, ticks, formatFn = (v) => v, fallbackVal = 0) => {
+  const renderBarChart = (title, key, unit, ticks, formatFn = (v) => v) => {
     const stats = calculateStats(key, true);
     const currentWeekVals = getMetricData(currentWeekDays, key);
 
-    // Max do skalowania wysokości słupków
-    const maxVal = Math.max(...currentWeekVals.filter(v => v !== null), ...ticks, 1);
+    // Max do skalowania wysokości słupków. Filtr musi odrzucać też `undefined` (nie tylko
+    // `null`) - dzień bez wpisu danej metryki w bazie zwracał undefined, co psowało
+    // Math.max(...) do NaN i całe skalowanie wykresu (analogicznie do renderLineChart niżej).
+    const maxVal = Math.max(...currentWeekVals.filter(v => v !== null && v !== undefined), ...ticks, 1);
 
     const svgWidth = 240;
     const svgHeight = 90;
@@ -290,7 +292,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
   };
 
   // Renderowanie wykresu liniowego/obszarowego (Wynik Snu, Regeneracja, HRV, RHR, Waga)
-  const renderLineChart = (title, key, unit, ticks, isWeight = false, formatFn = (v) => v, fallbackVal = 0) => {
+  const renderLineChart = (title, key, unit, ticks, isWeight = false, formatFn = (v) => v) => {
     const stats = calculateStats(key);
     const currentWeekVals = getMetricData(currentWeekDays, key);
 
@@ -645,16 +647,16 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
         {/* Wykresy słupkowe */}
-        {renderBarChart("Kroki", "steps", "steps", [0, 10000, 20000], (v) => Math.round(v).toLocaleString('pl-PL'), 2551)}
-        {renderBarChart("Całkowita liczba kalorii", "total_calories_burned", "cals", [0, 3500, 7000], (v) => Math.round(v).toLocaleString('pl-PL'), 2851)}
-        {renderBarChart("Czas snu", "sleep_duration", "h", [0, 4, 8], (v) => formatDuration(v), 7.3)}
+        {renderBarChart("Kroki", "steps", "steps", [0, 10000, 20000], (v) => Math.round(v).toLocaleString('pl-PL'))}
+        {renderBarChart("Całkowita liczba kalorii", "total_calories_burned", "cals", [0, 3500, 7000], (v) => Math.round(v).toLocaleString('pl-PL'))}
+        {renderBarChart("Czas snu", "sleep_duration", "h", [0, 4, 8], (v) => formatDuration(v))}
 
         {/* Wykresy liniowe */}
-        {renderLineChart("Wynik snu", "sleep_score", "%", [0, 50, 100], false, (v) => Math.round(v), 85)}
-        {renderLineChart("Wskaźnik regeneracji", "readiness_score", "%", [0, 50, 100], false, (v) => Math.round(v), 79)}
-        {renderLineChart("Spoczynkowe tętno", "rhr", "bpm", [40, 60, 80], false, (v) => Math.round(v), 56)}
-        {renderLineChart("Zmienność rytmu zatokowego", "hrv", "ms", [20, 50, 80], false, (v) => Math.round(v), 50)}
-        {renderLineChart("Masa ciała", "weight", "kg", [80, 95, 110], true, (v) => (Math.round(v * 10) / 10).toLocaleString('pl-PL'), 93.8)}
+        {renderLineChart("Wynik snu", "sleep_score", "%", [0, 50, 100], false, (v) => Math.round(v))}
+        {renderLineChart("Wskaźnik regeneracji", "readiness_score", "%", [0, 50, 100], false, (v) => Math.round(v))}
+        {renderLineChart("Spoczynkowe tętno", "rhr", "bpm", [40, 60, 80], false, (v) => Math.round(v))}
+        {renderLineChart("Zmienność rytmu zatokowego", "hrv", "ms", [20, 50, 80], false, (v) => Math.round(v))}
+        {renderLineChart("Masa ciała", "weight", "kg", [80, 95, 110], true, (v) => (Math.round(v * 10) / 10).toLocaleString('pl-PL'))}
         {renderBloodPressureChart()}
       </div>
 

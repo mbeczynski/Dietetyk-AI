@@ -30,7 +30,10 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [selectedDate, setSelectedDate] = useState(getLocalDateString());
   const [sessionToken, setSessionToken] = useState(localStorage.getItem('diet_session_token') || '');
-  const [usernameInput, setUsernameInput] = useState('admin');
+  // UWAGA: poprzednio domyślnie 'admin' - podpowiadało nazwę konta administratora
+  // każdemu, kto otworzy ekran logowania, ułatwiając próby brute-force (i potwierdzając
+  // że konto "admin" istnieje). Pole logowania powinno startować puste.
+  const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [loginStep, setLoginStep] = useState('password'); // 'password', 'setup_2fa', 'require_2fa', 'force_password_change'

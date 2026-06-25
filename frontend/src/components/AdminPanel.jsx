@@ -22,6 +22,11 @@ export default function AdminPanel({ sessionToken, onLogout }) {
   const [isInviting, setIsInviting] = useState(false);
   const [userActionMessage, setUserActionMessage] = useState({ type: '', text: '' });
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  // Id użytkownika, dla którego trwa akcja (usuń/reset 2FA/wymuś reset hasła) - w
+  // przeciwieństwie do handleSaveConfig/handleInvite, ten stan wcześniej nie istniał,
+  // więc przyciski akcji pozostawały klikalne przez cały czas trwania żądania fetch
+  // (ryzyko wielokrotnych równoległych żądań przy szybkim, wielokrotnym kliknięciu).
+  const [actioningUserId, setActioningUserId] = useState(null);
 
   useEffect(() => {
     fetchConfig();
@@ -144,6 +149,7 @@ export default function AdminPanel({ sessionToken, onLogout }) {
   const handleUserAction = async (userId, action, confirmMsg) => {
     if (confirmMsg && !confirm(confirmMsg)) return;
     setUserActionMessage({ type: '', text: '' });
+    setActioningUserId(userId);
 
     try {
       let url = `/api/admin/users/${userId}/${action}`;
@@ -188,6 +194,8 @@ export default function AdminPanel({ sessionToken, onLogout }) {
       }
     } catch (err) {
       setUserActionMessage({ type: 'error', text: 'Błąd połączenia z serwerem.' });
+    } finally {
+      setActioningUserId(null);
     }
   };
 
@@ -456,7 +464,8 @@ export default function AdminPanel({ sessionToken, onLogout }) {
                           <button
                             onClick={() => handleUserAction(u.id, 'force-password-change', `Czy na pewno chcesz wymusić zmianę hasła przy kolejnym logowaniu dla użytkownika ${u.username}?`)}
                             className="btn-secondary"
-                            style={{ padding: '4px 8px', fontSize: '0.75rem', border: '1px solid var(--border-glass)' }}
+                            disabled={actioningUserId === u.id}
+                            style={{ padding: '4px 8px', fontSize: '0.75rem', border: '1px solid var(--border-glass)', opacity: actioningUserId === u.id ? 0.5 : 1 }}
                           >
                             Wymuś Reset Hasła
                           </button>
@@ -464,7 +473,8 @@ export default function AdminPanel({ sessionToken, onLogout }) {
                             <button
                               onClick={() => handleUserAction(u.id, 'reset-2fa', `Czy na pewno chcesz zresetować weryfikację 2FA dla użytkownika ${u.username}?`)}
                               className="btn-secondary"
-                              style={{ padding: '4px 8px', fontSize: '0.75rem', border: '1px solid var(--border-glass)', background: 'rgba(245, 158, 11, 0.05)', color: '#fbbf24' }}
+                              disabled={actioningUserId === u.id}
+                              style={{ padding: '4px 8px', fontSize: '0.75rem', border: '1px solid var(--border-glass)', background: 'rgba(245, 158, 11, 0.05)', color: '#fbbf24', opacity: actioningUserId === u.id ? 0.5 : 1 }}
                             >
                               Resetuj 2FA
                             </button>
@@ -473,7 +483,8 @@ export default function AdminPanel({ sessionToken, onLogout }) {
                               <button
                                 onClick={() => handleUserAction(u.id, 'force-2fa', `Czy na pewno chcesz wymusić aktywację 2FA przy kolejnym logowaniu dla użytkownika ${u.username}?`)}
                                 className="btn-secondary"
-                                style={{ padding: '4px 8px', fontSize: '0.75rem', border: '1px solid var(--border-glass)', background: 'rgba(56, 189, 248, 0.05)', color: '#38bdf8' }}
+                                disabled={actioningUserId === u.id}
+                                style={{ padding: '4px 8px', fontSize: '0.75rem', border: '1px solid var(--border-glass)', background: 'rgba(56, 189, 248, 0.05)', color: '#38bdf8', opacity: actioningUserId === u.id ? 0.5 : 1 }}
                               >
                                 Wymuś 2FA
                               </button>
@@ -482,7 +493,8 @@ export default function AdminPanel({ sessionToken, onLogout }) {
                           <button
                             onClick={() => handleUserAction(u.id, 'delete', `Czy na pewno chcesz usunąć użytkownika ${u.username} i wszystkie jego dane? Tej operacji nie można cofnąć.`)}
                             className="btn-secondary"
-                            style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+                            disabled={actioningUserId === u.id}
+                            style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)', opacity: actioningUserId === u.id ? 0.5 : 1 }}
                           >
                             Usuń
                           </button>

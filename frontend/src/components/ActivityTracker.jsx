@@ -289,7 +289,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
     );
   };
 
-  const renderDualAxisChart = (data, key1, key2, color1, color2, label1, label2) => {
+  const renderDualAxisChart = (data, key1, key2, color1, color2, label1, label2, unit1 = 'kg', unit2 = '%') => {
     const validData = data.filter(d => (d[key1] !== null && d[key1] !== undefined) || (d[key2] !== null && d[key2] !== undefined));
     if (validData.length === 0) {
       return (
@@ -329,11 +329,11 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
         <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', fontSize: '0.8rem', marginBottom: '8px' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ width: '12px', height: '3px', background: color1, borderRadius: '2px', display: 'inline-block' }}></span>
-            <span style={{ color: 'var(--text-muted)' }}>{label1} (kg)</span>
+            <span style={{ color: 'var(--text-muted)' }}>{label1} ({unit1})</span>
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ width: '12px', height: '3px', background: color2, borderRadius: '2px', display: 'inline-block' }}></span>
-            <span style={{ color: 'var(--text-muted)' }}>{label2} (%)</span>
+            <span style={{ color: 'var(--text-muted)' }}>{label2} ({unit2})</span>
           </span>
         </div>
         <svg width="100%" height="180" viewBox={`0 0 ${width} ${height}`} style={{ overflow: 'visible' }}>
@@ -353,8 +353,8 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
           {/* Right Y labels */}
           {data2.length > 0 && (
             <>
-              <text x={width - padding + 8} y={padding + 4} fill={color2} fontSize="9" textAnchor="start" fontWeight="bold">{max2.toFixed(1)}%</text>
-              <text x={width - padding + 8} y={height - padding + 4} fill={color2} fontSize="9" textAnchor="start" fontWeight="bold">{min2.toFixed(1)}%</text>
+              <text x={width - padding + 8} y={padding + 4} fill={color2} fontSize="9" textAnchor="start" fontWeight="bold">{max2.toFixed(1)}{unit2 === '%' ? '%' : ''}</text>
+              <text x={width - padding + 8} y={height - padding + 4} fill={color2} fontSize="9" textAnchor="start" fontWeight="bold">{min2.toFixed(1)}{unit2 === '%' ? '%' : ''}</text>
             </>
           )}
 
@@ -829,6 +829,21 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
             <div style={{ height: '180px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
               Brak danych o fazach snu - wymaga synchronizacji z Oura.
             </div>
+          )}
+        </div>
+
+        {/* Wykres 4: Aktywność (Aktywne kalorie i aktywne minuty) */}
+        <div className="glass-card">
+          <h3 className="card-title" style={{ marginBottom: '4px' }}>🔥 Wykres 4: Aktywność</h3>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginBottom: '16px' }}>
+            Zależność spalonych aktywnych kalorii (linia ciągła) do aktywnych minut (linia przerywana) z ostatnich 30 dni.
+          </p>
+          {isLoadingHistory ? (
+            <div style={{ height: '180px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)' }}>
+              Ładowanie wykresu...
+            </div>
+          ) : (
+            renderDualAxisChart(historyData, 'active_calories', 'active_minutes', '#fb923c', '#a78bfa', 'Aktywne kalorie', 'Aktywne minuty', 'kcal', 'min')
           )}
         </div>
 

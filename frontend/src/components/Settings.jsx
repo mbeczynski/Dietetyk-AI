@@ -955,14 +955,15 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
         </form>
       </div>
 
-      {/* Panel Profilu (Avatar) oraz Zmiany Hasła.
-          alignItems: 'start' - bez tego siatka domyślnie rozciąga (align-items: stretch)
-          każdą kartę w danym "rzędzie" do wysokości najwyższej z nich. Karta Profilu
-          jest dużo wyższa niż np. Zmiana Hasła czy Cel Sylwetki, więc bez tej własności
-          krótsze karty były rozciągane i zostawały z dużą, dziwnie wyglądającą "pustą
-          przestrzenią" pod treścią. Z 'start' każda karta ma wysokość swojej treści. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px', alignItems: 'start' }}>
-        
+      {/* Panel Profilu (Avatar) oraz pozostałe karty ustawień.
+          Karta Profilu jest dużo wyższa niż pozostałe (Cel Sylwetki, Twoje Dane,
+          Zmiana Hasła, 2FA), więc zamiast jednej siatki auto-fit (gdzie 5 kart różnej
+          wysokości nierówno "łamało się" w wiersze i zostawiało puste komórki w drugim
+          rzędzie - patrz zgłoszenie użytkownika), dzielimy układ na dwie kolumny:
+          lewa - sama, wysoka karta Profilu; prawa - stała siatka 2x2 dla czterech
+          mniejszych kart, więc nie ma już "dziur" ani nierównych linii. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(320px, 1.4fr)', gap: '24px', alignItems: 'start' }}>
+
         {/* Panel Profilu i Avatara */}
         <div className="glass-card">
           <h3 className="card-title">👤 Twój Profil i Avatar</h3>
@@ -1246,6 +1247,10 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           </form>
         </div>
 
+        {/* Prawa kolumna - 2x2 siatka czterech mniejszych kart, żeby nie zostawiały
+            pustych komórek tak jak w jednej, wspólnej siatce auto-fit. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '24px', alignItems: 'start' }}>
+
         {/* Panel Celu Sylwetki - opis tekstowy + zdjęcie referencyjne, brane pod uwagę
             przez AI dietetyka przy generowaniu porad (dashboard.js) i odpowiedzi
             czatu (chat.js). Zapisywane na backendzie w users.body_goal_text /
@@ -1515,6 +1520,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               </div>
             </form>
           )}
+        </div>
+
         </div>
 
       </div>

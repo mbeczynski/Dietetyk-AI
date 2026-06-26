@@ -1228,4 +1228,675 @@ router.get('/api/dashboard/calorie-target-suggestion', async (req, res) => {
   }
 });
 
+// ============================================================================
+// Runda 7: nowe insighty bazujące WYŁĄCZNIE na danych już zbieranych przez
+// aplikację (water_ml, sedentary_minutes, fiber, respiratory_rate,
+// temperature_deviation, stress_high_minutes, liczba posiłków/dzień, historia
+// streaków kalorycznych) - zero nowych integracji, zero kopiowania funkcji
+// z konkurencyjnych aplikacji dietetycznych. Każdy insight trzyma się
+// konwencji z istniejących endpointów wyżej: gating na minimalnej próbce,
+// hasEnoughData, polskie komentarze, try/catch z polskim komunikatem błędu.
+// ============================================================================
+
+// Mediana - używana tam, gdzie nie ma sensownego progu klinicznego/ustawienia
+// użytkownika do podziału na grupy (np. "dużo siedzenia" jest różne dla osoby
+// z pracą biurową vs fizyczną) - porównujemy więc użytkownika do JEGO WŁASNEJ
+// mediany z okresu, nie do sztywnej wartości.
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function meanAndStdDev(values) {
+  const m = values.reduce((s, v) => s + v, 0) / values.length;
+  const variance = values.reduce((s, v) => s + (v - m) * (v - m), 0) / values.length;
+  return { mean: m, stdDev: Math.sqrt(variance) };
+}
+
+function linearRegressionSlope(points) {
+  const n = points.length;
+  const sumX = points.reduce((s, p) => s + p.x, 0);
+  const sumY = points.reduce((s, p) => s + p.y, 0);
+  const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
+  const sumXX = points.reduce((s, p) => s + p.x * p.x, 0);
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) return null;
+  return (n * sumXY - sumX * sumY) / denom;
+}
+
+function toRegressionPoints(rows, valueKey) {
+  const baseTime = new Date(rows[0].date).getTime();
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return rows.map(r => ({ x: (new Date(r.date).getTime() - baseTime) / msPerDay, y: r[valueKey] }));
+}
+
+const MIN_DAYS_PER_HYDRATION_GROUP = 5;
+const HYDRATION_LOOKBACK_DAYS = 90;
+
+// Insight: nawodnienie (water_ml) vs gotowość/HRV TEGO SAMEGO dnia oraz RHR dnia
+// NASTĘPNEGO. Podział względem WŁASNEGO celu nawodnienia użytkownika
+// (target_water_ml z ustawień, domyślnie 2500 ml) - nie sztywnego progu
+// klinicznego, bo potrzeba nawodnienia jest bardzo indywidualna.
+router.get('/api/dashboard/hydration-readiness-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -HYDRATION_LOOKBACK_DAYS);
+
+    const settingsRow = await db.get(`SELECT value FROM settings WHERE user_id = ? AND key = 'target_water_ml'`, [req.user.id]);
+    const targetWaterMl = settingsRow && !isNaN(Number(settingsRow.value)) ? Number(settingsRow.value) : 2500;
+
+    const rows = await db.all(
+      `SELECT date, water_ml, readiness_score, hrv, rhr FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ? AND water_ml IS NOT NULL AND water_ml > 0`,
+      [req.user.id, startDate, today]
+    );
+    const rhrByDate = new Map(rows.filter(r => r.rhr != null && r.rhr > 0).map(r => [r.date, r.rhr]));
+
+    const hydrated = [];
+    const underHydrated = [];
+    rows.forEach(r => {
+      if (r.readiness_score == null && r.hrv == null) return;
+      const nextRhr = rhrByDate.get(shiftDate(r.date, 1));
+      const entry = { readiness: r.readiness_score, hrv: r.hrv, nextRhr: nextRhr != null ? nextRhr : null };
+      (r.water_ml >= targetWaterMl ? hydrated : underHydrated).push(entry);
+    });
+
+    if (hydrated.length < MIN_DAYS_PER_HYDRATION_GROUP || underHydrated.length < MIN_DAYS_PER_HYDRATION_GROUP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        hydratedDays: hydrated.length,
+        underHydratedDays: underHydrated.length,
+        minDaysRequired: MIN_DAYS_PER_HYDRATION_GROUP
+      });
+    }
+
+    const avgOf = (arr, key) => {
+      const vals = arr.filter(x => x[key] != null).map(x => x[key]);
+      return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
+    };
+    const avgReadinessHydrated = avgOf(hydrated, 'readiness');
+    const avgReadinessUnder = avgOf(underHydrated, 'readiness');
+    const avgHrvHydrated = avgOf(hydrated, 'hrv');
+    const avgHrvUnder = avgOf(underHydrated, 'hrv');
+    const avgNextRhrHydrated = avgOf(hydrated, 'nextRhr');
+    const avgNextRhrUnder = avgOf(underHydrated, 'nextRhr');
+
+    res.json({
+      hasEnoughData: true,
+      targetWaterMl,
+      hydratedDays: hydrated.length,
+      underHydratedDays: underHydrated.length,
+      avgReadinessHydrated,
+      avgReadinessUnderHydrated: avgReadinessUnder,
+      readinessDiff: avgReadinessHydrated != null && avgReadinessUnder != null ? Math.round((avgReadinessHydrated - avgReadinessUnder) * 10) / 10 : null,
+      avgHrvHydrated,
+      avgHrvUnderHydrated: avgHrvUnder,
+      hrvDiff: avgHrvHydrated != null && avgHrvUnder != null ? Math.round((avgHrvHydrated - avgHrvUnder) * 10) / 10 : null,
+      avgNextDayRhrHydrated: avgNextRhrHydrated,
+      avgNextDayRhrUnderHydrated: avgNextRhrUnder,
+      nextDayRhrDiff: avgNextRhrHydrated != null && avgNextRhrUnder != null ? Math.round((avgNextRhrHydrated - avgNextRhrUnder) * 10) / 10 : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu nawodnienie-regeneracja.' });
+  }
+});
+
+const MIN_DAYS_PER_SEDENTARY_GROUP = 5;
+const SEDENTARY_LOOKBACK_DAYS = 90;
+
+// Insight: czas siedzący (sedentary_minutes) vs jakość snu TEJ SAMEJ NOCY
+// (sleep_score, sleep_deep, sleep_rem). Podział wg mediany WŁASNYCH wartości
+// użytkownika z okresu.
+router.get('/api/dashboard/sedentary-sleep-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -SEDENTARY_LOOKBACK_DAYS);
+
+    const rows = await db.all(
+      `SELECT date, sedentary_minutes, sleep_score, sleep_deep, sleep_rem FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ? AND sedentary_minutes IS NOT NULL AND sleep_score IS NOT NULL`,
+      [req.user.id, startDate, today]
+    );
+
+    if (rows.length < MIN_DAYS_PER_SEDENTARY_GROUP * 2) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        totalDays: rows.length,
+        minDaysRequired: MIN_DAYS_PER_SEDENTARY_GROUP * 2
+      });
+    }
+
+    const medianSedentary = median(rows.map(r => r.sedentary_minutes));
+    const moreSitting = rows.filter(r => r.sedentary_minutes >= medianSedentary);
+    const lessSitting = rows.filter(r => r.sedentary_minutes < medianSedentary);
+
+    if (moreSitting.length < MIN_DAYS_PER_SEDENTARY_GROUP || lessSitting.length < MIN_DAYS_PER_SEDENTARY_GROUP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days_per_group',
+        moreSittingDays: moreSitting.length,
+        lessSittingDays: lessSitting.length,
+        minDaysRequired: MIN_DAYS_PER_SEDENTARY_GROUP
+      });
+    }
+
+    const avgOf = (arr, key) => {
+      const vals = arr.filter(x => x[key] != null).map(x => x[key]);
+      return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
+    };
+    const avgSleepScoreMore = avgOf(moreSitting, 'sleep_score');
+    const avgSleepScoreLess = avgOf(lessSitting, 'sleep_score');
+    const avgDeepMore = avgOf(moreSitting, 'sleep_deep');
+    const avgDeepLess = avgOf(lessSitting, 'sleep_deep');
+    const avgRemMore = avgOf(moreSitting, 'sleep_rem');
+    const avgRemLess = avgOf(lessSitting, 'sleep_rem');
+
+    res.json({
+      hasEnoughData: true,
+      medianSedentaryMinutes: Math.round(medianSedentary),
+      moreSittingDays: moreSitting.length,
+      lessSittingDays: lessSitting.length,
+      avgSleepScoreMoreSitting: avgSleepScoreMore,
+      avgSleepScoreLessSitting: avgSleepScoreLess,
+      sleepScoreDiff: avgSleepScoreMore != null && avgSleepScoreLess != null ? Math.round((avgSleepScoreMore - avgSleepScoreLess) * 10) / 10 : null,
+      avgSleepDeepMoreSitting: avgDeepMore,
+      avgSleepDeepLessSitting: avgDeepLess,
+      sleepDeepDiff: avgDeepMore != null && avgDeepLess != null ? Math.round((avgDeepMore - avgDeepLess) * 10) / 10 : null,
+      avgSleepRemMoreSitting: avgRemMore,
+      avgSleepRemLessSitting: avgRemLess,
+      sleepRemDiff: avgRemMore != null && avgRemLess != null ? Math.round((avgRemMore - avgRemLess) * 10) / 10 : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu siedzenie-sen.' });
+  }
+});
+
+const MIN_DAYS_PER_FIBER_GROUP = 5;
+const FIBER_SLEEP_LOOKBACK_DAYS = 90;
+
+// Insight: błonnik (suma dzienna z posiłków) vs głęboki/REM sen TEJ SAMEJ NOCY.
+// Inny niż istniejący sleep-insight (tam: sen -> kalorie/cukier NASTĘPNEGO
+// dnia) - tu kierunek odwrotny (odżywianie -> sen tej doby) i inne pola fazy
+// snu. Podział wg mediany WŁASNEGO spożycia błonnika użytkownika.
+router.get('/api/dashboard/fiber-sleep-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -FIBER_SLEEP_LOOKBACK_DAYS);
+
+    const fiberRows = await db.all(
+      `SELECT date, SUM(fiber) AS fiber FROM meals
+       WHERE user_id = ? AND date >= ? AND date <= ? AND fiber IS NOT NULL GROUP BY date HAVING fiber > 0`,
+      [req.user.id, startDate, today]
+    );
+    const sleepRows = await db.all(
+      `SELECT date, sleep_deep, sleep_rem FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ? AND (sleep_deep IS NOT NULL OR sleep_rem IS NOT NULL)`,
+      [req.user.id, startDate, today]
+    );
+    const sleepByDate = new Map(sleepRows.map(r => [r.date, r]));
+
+    const combined = fiberRows
+      .filter(r => sleepByDate.has(r.date))
+      .map(r => ({ fiber: r.fiber, ...sleepByDate.get(r.date) }));
+
+    if (combined.length < MIN_DAYS_PER_FIBER_GROUP * 2) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        totalDays: combined.length,
+        minDaysRequired: MIN_DAYS_PER_FIBER_GROUP * 2
+      });
+    }
+
+    const medianFiber = median(combined.map(r => r.fiber));
+    const moreFiber = combined.filter(r => r.fiber >= medianFiber);
+    const lessFiber = combined.filter(r => r.fiber < medianFiber);
+
+    if (moreFiber.length < MIN_DAYS_PER_FIBER_GROUP || lessFiber.length < MIN_DAYS_PER_FIBER_GROUP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days_per_group',
+        moreFiberDays: moreFiber.length,
+        lessFiberDays: lessFiber.length,
+        minDaysRequired: MIN_DAYS_PER_FIBER_GROUP
+      });
+    }
+
+    const avgOf = (arr, key) => {
+      const vals = arr.filter(x => x[key] != null).map(x => x[key]);
+      return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
+    };
+    const avgDeepMore = avgOf(moreFiber, 'sleep_deep');
+    const avgDeepLess = avgOf(lessFiber, 'sleep_deep');
+    const avgRemMore = avgOf(moreFiber, 'sleep_rem');
+    const avgRemLess = avgOf(lessFiber, 'sleep_rem');
+
+    res.json({
+      hasEnoughData: true,
+      medianFiberGrams: Math.round(medianFiber * 10) / 10,
+      moreFiberDays: moreFiber.length,
+      lessFiberDays: lessFiber.length,
+      avgSleepDeepMoreFiber: avgDeepMore,
+      avgSleepDeepLessFiber: avgDeepLess,
+      sleepDeepDiff: avgDeepMore != null && avgDeepLess != null ? Math.round((avgDeepMore - avgDeepLess) * 10) / 10 : null,
+      avgSleepRemMoreFiber: avgRemMore,
+      avgSleepRemLessFiber: avgRemLess,
+      sleepRemDiff: avgRemMore != null && avgRemLess != null ? Math.round((avgRemMore - avgRemLess) * 10) / 10 : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu błonnik-sen.' });
+  }
+});
+
+const MIN_RECOMP_MEASUREMENTS = 4;
+const MIN_RECOMP_SPAN_DAYS = 14;
+const RECOMP_LOOKBACK_DAYS = 180;
+
+// Detektor "rekompozycji ciała": czy trend OBWODU PASA i trend WAGI rozjeżdżają
+// się (np. waga stabilna/rosnąca, a pas się zmniejsza - typowy sygnał przyrostu
+// mięśni przy redukcji tkanki tłuszczowej, albo odwrotnie). Dwie NIEZALEŻNE
+// regresje liniowe (jak w calorie-target-suggestion) - pomiary wagi i obwodów
+// zwykle nie są robione tego samego dnia, łączenie po dacie odsiałoby dane.
+router.get('/api/dashboard/body-recomposition-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -RECOMP_LOOKBACK_DAYS);
+
+    const waistRows = await db.all(
+      `SELECT date, waist FROM body_measurements WHERE user_id = ? AND date >= ? AND date <= ? AND waist IS NOT NULL ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+    const weightRows = await db.all(
+      `SELECT date, weight FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ? AND weight IS NOT NULL ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+
+    if (waistRows.length < MIN_RECOMP_MEASUREMENTS || weightRows.length < MIN_RECOMP_MEASUREMENTS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_measurements',
+        waistMeasurements: waistRows.length,
+        weightMeasurements: weightRows.length,
+        minMeasurementsRequired: MIN_RECOMP_MEASUREMENTS
+      });
+    }
+
+    const waistPoints = toRegressionPoints(waistRows, 'waist');
+    const weightPoints = toRegressionPoints(weightRows, 'weight');
+    const waistSpanDays = waistPoints[waistPoints.length - 1].x;
+    const weightSpanDays = weightPoints[weightPoints.length - 1].x;
+
+    if (waistSpanDays < MIN_RECOMP_SPAN_DAYS || weightSpanDays < MIN_RECOMP_SPAN_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'span_too_short',
+        waistSpanDays: Math.round(waistSpanDays),
+        weightSpanDays: Math.round(weightSpanDays),
+        minSpanDaysRequired: MIN_RECOMP_SPAN_DAYS
+      });
+    }
+
+    const waistSlopePerDay = linearRegressionSlope(waistPoints);
+    const weightSlopePerDay = linearRegressionSlope(weightPoints);
+    if (waistSlopePerDay === null || weightSlopePerDay === null) {
+      return res.json({ hasEnoughData: false, reason: 'flat_data' });
+    }
+
+    // Rozjazd: pas się zmniejsza, a waga rośnie/stabilna (lub odwrotnie) -
+    // sygnał rekompozycji, a nie zwykłego "chudnięcia/przybierania" widocznego
+    // jednocześnie w obu miarach.
+    const waistTrend = waistSlopePerDay < -0.02 ? 'down' : waistSlopePerDay > 0.02 ? 'up' : 'flat';
+    const weightTrend = weightSlopePerDay < -0.02 ? 'down' : weightSlopePerDay > 0.02 ? 'up' : 'flat';
+    const divergentTrend = waistTrend !== 'flat' && weightTrend !== 'flat' && waistTrend !== weightTrend;
+
+    res.json({
+      hasEnoughData: true,
+      waistMeasurements: waistRows.length,
+      weightMeasurements: weightRows.length,
+      waistSlopeCmPerWeek: Math.round(waistSlopePerDay * 7 * 100) / 100,
+      weightSlopeKgPerWeek: Math.round(weightSlopePerDay * 7 * 100) / 100,
+      waistTrend,
+      weightTrend,
+      divergentTrend
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd wykrywania rekompozycji ciała.' });
+  }
+});
+
+const STRAIN_BASELINE_LOOKBACK_DAYS = 30;
+const MIN_DAYS_FOR_STRAIN_BASELINE = 14;
+const STRAIN_STD_DEV_THRESHOLD = 1; // odchylenia standardowe od własnej średniej użytkownika
+
+// Wczesny alert "przeciążenie/możliwa infekcja": odchylenie DZISIEJSZYCH
+// wartości (częstość oddechów, odchylenie temperatury nadgarstka, gotowość) od
+// WŁASNEJ średniej użytkownika z ostatnich dni (z-score - podejście statystyczne
+// analogiczne do wykrywania anomalii posiłków w utils/mealAnomaly.js, tu
+// zastosowane do danych Oura). Opisowy sygnał na bazie własnej historii
+// użytkownika, NIE diagnoza medyczna.
+router.get('/api/dashboard/early-strain-alert', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const baselineStart = shiftDate(today, -STRAIN_BASELINE_LOOKBACK_DAYS);
+    const baselineEnd = shiftDate(today, -1);
+
+    const todayRow = await db.get(
+      `SELECT respiratory_rate, temperature_deviation, readiness_score FROM health_metrics WHERE user_id = ? AND date = ?`,
+      [req.user.id, today]
+    );
+    if (!todayRow || todayRow.respiratory_rate == null || todayRow.temperature_deviation == null || todayRow.readiness_score == null) {
+      return res.json({ hasEnoughData: false, reason: 'no_today_data' });
+    }
+
+    const baselineRows = await db.all(
+      `SELECT respiratory_rate, temperature_deviation, readiness_score FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ?
+       AND respiratory_rate IS NOT NULL AND temperature_deviation IS NOT NULL AND readiness_score IS NOT NULL`,
+      [req.user.id, baselineStart, baselineEnd]
+    );
+
+    if (baselineRows.length < MIN_DAYS_FOR_STRAIN_BASELINE) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_baseline_days',
+        baselineDays: baselineRows.length,
+        minDaysRequired: MIN_DAYS_FOR_STRAIN_BASELINE
+      });
+    }
+
+    const respStats = meanAndStdDev(baselineRows.map(r => r.respiratory_rate));
+    const tempStats = meanAndStdDev(baselineRows.map(r => r.temperature_deviation));
+    const readinessStats = meanAndStdDev(baselineRows.map(r => r.readiness_score));
+
+    const respZ = respStats.stdDev > 0 ? (todayRow.respiratory_rate - respStats.mean) / respStats.stdDev : 0;
+    const tempZ = tempStats.stdDev > 0 ? (todayRow.temperature_deviation - tempStats.mean) / tempStats.stdDev : 0;
+    const readinessZ = readinessStats.stdDev > 0 ? (todayRow.readiness_score - readinessStats.mean) / readinessStats.stdDev : 0;
+
+    // Alert tylko gdy WSZYSTKIE trzy wskaźniki naraz odbiegają w niepokojącym
+    // kierunku - pojedynczy odstający wskaźnik to zwykły szum dnia, nie sygnał.
+    const alert = respZ >= STRAIN_STD_DEV_THRESHOLD && tempZ >= STRAIN_STD_DEV_THRESHOLD && readinessZ <= -STRAIN_STD_DEV_THRESHOLD;
+
+    res.json({
+      hasEnoughData: true,
+      baselineDays: baselineRows.length,
+      today: {
+        respiratoryRate: todayRow.respiratory_rate,
+        temperatureDeviation: todayRow.temperature_deviation,
+        readinessScore: todayRow.readiness_score
+      },
+      baseline: {
+        avgRespiratoryRate: Math.round(respStats.mean * 10) / 10,
+        avgTemperatureDeviation: Math.round(tempStats.mean * 100) / 100,
+        avgReadinessScore: Math.round(readinessStats.mean * 10) / 10
+      },
+      respiratoryRateZScore: Math.round(respZ * 100) / 100,
+      temperatureDeviationZScore: Math.round(tempZ * 100) / 100,
+      readinessScoreZScore: Math.round(readinessZ * 100) / 100,
+      alert
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd wyznaczania wczesnego alertu przeciążenia.' });
+  }
+});
+
+const MIN_DAYS_PER_STRESS_GROUP = 5;
+const STRESS_NUTRITION_LOOKBACK_DAYS = 90;
+
+// Insight: minuty wysokiego stresu (stress_high_minutes, dotąd tylko
+// wyświetlane, nieużywane w żadnym insighcie) vs spożycie sodu/cukru TEGO
+// SAMEGO dnia - sprawdza potoczną hipotezę "stres -> sięganie po słodkie/
+// słone jedzenie" na bazie własnych danych użytkownika. Podział wg mediany
+// WŁASNYCH minut stresu z okresu.
+router.get('/api/dashboard/stress-nutrition-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -STRESS_NUTRITION_LOOKBACK_DAYS);
+
+    const stressRows = await db.all(
+      `SELECT date, stress_high_minutes FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ? AND stress_high_minutes IS NOT NULL`,
+      [req.user.id, startDate, today]
+    );
+    const nutritionRows = await db.all(
+      `SELECT date, SUM(sodium) AS sodium, SUM(sugar) AS sugar FROM meals
+       WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date`,
+      [req.user.id, startDate, today]
+    );
+    const nutritionByDate = new Map(nutritionRows.map(r => [r.date, r]));
+
+    const combined = stressRows
+      .filter(r => nutritionByDate.has(r.date))
+      .map(r => ({ stressMinutes: r.stress_high_minutes, ...nutritionByDate.get(r.date) }));
+
+    if (combined.length < MIN_DAYS_PER_STRESS_GROUP * 2) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        totalDays: combined.length,
+        minDaysRequired: MIN_DAYS_PER_STRESS_GROUP * 2
+      });
+    }
+
+    const medianStress = median(combined.map(r => r.stressMinutes));
+    const highStress = combined.filter(r => r.stressMinutes >= medianStress);
+    const lowStress = combined.filter(r => r.stressMinutes < medianStress);
+
+    if (highStress.length < MIN_DAYS_PER_STRESS_GROUP || lowStress.length < MIN_DAYS_PER_STRESS_GROUP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days_per_group',
+        highStressDays: highStress.length,
+        lowStressDays: lowStress.length,
+        minDaysRequired: MIN_DAYS_PER_STRESS_GROUP
+      });
+    }
+
+    const avgOf = (arr, key) => {
+      const vals = arr.filter(x => x[key] != null).map(x => x[key]);
+      return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
+    };
+    const avgSodiumHigh = avgOf(highStress, 'sodium');
+    const avgSodiumLow = avgOf(lowStress, 'sodium');
+    const avgSugarHigh = avgOf(highStress, 'sugar');
+    const avgSugarLow = avgOf(lowStress, 'sugar');
+
+    res.json({
+      hasEnoughData: true,
+      medianStressMinutes: Math.round(medianStress),
+      highStressDays: highStress.length,
+      lowStressDays: lowStress.length,
+      avgSodiumHighStress: avgSodiumHigh,
+      avgSodiumLowStress: avgSodiumLow,
+      sodiumDiff: avgSodiumHigh != null && avgSodiumLow != null ? Math.round((avgSodiumHigh - avgSodiumLow) * 10) / 10 : null,
+      avgSugarHighStress: avgSugarHigh,
+      avgSugarLowStress: avgSugarLow,
+      sugarDiff: avgSugarHigh != null && avgSugarLow != null ? Math.round((avgSugarHigh - avgSugarLow) * 10) / 10 : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu stres-odżywianie.' });
+  }
+});
+
+const MIN_DAYS_PER_MEAL_FREQ_GROUP = 5;
+const MEAL_FREQ_LOOKBACK_DAYS = 90;
+// Pasmo trafienia w cel kaloryczny +/-15% - identyczne jak przy istniejącym
+// streaku kalorycznym (computeStreak w głównym handlerze /api/dashboard).
+const CALORIE_TARGET_BAND = 0.15;
+
+// Insight: liczba posiłków zalogowanych w ciągu dnia (meals.date, COUNT) vs
+// trafienie w cel kaloryczny tego dnia - sprawdza, czy więcej mniejszych
+// posiłków dziennie koreluje z lepszym trzymaniem się celu ("podjadanie
+// kontrolowane" vs 1-2 duże posiłki).
+router.get('/api/dashboard/meal-frequency-adherence-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -MEAL_FREQ_LOOKBACK_DAYS);
+
+    const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
+    const settings = {};
+    settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
+    const targetCalories = isNaN(settings.target_calories) || !settings.target_calories ? 2000 : settings.target_calories;
+
+    const rows = await db.all(
+      `SELECT date, COUNT(*) AS meal_count, SUM(calories) AS total_calories
+       FROM meals WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date`,
+      [req.user.id, startDate, today]
+    );
+
+    if (rows.length < MIN_DAYS_PER_MEAL_FREQ_GROUP * 2) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        totalDays: rows.length,
+        minDaysRequired: MIN_DAYS_PER_MEAL_FREQ_GROUP * 2
+      });
+    }
+
+    const onTarget = [];
+    const offTarget = [];
+    rows.forEach(r => {
+      if (r.total_calories == null) return;
+      const hit = r.total_calories >= targetCalories * (1 - CALORIE_TARGET_BAND) && r.total_calories <= targetCalories * (1 + CALORIE_TARGET_BAND);
+      (hit ? onTarget : offTarget).push(r);
+    });
+
+    if (onTarget.length < MIN_DAYS_PER_MEAL_FREQ_GROUP || offTarget.length < MIN_DAYS_PER_MEAL_FREQ_GROUP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days_per_group',
+        onTargetDays: onTarget.length,
+        offTargetDays: offTarget.length,
+        minDaysRequired: MIN_DAYS_PER_MEAL_FREQ_GROUP
+      });
+    }
+
+    const avgOf = (arr, key) => Math.round((arr.reduce((s, x) => s + x[key], 0) / arr.length) * 10) / 10;
+    const avgMealCountOnTarget = avgOf(onTarget, 'meal_count');
+    const avgMealCountOffTarget = avgOf(offTarget, 'meal_count');
+
+    res.json({
+      hasEnoughData: true,
+      targetCalories,
+      onTargetDays: onTarget.length,
+      offTargetDays: offTarget.length,
+      avgMealCountOnTarget,
+      avgMealCountOffTarget,
+      mealCountDiff: Math.round((avgMealCountOnTarget - avgMealCountOffTarget) * 10) / 10
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu częstość posiłków-cel kaloryczny.' });
+  }
+});
+
+const MIN_DAYS_PER_STREAK_GROUP = 5;
+const STREAK_DRIFT_LOOKBACK_DAYS = 120;
+const STREAK_MIN_LENGTH = 3; // od ilu kolejnych dni w paśmie celu liczymy to jako "passę"
+
+// Insight: HRV/gotowość w dniach będących CZĘŚCIĄ passy trzymania się celu
+// kalorycznego (3+ kolejne dni w paśmie +/-15%) vs w dniu BEZPOŚREDNIO PO
+// przerwaniu takiej passy. Własna, samodzielna logika wykrywania passy (NIE
+// computeStreak z głównego handlera dashboardu, który liczy tylko długość
+// AKTUALNEJ passy względem jednej daty referencyjnej i nie jest eksportowany) -
+// tu potrzebujemy historii wszystkich przeszłych pass i ich końców.
+router.get('/api/dashboard/streak-drift-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -STREAK_DRIFT_LOOKBACK_DAYS);
+
+    const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
+    const settings = {};
+    settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
+    const targetCalories = isNaN(settings.target_calories) || !settings.target_calories ? 2000 : settings.target_calories;
+
+    const calorieRows = await db.all(
+      `SELECT date, SUM(calories) AS total_calories FROM meals
+       WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+    const metricsRows = await db.all(
+      `SELECT date, hrv, readiness_score FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ? AND (hrv IS NOT NULL OR readiness_score IS NOT NULL)`,
+      [req.user.id, startDate, today]
+    );
+    const metricsByDate = new Map(metricsRows.map(r => [r.date, r]));
+
+    // Wymagamy KOLEJNYCH dni kalendarzowych (bez dziur) do liczenia passy -
+    // dziura w logowaniu przerywa passę tak samo jak dzień poza paśmem celu.
+    let prevDate = null;
+    let currentStreak = 0;
+    const streakDayMetrics = [];
+    const breakDayMetrics = [];
+
+    calorieRows.forEach(row => {
+      const inBand = row.total_calories != null &&
+        row.total_calories >= targetCalories * (1 - CALORIE_TARGET_BAND) &&
+        row.total_calories <= targetCalories * (1 + CALORIE_TARGET_BAND);
+      const isConsecutive = prevDate !== null && shiftDate(prevDate, 1) === row.date;
+
+      if (inBand) {
+        currentStreak = isConsecutive ? currentStreak + 1 : 1;
+        if (currentStreak >= STREAK_MIN_LENGTH) {
+          const m = metricsByDate.get(row.date);
+          if (m) streakDayMetrics.push(m);
+        }
+      } else {
+        // "Dzień po przerwaniu" liczymy tylko, jeśli WCZORAJ była ustalona
+        // passa (>= STREAK_MIN_LENGTH) i dziś jest kolejnym dniem kalendarzowym po niej.
+        if (isConsecutive && currentStreak >= STREAK_MIN_LENGTH) {
+          const m = metricsByDate.get(row.date);
+          if (m) breakDayMetrics.push(m);
+        }
+        currentStreak = 0;
+      }
+      prevDate = row.date;
+    });
+
+    if (streakDayMetrics.length < MIN_DAYS_PER_STREAK_GROUP || breakDayMetrics.length < MIN_DAYS_PER_STREAK_GROUP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days_per_group',
+        streakDays: streakDayMetrics.length,
+        breakDays: breakDayMetrics.length,
+        minDaysRequired: MIN_DAYS_PER_STREAK_GROUP
+      });
+    }
+
+    const avgOf = (arr, key) => {
+      const vals = arr.filter(x => x[key] != null).map(x => x[key]);
+      return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
+    };
+    const avgHrvStreak = avgOf(streakDayMetrics, 'hrv');
+    const avgHrvBreak = avgOf(breakDayMetrics, 'hrv');
+    const avgReadinessStreak = avgOf(streakDayMetrics, 'readiness_score');
+    const avgReadinessBreak = avgOf(breakDayMetrics, 'readiness_score');
+
+    res.json({
+      hasEnoughData: true,
+      targetCalories,
+      streakMinLength: STREAK_MIN_LENGTH,
+      streakDays: streakDayMetrics.length,
+      breakDays: breakDayMetrics.length,
+      avgHrvDuringStreak: avgHrvStreak,
+      avgHrvAfterBreak: avgHrvBreak,
+      hrvDiff: avgHrvStreak != null && avgHrvBreak != null ? Math.round((avgHrvStreak - avgHrvBreak) * 10) / 10 : null,
+      avgReadinessDuringStreak: avgReadinessStreak,
+      avgReadinessAfterBreak: avgReadinessBreak,
+      readinessDiff: avgReadinessStreak != null && avgReadinessBreak != null ? Math.round((avgReadinessStreak - avgReadinessBreak) * 10) / 10 : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu passa-regeneracja.' });
+  }
+});
+
 module.exports = router;

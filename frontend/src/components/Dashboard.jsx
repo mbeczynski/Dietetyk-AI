@@ -358,6 +358,154 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     fetchSupplementsSleepInsight();
   }, [sessionToken, selectedDate]);
 
+  // Runda 7: 8 nowych insightów na bazie danych już zbieranych przez aplikację -
+  // ten sam wzorzec fetch/state co powyżej (sleepInsight, sodiumBpInsight, itd.).
+  const [hydrationInsight, setHydrationInsight] = useState(null);
+  useEffect(() => {
+    const fetchHydrationInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/hydration-readiness-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setHydrationInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu nawodnienie-regeneracja:', err);
+      }
+    };
+    fetchHydrationInsight();
+  }, [sessionToken, selectedDate]);
+
+  const [sedentaryInsight, setSedentaryInsight] = useState(null);
+  useEffect(() => {
+    const fetchSedentaryInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/sedentary-sleep-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setSedentaryInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu siedzenie-sen:', err);
+      }
+    };
+    fetchSedentaryInsight();
+  }, [sessionToken, selectedDate]);
+
+  const [fiberSleepInsight, setFiberSleepInsight] = useState(null);
+  useEffect(() => {
+    const fetchFiberSleepInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/fiber-sleep-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setFiberSleepInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu błonnik-sen:', err);
+      }
+    };
+    fetchFiberSleepInsight();
+  }, [sessionToken, selectedDate]);
+
+  const [bodyRecompInsight, setBodyRecompInsight] = useState(null);
+  useEffect(() => {
+    const fetchBodyRecompInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/body-recomposition-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setBodyRecompInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu rekompozycji ciała:', err);
+      }
+    };
+    fetchBodyRecompInsight();
+  }, [sessionToken, selectedDate]);
+
+  const [strainAlert, setStrainAlert] = useState(null);
+  useEffect(() => {
+    const fetchStrainAlert = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/early-strain-alert${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setStrainAlert(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania alertu przeciążenia:', err);
+      }
+    };
+    fetchStrainAlert();
+  }, [sessionToken, selectedDate]);
+
+  const [stressNutritionInsight, setStressNutritionInsight] = useState(null);
+  useEffect(() => {
+    const fetchStressNutritionInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/stress-nutrition-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setStressNutritionInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu stres-odżywianie:', err);
+      }
+    };
+    fetchStressNutritionInsight();
+  }, [sessionToken, selectedDate]);
+
+  const [mealFreqInsight, setMealFreqInsight] = useState(null);
+  useEffect(() => {
+    const fetchMealFreqInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/meal-frequency-adherence-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setMealFreqInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu częstość posiłków:', err);
+      }
+    };
+    fetchMealFreqInsight();
+  }, [sessionToken, selectedDate]);
+
+  const [streakDriftInsight, setStreakDriftInsight] = useState(null);
+  useEffect(() => {
+    const fetchStreakDriftInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/streak-drift-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setStreakDriftInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu passa-regeneracja:', err);
+      }
+    };
+    fetchStreakDriftInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Zwijalna sekcja "Analizy" (UX: rundy 7 - 12 kart insightów w jednym miejscu,
+  // domyślnie zwinięta, żeby nie zalewać dashboardu od razu po wejściu).
+  const [isAnalizyOpen, setIsAnalizyOpen] = useState(false);
+  // Zwijalna tabela stref tętna (UX: rundy 7 - statyczna tabela referencyjna 5
+  // strefy, nie trzeba jej widzieć od razu, wystarczy link rozwijający).
+  const [isHrZonesOpen, setIsHrZonesOpen] = useState(false);
+  // Zwijalna historia suplementacji (UX: runda 7 - pasek 7 dni + lista "Ostatnio
+  // przyjmowane" domyślnie schowane za "Pokaż historię", widoczny tylko licznik).
+  const [isSupplementsHistoryOpen, setIsSupplementsHistoryOpen] = useState(false);
+
   // Adaptacyjna korekta celu kalorycznego: porównanie deklarowanego bilansu
   // (z zalogowanych posiłków) z bilansem wynikającym z realnej zmiany wagi
   // (patrz endpoint /api/dashboard/calorie-target-suggestion). caloriesTrigger
@@ -1151,6 +1299,27 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           )}
         </div>
 
+        {/* ZWIJALNA SEKCJA "ANALIZY" - 12 kart opisowych porównań (sen, sód,
+            regeneracja, suplementy + 8 nowych z rundy 7), domyślnie zwinięta,
+            żeby nie zalewać dashboardu od razu po wejściu (UX runda 7, punkt 1). */}
+        <div
+          className="premium-card"
+          role="button"
+          tabIndex={0}
+          onClick={() => setIsAnalizyOpen(o => !o)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsAnalizyOpen(o => !o); } }}
+          style={{ cursor: 'pointer' }}
+        >
+          <div className="premium-title-row" style={{ marginBottom: 0 }}>
+            <span className="premium-title">📊 Analizy</span>
+            <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)' }}>
+              {isAnalizyOpen ? 'Zwiń ▲' : 'Pokaż ▼'}
+            </span>
+          </div>
+        </div>
+
+        {isAnalizyOpen && (
+          <>
         {/* INSIGHT: SEN -> ODŻYWIANIE NASTĘPNEGO DNIA */}
         {!isLoadingSleepInsight && sleepInsight && sleepInsight.hasEnoughData && (
           <div className="premium-card">
@@ -1296,12 +1465,12 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {supplementsSleepInsight.findings.map((f) => (
                 <div key={f.supplement} style={{ paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#fff', marginBottom: '4px' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#fff', marginBottom: '4px', overflowWrap: 'break-word' }}>
                     {f.supplement} <span style={{ fontWeight: '400', color: 'rgba(255,255,255,0.4)' }}>({f.daysWith} vs {f.daysWithout} dni)</span>
                   </div>
                   {f.sleepScoreDiff != null && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
-                      <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
                         Sen: {f.avgSleepScoreWith} vs {f.avgSleepScoreWithout}
                       </span>
                       <span style={{ fontWeight: '700', color: f.sleepScoreDiff < 0 ? 'var(--danger-light)' : f.sleepScoreDiff > 0 ? 'var(--success-light)' : '#fff' }}>
@@ -1310,8 +1479,8 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                     </div>
                   )}
                   {f.readinessScoreDiff != null && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
-                      <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
                         Gotowość: {f.avgReadinessScoreWith} vs {f.avgReadinessScoreWithout}
                       </span>
                       <span style={{ fontWeight: '700', color: f.readinessScoreDiff < 0 ? 'var(--danger-light)' : f.readinessScoreDiff > 0 ? 'var(--success-light)' : '#fff' }}>
@@ -1326,6 +1495,300 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               Porównanie dwóch średnich z Twoich danych, nie dowód skuteczności suplementu.
             </p>
           </div>
+        )}
+
+        {/* INSIGHT: NAWODNIENIE -> GOTOWOŚĆ/HRV/RHR */}
+        {hydrationInsight && hydrationInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💧 Nawodnienie → regeneracja</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Dni z nawodnieniem ≥ Twojego celu ({hydrationInsight.targetWaterMl} ml) vs dni poniżej celu - ostatnie 90 dni
+              ({hydrationInsight.hydratedDays} vs {hydrationInsight.underHydratedDays} dni z danymi).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {hydrationInsight.readinessDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Gotowość: {hydrationInsight.avgReadinessHydrated} vs {hydrationInsight.avgReadinessUnderHydrated}
+                  </span>
+                  <span style={{ fontWeight: '700', color: hydrationInsight.readinessDiff < 0 ? 'var(--danger-light)' : hydrationInsight.readinessDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {hydrationInsight.readinessDiff > 0 ? '+' : ''}{hydrationInsight.readinessDiff}
+                  </span>
+                </div>
+              )}
+              {hydrationInsight.hrvDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    HRV: {hydrationInsight.avgHrvHydrated} vs {hydrationInsight.avgHrvUnderHydrated} ms
+                  </span>
+                  <span style={{ fontWeight: '700', color: hydrationInsight.hrvDiff < 0 ? 'var(--danger-light)' : hydrationInsight.hrvDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {hydrationInsight.hrvDiff > 0 ? '+' : ''}{hydrationInsight.hrvDiff} ms
+                  </span>
+                </div>
+              )}
+              {hydrationInsight.nextDayRhrDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    RHR (następny dzień): {hydrationInsight.avgNextDayRhrHydrated} vs {hydrationInsight.avgNextDayRhrUnderHydrated} bpm
+                  </span>
+                  <span style={{ fontWeight: '700', color: hydrationInsight.nextDayRhrDiff > 0 ? 'var(--danger-light)' : hydrationInsight.nextDayRhrDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                    {hydrationInsight.nextDayRhrDiff > 0 ? '+' : ''}{hydrationInsight.nextDayRhrDiff} bpm
+                  </span>
+                </div>
+              )}
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT: SIEDZENIE -> SEN TEJ SAMEJ NOCY */}
+        {sedentaryInsight && sedentaryInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🪑 Siedzenie → sen</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Dni z czasem siedzącym ≥ Twojej mediany ({sedentaryInsight.medianSedentaryMinutes} min) vs poniżej mediany - ostatnie 90 dni
+              ({sedentaryInsight.moreSittingDays} vs {sedentaryInsight.lessSittingDays} dni z danymi).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {sedentaryInsight.sleepScoreDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Wynik snu: {sedentaryInsight.avgSleepScoreMoreSitting} vs {sedentaryInsight.avgSleepScoreLessSitting}
+                  </span>
+                  <span style={{ fontWeight: '700', color: sedentaryInsight.sleepScoreDiff < 0 ? 'var(--danger-light)' : sedentaryInsight.sleepScoreDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {sedentaryInsight.sleepScoreDiff > 0 ? '+' : ''}{sedentaryInsight.sleepScoreDiff}
+                  </span>
+                </div>
+              )}
+              {sedentaryInsight.sleepDeepDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Sen głęboki: {sedentaryInsight.avgSleepDeepMoreSitting} vs {sedentaryInsight.avgSleepDeepLessSitting} min
+                  </span>
+                  <span style={{ fontWeight: '700', color: sedentaryInsight.sleepDeepDiff < 0 ? 'var(--danger-light)' : sedentaryInsight.sleepDeepDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {sedentaryInsight.sleepDeepDiff > 0 ? '+' : ''}{sedentaryInsight.sleepDeepDiff} min
+                  </span>
+                </div>
+              )}
+              {sedentaryInsight.sleepRemDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Sen REM: {sedentaryInsight.avgSleepRemMoreSitting} vs {sedentaryInsight.avgSleepRemLessSitting} min
+                  </span>
+                  <span style={{ fontWeight: '700', color: sedentaryInsight.sleepRemDiff < 0 ? 'var(--danger-light)' : sedentaryInsight.sleepRemDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {sedentaryInsight.sleepRemDiff > 0 ? '+' : ''}{sedentaryInsight.sleepRemDiff} min
+                  </span>
+                </div>
+              )}
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT: BŁONNIK -> SEN GŁĘBOKI/REM TEJ SAMEJ NOCY */}
+        {fiberSleepInsight && fiberSleepInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🌾 Błonnik → sen</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Dni ze spożyciem błonnika ≥ Twojej mediany ({fiberSleepInsight.medianFiberGrams} g) vs poniżej mediany, ten sam dzień - ostatnie 90 dni
+              ({fiberSleepInsight.moreFiberDays} vs {fiberSleepInsight.lessFiberDays} dni z danymi).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {fiberSleepInsight.sleepDeepDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Sen głęboki: {fiberSleepInsight.avgSleepDeepMoreFiber} vs {fiberSleepInsight.avgSleepDeepLessFiber} min
+                  </span>
+                  <span style={{ fontWeight: '700', color: fiberSleepInsight.sleepDeepDiff < 0 ? 'var(--danger-light)' : fiberSleepInsight.sleepDeepDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {fiberSleepInsight.sleepDeepDiff > 0 ? '+' : ''}{fiberSleepInsight.sleepDeepDiff} min
+                  </span>
+                </div>
+              )}
+              {fiberSleepInsight.sleepRemDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Sen REM: {fiberSleepInsight.avgSleepRemMoreFiber} vs {fiberSleepInsight.avgSleepRemLessFiber} min
+                  </span>
+                  <span style={{ fontWeight: '700', color: fiberSleepInsight.sleepRemDiff < 0 ? 'var(--danger-light)' : fiberSleepInsight.sleepRemDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {fiberSleepInsight.sleepRemDiff > 0 ? '+' : ''}{fiberSleepInsight.sleepRemDiff} min
+                  </span>
+                </div>
+              )}
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
+            </p>
+          </div>
+        )}
+
+        {/* DETEKTOR REKOMPOZYCJI CIAŁA - tylko, gdy trendy pasa i wagi się rozjeżdżają */}
+        {bodyRecompInsight && bodyRecompInsight.hasEnoughData && bodyRecompInsight.divergentTrend && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">📐 Rekompozycja ciała</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Trend obwodu pasa i trend wagi idą w różnych kierunkach - możliwy sygnał zmiany składu ciała (np. przyrost mięśni przy redukcji tkanki tłuszczowej), nie tylko samej wagi.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Pas (trend/tydzień)</span>
+                <span style={{ fontWeight: '700', color: bodyRecompInsight.waistSlopeCmPerWeek < 0 ? 'var(--success-light)' : bodyRecompInsight.waistSlopeCmPerWeek > 0 ? 'var(--danger-light)' : '#fff' }}>
+                  {bodyRecompInsight.waistSlopeCmPerWeek > 0 ? '+' : ''}{bodyRecompInsight.waistSlopeCmPerWeek} cm
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Waga (trend/tydzień)</span>
+                <span style={{ fontWeight: '700', color: '#fff' }}>
+                  {bodyRecompInsight.weightSlopeKgPerWeek > 0 ? '+' : ''}{bodyRecompInsight.weightSlopeKgPerWeek} kg
+                </span>
+              </div>
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Regresja liniowa z Twoich pomiarów, nie pomiar składu ciała (np. DEXA) - traktuj jako wskazówkę, nie fakt.
+            </p>
+          </div>
+        )}
+
+        {/* WCZESNY ALERT PRZECIĄŻENIA/MOŻLIWEJ INFEKCJI - tylko gdy alert aktywny */}
+        {strainAlert && strainAlert.hasEnoughData && strainAlert.alert && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">⚠️ Sygnały przeciążenia</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'var(--danger-light)', marginTop: '2px', marginBottom: '10px', fontWeight: 600 }}>
+              Dziś częstość oddechów, odchylenie temperatury i gotowość naraz odbiegają od Twojej średniej z ostatnich {strainAlert.baselineDays} dni - możliwy sygnał przetrenowania lub początku infekcji.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Częstość oddechów</span>
+                <span style={{ fontWeight: '700', color: '#fff' }}>{strainAlert.today.respiratoryRate} vs śr. {strainAlert.baseline.avgRespiratoryRate}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Odchylenie temperatury</span>
+                <span style={{ fontWeight: '700', color: '#fff' }}>{strainAlert.today.temperatureDeviation}°C vs śr. {strainAlert.baseline.avgTemperatureDeviation}°C</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Gotowość</span>
+                <span style={{ fontWeight: '700', color: '#fff' }}>{strainAlert.today.readinessScore} vs śr. {strainAlert.baseline.avgReadinessScore}</span>
+              </div>
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Sygnał statystyczny na bazie Twojej własnej historii, NIE diagnoza medyczna - przy złym samopoczuciu skonsultuj się z lekarzem.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT: STRES -> SÓD/CUKIER TEGO SAMEGO DNIA */}
+        {stressNutritionInsight && stressNutritionInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">😰 Stres → odżywianie</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Dni z minutami wysokiego stresu ≥ Twojej mediany ({stressNutritionInsight.medianStressMinutes} min) vs poniżej mediany, ten sam dzień - ostatnie 90 dni
+              ({stressNutritionInsight.highStressDays} vs {stressNutritionInsight.lowStressDays} dni z danymi).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {stressNutritionInsight.sodiumDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Sód: {stressNutritionInsight.avgSodiumHighStress} vs {stressNutritionInsight.avgSodiumLowStress} mg
+                  </span>
+                  <span style={{ fontWeight: '700', color: stressNutritionInsight.sodiumDiff > 0 ? 'var(--danger-light)' : stressNutritionInsight.sodiumDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                    {stressNutritionInsight.sodiumDiff > 0 ? '+' : ''}{stressNutritionInsight.sodiumDiff} mg
+                  </span>
+                </div>
+              )}
+              {stressNutritionInsight.sugarDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Cukier: {stressNutritionInsight.avgSugarHighStress} vs {stressNutritionInsight.avgSugarLowStress} g
+                  </span>
+                  <span style={{ fontWeight: '700', color: stressNutritionInsight.sugarDiff > 0 ? 'var(--danger-light)' : stressNutritionInsight.sugarDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                    {stressNutritionInsight.sugarDiff > 0 ? '+' : ''}{stressNutritionInsight.sugarDiff} g
+                  </span>
+                </div>
+              )}
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT: LICZBA POSIŁKÓW DZIENNIE -> TRAFIENIE W CEL KALORYCZNY */}
+        {mealFreqInsight && mealFreqInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🍽️ Częstość posiłków → cel</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Dni, w których trafiłeś w cel kaloryczny (±15%) vs dni, w których nie - ostatnie 90 dni
+              ({mealFreqInsight.onTargetDays} vs {mealFreqInsight.offTargetDays} dni z danymi).
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                Śr. liczba posiłków: {mealFreqInsight.avgMealCountOnTarget} vs {mealFreqInsight.avgMealCountOffTarget}
+              </span>
+              <span style={{ fontWeight: '700', color: '#fff' }}>
+                {mealFreqInsight.mealCountDiff > 0 ? '+' : ''}{mealFreqInsight.mealCountDiff}
+              </span>
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT: PASA TRZYMANIA CELU -> REGENERACJA PO PRZERWANIU */}
+        {streakDriftInsight && streakDriftInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔥 Passa celu → regeneracja</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Dni w trakcie passy trzymania celu kalorycznego (min. {streakDriftInsight.streakMinLength} dni z rzędu) vs dzień bezpośrednio po jej przerwaniu
+              ({streakDriftInsight.streakDays} vs {streakDriftInsight.breakDays} dni z danymi).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {streakDriftInsight.hrvDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    HRV: {streakDriftInsight.avgHrvDuringStreak} vs {streakDriftInsight.avgHrvAfterBreak} ms
+                  </span>
+                  <span style={{ fontWeight: '700', color: streakDriftInsight.hrvDiff < 0 ? 'var(--danger-light)' : streakDriftInsight.hrvDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {streakDriftInsight.hrvDiff > 0 ? '+' : ''}{streakDriftInsight.hrvDiff} ms
+                  </span>
+                </div>
+              )}
+              {streakDriftInsight.readinessDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Gotowość: {streakDriftInsight.avgReadinessDuringStreak} vs {streakDriftInsight.avgReadinessAfterBreak}
+                  </span>
+                  <span style={{ fontWeight: '700', color: streakDriftInsight.readinessDiff < 0 ? 'var(--danger-light)' : streakDriftInsight.readinessDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {streakDriftInsight.readinessDiff > 0 ? '+' : ''}{streakDriftInsight.readinessDiff}
+                  </span>
+                </div>
+              )}
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
+            </p>
+          </div>
+        )}
+          </>
         )}
 
         {/* ADAPTACYJNA KOREKTA CELU KALORYCZNEGO */}
@@ -1544,14 +2007,22 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
 
               return (
                 <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setIsSupplementsHistoryOpen(o => !o)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsSupplementsHistoryOpen(o => !o); } }}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', cursor: 'pointer' }}
+                  >
                     <span style={{ fontSize: '0.8rem', color: 'rgba(255, 255, 255, 0.6)', fontWeight: '600' }}>
-                      Historia suplementacji
+                      Historia suplementacji {isSupplementsHistoryOpen ? '▲' : '▼'}
                     </span>
                     <span style={{ fontSize: '0.7rem', color: 'var(--color-secondary)', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '10px', fontWeight: '700' }}>
                       Aktywność: {complianceDays}/7 dni
                     </span>
                   </div>
+                  {isSupplementsHistoryOpen && (
+                  <>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '4px' }}>
                     {last7Days.map((day, idx) => {
                       const histEntry = historyData.find(h => h.date === day.date);
@@ -1674,6 +2145,8 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                       </div>
                     );
                   })()}
+                  </>
+                  )}
                 </div>
               );
             })()}
@@ -1888,25 +2361,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 </span>
               )}
             </div>
-            {summary.blood_pressure_systolic !== null && summary.blood_pressure_systolic !== undefined && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
-                <span>Ciśnienie tętnicze</span>
-                {(() => {
-                  const sys = summary.blood_pressure_systolic;
-                  const dia = summary.blood_pressure_diastolic;
-                  let color = 'var(--success-light)';
-                  let label = 'Optymalne';
-                  if (sys >= 140 || dia >= 90) { color = 'var(--danger-light)'; label = 'Wysokie'; }
-                  else if (sys >= 130 || dia >= 80) { color = '#fbbf24'; label = 'Podwyższone'; }
-                  else if (sys >= 120) { color = '#fbbf24'; label = 'Prawidłowe wysokie'; }
-                  return (
-                    <span style={{ color, fontWeight: '600' }}>
-                      {sys}/{dia} mmHg ({label})
-                    </span>
-                  );
-                })()}
-              </div>
-            )}
+            {/* Ciśnienie tętnicze usunięte z tego miejsca (UX runda 7, punkt 2) - duplikowało
+                osobną, pełną kartę "🩺 Ciśnienie tętnicze" pod strefami tętna, którą użytkownik
+                wcześniej wyraźnie poprosił o umieszczenie w tamtym miejscu. Tu zostawiamy
+                tylko BMI i pomiar obwodów, żeby nie pokazywać tej samej liczby dwa razy. */}
             {latestBodyMeasurement && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
                 <span>Ostatni pomiar obwodów ({latestBodyMeasurement.date})</span>
@@ -1925,13 +2383,17 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           {renderWeightCompositionChart(historyData)}
         </div>
 
-        {/* ENERGIA I STRES */}
+        {/* ENERGIA I AKTYWNOŚĆ DNIA - połączone z dawnej karty "Dystans i aktywność dnia"
+            (UX: runda 7 - dwie sąsiadujące, tematycznie pokrewne karty w jedną, żeby
+            skrócić dashboard). Dane z Oury (equivalent_walking_distance, sedentary/
+            low_activity_time), Google Fit (distance.delta) albo Apple Health
+            (walking_running_distance). */}
         <div className="premium-card">
           <div className="premium-title-row">
-            <span className="premium-title">Energia i stres</span>
+            <span className="premium-title">Energia i aktywność dnia</span>
             <span className="premium-title-info">ⓘ</span>
           </div>
-          
+
           {/* Battery segments - realny algorytm (readinessScore - rozładowanie aktywnością) */}
           <div className="energy-battery-row">
             <span style={{ fontSize: '1rem' }}>🔋</span>
@@ -1993,17 +2455,11 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               </div>
             </div>
           )}
-        </div>
 
-        {/* DYSTANS I AKTYWNOŚĆ DNIA - dane z Oury (equivalent_walking_distance,
-            sedentary/low_activity_time), Google Fit (distance.delta) albo Apple Health
-            (walking_running_distance) - wcześniej pobierane przez integracje, ale
-            nieujawnione w /api/dashboard. */}
-        <div className="premium-card">
-          <div className="premium-title-row">
-            <span className="premium-title">🏃 Dystans i aktywność dnia</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+          {/* DYSTANS I AKTYWNOŚĆ DNIA - połączone tu z dawnej osobnej karty (UX runda 7).
+              Dane z Oury (equivalent_walking_distance, sedentary/low_activity_time),
+              Google Fit (distance.delta) albo Apple Health (walking_running_distance). */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '10px' }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontSize: '1.6rem', fontWeight: '800', color: '#fff' }}>
                 {distanceKm > 0 ? distanceKm : '-'} <span style={{ fontSize: '0.9rem', fontWeight: '500', color: 'rgba(255,255,255,0.4)' }}>km</span>
@@ -2186,15 +2642,25 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         </div>
 
         {/* STREFY TĘTNA (HR ZONES) - tylko gdy mamy realny RHR, bez tego wszystkie
-            zakresy byłyby liczone z fałszywym RHR=0 (patrz rhrForZones powyżej) */}
+            zakresy byłyby liczone z fałszywym RHR=0 (patrz rhrForZones powyżej).
+            Statyczna tabela referencyjna - zwinięta domyślnie (UX runda 7), bo nie
+            zmienia się z dnia na dzień i nie trzeba jej widzieć od razu. */}
         {rhr != null && (
         <div className="premium-card">
-          <div className="premium-title-row">
+          <div
+            className="premium-title-row"
+            role="button"
+            tabIndex={0}
+            onClick={() => setIsHrZonesOpen(o => !o)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsHrZonesOpen(o => !o); } }}
+            style={{ cursor: 'pointer' }}
+          >
             <span className="premium-title">💓 Strefy Tętna (Karvonen)</span>
             <span style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.4)' }}>
-              Na bazie RHR ({rhr} bpm)
+              Na bazie RHR ({rhr} bpm) · {isHrZonesOpen ? 'Zwiń ▲' : 'Pokaż ▼'}
             </span>
           </div>
+          {isHrZonesOpen && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '6px 8px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', borderLeft: '3px solid #60a5fa' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2236,6 +2702,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               <span style={{ fontSize: '0.68rem', color: 'rgba(255, 255, 255, 0.4)' }}>Trening beztlenowy, interwały, maksymalna wydolność</span>
             </div>
           </div>
+          )}
         </div>
         )}
 

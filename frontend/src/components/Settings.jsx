@@ -1389,431 +1389,434 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           </form>
         </div>
 
-        {/* Prawa kolumna - 2x2 siatka czterech mniejszych kart, żeby nie zostawiały
-            pustych komórek tak jak w jednej, wspólnej siatce auto-fit. */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '24px', alignItems: 'start' }}>
+        {/* Prawa kolumna - podzielona na dwie pionowe pod-kolumny (flex), aby zapobiec powstawaniu dziur/pustych obszarów spowodowanych różnymi wysokościami kart */}
+        <div className="settings-right-grid">
 
-        {/* Panel Celu Sylwetki - opis tekstowy + zdjęcie referencyjne, brane pod uwagę
-            przez AI dietetyka przy generowaniu porad (dashboard.js) i odpowiedzi
-            czatu (chat.js). Zapisywane na backendzie w users.body_goal_text /
-            users.body_goal_photo_base64 (patrz migracja w db.js). */}
-        <div className="glass-card">
-          <h3 className="card-title">🎯 Cel Sylwetki</h3>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
-            Opisz, do jakiej sylwetki/celu dążysz (np. "redukcja tkanki tłuszczowej, widoczne mięśnie brzucha" albo "budowa masy mięśniowej, +5kg"), opcjonalnie dołącz zdjęcie referencyjne. AI dietetyk weźmie to pod uwagę przy poradach i w czacie.
-          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* Panel Celu Sylwetki - opis tekstowy + zdjęcie referencyjne, brane pod uwagę
+                przez AI dietetyka przy generowaniu porad (dashboard.js) i odpowiedzi
+                czatu (chat.js). Zapisywane na backendzie w users.body_goal_text /
+                users.body_goal_photo_base64 (patrz migracja w db.js). */}
+            <div className="glass-card">
+              <h3 className="card-title">🎯 Cel Sylwetki</h3>
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+                Opisz, do jakiej sylwetki/celu dążysz (np. "redukcja tkanki tłuszczowej, widoczne mięśnie brzucha" albo "budowa masy mięśniowej, +5kg"), opcjonalnie dołącz zdjęcie referencyjne. AI dietetyk weźmie to pod uwagę przy poradach i w czacie.
+              </p>
 
-          {bodyGoalPhotoMessage.text && (
-            <div className={`alert alert-${bodyGoalPhotoMessage.type}`} style={{ marginBottom: '16px' }}>
-              {bodyGoalPhotoMessage.text}
-            </div>
-          )}
+              {bodyGoalPhotoMessage.text && (
+                <div className={`alert alert-${bodyGoalPhotoMessage.type}`} style={{ marginBottom: '16px' }}>
+                  {bodyGoalPhotoMessage.text}
+                </div>
+              )}
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap', marginBottom: '20px' }}>
-            {userProfile.body_goal_photo_base64 ? (
-              <img
-                src={userProfile.body_goal_photo_base64}
-                alt="Cel sylwetki"
-                style={{ width: '100px', height: '100px', borderRadius: '12px', objectFit: 'cover', border: '2px solid var(--primary-color)' }}
-              />
-            ) : (
-              <div style={{ width: '100px', height: '100px', borderRadius: '12px', background: 'rgba(255, 255, 255, 0.04)', border: '2px dashed var(--border-glass)', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '2rem', color: 'var(--text-dim)' }}>
-                🖼️
+              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap', marginBottom: '20px' }}>
+                {userProfile.body_goal_photo_base64 ? (
+                  <img
+                    src={userProfile.body_goal_photo_base64}
+                    alt="Cel sylwetki"
+                    style={{ width: '100px', height: '100px', borderRadius: '12px', objectFit: 'cover', border: '2px solid var(--primary-color)' }}
+                  />
+                ) : (
+                  <div style={{ width: '100px', height: '100px', borderRadius: '12px', background: 'rgba(255, 255, 255, 0.04)', border: '2px dashed var(--border-glass)', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '2rem', color: 'var(--text-dim)' }}>
+                    🖼️
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.9rem', display: 'inline-block', cursor: 'pointer', textAlign: 'center' }}>
+                    {isUploadingBodyGoalPhoto ? 'Wgrywanie...' : 'Wybierz zdjęcie'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleBodyGoalPhotoUpload}
+                      style={{ display: 'none' }}
+                      disabled={isUploadingBodyGoalPhoto}
+                    />
+                  </label>
+                  {userProfile.body_goal_photo_base64 && (
+                    <button
+                      type="button"
+                      className="btn-danger"
+                      onClick={handleRemoveBodyGoalPhoto}
+                      disabled={isUploadingBodyGoalPhoto}
+                      style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                    >
+                      Usuń zdjęcie
+                    </button>
+                  )}
+                </div>
               </div>
-            )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.9rem', display: 'inline-block', cursor: 'pointer', textAlign: 'center' }}>
-                {isUploadingBodyGoalPhoto ? 'Wgrywanie...' : 'Wybierz zdjęcie'}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleBodyGoalPhotoUpload}
-                  style={{ display: 'none' }}
-                  disabled={isUploadingBodyGoalPhoto}
+              <div className="input-group">
+                <label className="input-label">Opis celu sylwetki</label>
+                <textarea
+                  className="input-field"
+                  value={bodyGoalTextInput}
+                  onChange={(e) => setBodyGoalTextInput(e.target.value)}
+                  placeholder="np. Redukcja tkanki tłuszczowej do ~15%, zachowanie masy mięśniowej"
+                  maxLength={1000}
+                  rows={3}
+                  style={{ resize: 'vertical', minHeight: '80px' }}
                 />
-              </label>
-              {userProfile.body_goal_photo_base64 && (
-                <button
-                  type="button"
-                  className="btn-danger"
-                  onClick={handleRemoveBodyGoalPhoto}
-                  disabled={isUploadingBodyGoalPhoto}
-                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                >
-                  Usuń zdjęcie
+              </div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '8px 0 16px' }}>
+                Opis zapisuje się razem z przyciskiem "Zapisz profil" powyżej. Zdjęcie zapisuje się od razu po wybraniu pliku.
+              </p>
+            </div>
+
+            {/* Panel Zmiany Hasła */}
+            <div className="glass-card">
+              <h3 className="card-title">🔑 Zmiana Hasła</h3>
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+                Zmień hasło logowania dla swojego konta.
+              </p>
+
+              {passwordMessage.text && (
+                <div className={`alert alert-${passwordMessage.type}`} style={{ marginBottom: '16px' }}>
+                  {passwordMessage.text}
+                </div>
+              )}
+
+              <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div className="input-group">
+                  <label className="input-label">Obecne hasło</label>
+                  <input
+                    type="password"
+                    className="input-field"
+                    value={passwordData.currentPassword}
+                    onChange={(e) => setPasswordData(prev => ({ ...prev, currentPassword: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label className="input-label">Nowe hasło</label>
+                  <input
+                    type="password"
+                    className="input-field"
+                    value={passwordData.newPassword}
+                    onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label className="input-label">Powtórz nowe hasło</label>
+                  <input
+                    type="password"
+                    className="input-field"
+                    value={passwordData.confirmPassword}
+                    onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <button type="submit" className="btn-primary" disabled={isChangingPassword} style={{ marginTop: '8px' }}>
+                  {isChangingPassword ? 'Zmienianie...' : 'Zmień hasło'}
                 </button>
+              </form>
+            </div>
+
+            {/* Panel 2FA (MFA) */}
+            <div className="glass-card">
+              <h3 className="card-title">🛡️ Dwuetapowa Weryfikacja (2FA)</h3>
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+                Zabezpiecz dodatkowo swoje konto za pomocą kodu z aplikacji Google Authenticator lub Authy.
+              </p>
+
+              {totpMessage.text && (
+                <div className={`alert alert-${totpMessage.type}`} style={{ marginBottom: '16px' }}>
+                  {totpMessage.text}
+                </div>
+              )}
+
+              {userProfile.totp_enabled ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', color: 'var(--success-light)', fontSize: '0.9rem' }}>
+                    <span>🛡️</span>
+                    <strong>Weryfikacja 2FA jest aktywna.</strong>
+                  </div>
+                  <button 
+                    type="button" 
+                    className="btn-danger"
+                    onClick={handleDisable2FA}
+                    disabled={isDisabling2fa}
+                    style={{ width: '100%', padding: '10px' }}
+                  >
+                    {isDisabling2fa ? 'Wyłączanie...' : 'Wyłącz 2FA'}
+                  </button>
+                </div>
+              ) : !isSettingUp2fa ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '8px', color: '#fbbf24', fontSize: '0.9rem' }}>
+                    <span>🔓</span>
+                    <strong>Weryfikacja 2FA jest nieaktywna.</strong>
+                  </div>
+                  <button 
+                    type="button" 
+                    className="btn-primary" 
+                    onClick={handleSetup2FA}
+                    style={{ width: '100%', padding: '10px' }}
+                  >
+                    Skonfiguruj i Włącz 2FA
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleVerify2FASetup} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                    Zeskanuj ten kod w aplikacji autoryzacyjnej i podaj 6-cyfrowy kod, aby włączyć zabezpieczenie.
+                  </p>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0' }}>
+                    <img 
+                      src={totpSetupData.qrCode} 
+                      alt="QR Code" 
+                      style={{ borderRadius: '12px', border: '1px solid var(--border-glass)', padding: '6px', background: '#fff', width: '150px', height: '150px' }} 
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label">Kod z aplikacji (6 cyfr)</label>
+                    <input
+                      type="text"
+                      pattern="[0-9]*"
+                      inputMode="numeric"
+                      maxLength="6"
+                      className="input-field"
+                      value={totpSetupCode}
+                      onChange={(e) => setTotpSetupCode(e.target.value.replace(/\D/g, ''))}
+                      placeholder="000 000"
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button 
+                      type="button" 
+                      className="btn-secondary" 
+                      onClick={() => setIsSettingUp2fa(false)}
+                      style={{ flex: 1, padding: '8px' }}
+                    >
+                      Anuluj
+                    </button>
+                    <button 
+                      type="submit" 
+                      className="btn-primary" 
+                      disabled={isVerifying2fa}
+                      style={{ flex: 2, padding: '8px' }}
+                    >
+                      {isVerifying2fa ? 'Weryfikacja...' : 'Aktywuj 2FA'}
+                    </button>
+                  </div>
+                </form>
               )}
             </div>
           </div>
 
-          <div className="input-group">
-            <label className="input-label">Opis celu sylwetki</label>
-            <textarea
-              className="input-field"
-              value={bodyGoalTextInput}
-              onChange={(e) => setBodyGoalTextInput(e.target.value)}
-              placeholder="np. Redukcja tkanki tłuszczowej do ~15%, zachowanie masy mięśniowej"
-              maxLength={1000}
-              rows={3}
-              style={{ resize: 'vertical', minHeight: '80px' }}
-            />
-          </div>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '8px 0 16px' }}>
-            Opis zapisuje się razem z przyciskiem "Zapisz profil" powyżej. Zdjęcie zapisuje się od razu po wybraniu pliku.
-          </p>
-        </div>
-
-        {/* Panel Twoje Dane (RODO) - eksport i usunięcie konta */}
-        <div className="glass-card">
-          <h3 className="card-title">📦 Twoje Dane</h3>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
-            Zgodnie z RODO możesz pobrać kopię swoich danych albo trwale usunąć swoje konto.
-          </p>
-
-          {exportMessage.text && (
-            <div className={`alert alert-${exportMessage.type}`} style={{ marginBottom: '16px' }}>
-              {exportMessage.text}
-            </div>
-          )}
-
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={handleExportData}
-            disabled={isExportingData}
-            style={{ marginBottom: '24px' }}
-          >
-            {isExportingData ? 'Przygotowywanie...' : '⬇️ Eksportuj moje dane (JSON)'}
-          </button>
-
-          {/* Raport PDF dla lekarza/dietetyka - zwięzłe podsumowanie danych z
-              wybranego okresu (cele, średnie, sen/skład ciała, obwody, suplementy),
-              bez tekstu generowanego przez AI, żeby dokument pokazywany lekarzowi
-              zawierał tylko surowe, policzone dane. */}
-          <h4 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}>Raport dla lekarza/dietetyka</h4>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
-            Pobierz zwięzłe podsumowanie PDF z wybranego okresu - możesz zabrać je na wizytę.
-          </p>
-
-          {pdfExportMessage.text && (
-            <div className={`alert alert-${pdfExportMessage.type}`} style={{ marginBottom: '16px' }}>
-              {pdfExportMessage.text}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '24px' }}>
-            <select
-              className="input-field"
-              aria-label="Okres raportu PDF"
-              value={pdfReportDays}
-              onChange={(e) => setPdfReportDays(Number(e.target.value))}
-              style={{ width: 'auto' }}
-              disabled={isExportingPdfReport}
-            >
-              <option value={30}>Ostatnie 30 dni</option>
-              <option value={90}>Ostatnie 90 dni</option>
-              <option value={180}>Ostatnie 180 dni</option>
-            </select>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={handleExportPdfReport}
-              disabled={isExportingPdfReport}
-            >
-              {isExportingPdfReport ? 'Generowanie...' : '📄 Pobierz raport PDF'}
-            </button>
-          </div>
-
-          {/* Udostępnianie raportu linkiem (read-only) - alternatywa dla pobrania
-              pliku powyżej: link można wysłać lekarzowi/dietetykowi, który otworzy
-              go bez konta w aplikacji. Token jest jedyną autoryzacją (patrz
-              backend/routes/sharedReport.js), więc link ma ograniczony czas
-              ważności i można go w każdej chwili odwołać poniżej. */}
-          <h4 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}>Udostępnij raport linkiem</h4>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
-            Wygeneruj link do raportu, który można wysłać lekarzowi/dietetykowi - otworzy go bez logowania się do aplikacji.
-          </p>
-
-          {shareLinkMessage.text && (
-            <div className={`alert alert-${shareLinkMessage.type}`} style={{ marginBottom: '16px' }}>
-              {shareLinkMessage.text}
-            </div>
-          )}
-
-          {lastCreatedShareUrl && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '16px' }}>
-              <input
-                type="text"
-                className="input-field"
-                readOnly
-                value={lastCreatedShareUrl}
-                onFocus={(e) => e.target.select()}
-                style={{ flex: '1 1 280px' }}
-                aria-label="Link udostępniania raportu"
-              />
-              <button type="button" className="btn-secondary" onClick={handleCopyShareLink}>
-                📋 Kopiuj
-              </button>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '16px' }}>
-            <select
-              className="input-field"
-              aria-label="Okres danych w udostępnianym raporcie"
-              value={shareLinkDays}
-              onChange={(e) => setShareLinkDays(Number(e.target.value))}
-              style={{ width: 'auto' }}
-              disabled={isCreatingShareLink}
-            >
-              <option value={30}>Dane z ostatnich 30 dni</option>
-              <option value={90}>Dane z ostatnich 90 dni</option>
-              <option value={180}>Dane z ostatnich 180 dni</option>
-            </select>
-            <select
-              className="input-field"
-              aria-label="Czas ważności linku"
-              value={shareValidityKey}
-              onChange={(e) => setShareValidityKey(e.target.value)}
-              style={{ width: 'auto' }}
-              disabled={isCreatingShareLink}
-            >
-              <option value="24h">Link ważny 24 godziny</option>
-              <option value="7d">Link ważny 7 dni</option>
-              <option value="30d">Link ważny 30 dni</option>
-            </select>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={handleCreateShareLink}
-              disabled={isCreatingShareLink}
-            >
-              {isCreatingShareLink ? 'Tworzenie...' : '🔗 Utwórz link'}
-            </button>
-          </div>
-
-          {sharedReports.length > 0 && (
-            <div style={{ marginBottom: '24px' }}>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Historia udostępnień:
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* Panel Twoje Dane (RODO) - eksport i usunięcie konta */}
+            <div className="glass-card">
+              <h3 className="card-title">📦 Twoje Dane</h3>
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+                Zgodnie z RODO możesz pobrać kopię swoich danych albo trwale usunąć swoje konto.
               </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {sharedReports.map((share) => (
-                  <div
-                    key={share.id}
-                    style={{
-                      display: 'flex',
-                      gap: '12px',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                      fontSize: '0.85rem',
-                      padding: '8px 12px',
-                      borderRadius: '8px',
-                      background: 'var(--bg-secondary)'
-                    }}
-                  >
-                    <span>Utworzono: {formatShareDate(share.createdAt)}</span>
-                    <span>Dane: {share.days} dni</span>
-                    <span>Ważny do: {formatShareDate(share.expiresAt)}</span>
-                    <span>Status: {SHARE_STATUS_LABELS[share.status] || share.status}</span>
-                    {share.status === 'active' && (
-                      <button
-                        type="button"
-                        className="btn-danger"
-                        style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: '0.8rem' }}
-                        onClick={() => handleRevokeShareLink(share.id)}
-                      >
-                        Odwołaj
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {sharedReports.length === 0 && !isLoadingSharedReports && (
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '24px' }}>
-              Brak utworzonych linków udostępniania.
-            </p>
-          )}
 
-          <h4 style={{ fontSize: '1rem', color: 'var(--danger)', marginBottom: '8px' }}>Usunięcie konta</h4>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
-            Trwale usuwa Twoje konto i wszystkie powiązane dane (posiłki, ustawienia, historię zdrowotną, połączenia Oura/Withings/Google). Tej operacji nie można odwrócić.
-          </p>
+              {exportMessage.text && (
+                <div className={`alert alert-${exportMessage.type}`} style={{ marginBottom: '16px' }}>
+                  {exportMessage.text}
+                </div>
+              )}
 
-          {deleteMessage.text && (
-            <div className={`alert alert-${deleteMessage.type}`} style={{ marginBottom: '16px' }}>
-              {deleteMessage.text}
-            </div>
-          )}
-
-          <form onSubmit={handleDeleteAccount} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div className="input-group">
-              <label className="input-label">Potwierdź hasłem</label>
-              <input
-                type="password"
-                className="input-field"
-                value={deletePassword}
-                onChange={(e) => setDeletePassword(e.target.value)}
-                required
-              />
-            </div>
-            <button type="submit" className="btn-danger" disabled={isDeletingAccount}>
-              {isDeletingAccount ? 'Usuwanie...' : 'Usuń moje konto na zawsze'}
-            </button>
-          </form>
-        </div>
-
-        {/* Panel Zmiany Hasła */}
-        <div className="glass-card">
-          <h3 className="card-title">🔑 Zmiana Hasła</h3>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
-            Zmień hasło logowania dla swojego konta.
-          </p>
-
-          {passwordMessage.text && (
-            <div className={`alert alert-${passwordMessage.type}`} style={{ marginBottom: '16px' }}>
-              {passwordMessage.text}
-            </div>
-          )}
-
-          <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div className="input-group">
-              <label className="input-label">Obecne hasło</label>
-              <input
-                type="password"
-                className="input-field"
-                value={passwordData.currentPassword}
-                onChange={(e) => setPasswordData(prev => ({ ...prev, currentPassword: e.target.value }))}
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Nowe hasło</label>
-              <input
-                type="password"
-                className="input-field"
-                value={passwordData.newPassword}
-                onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Powtórz nowe hasło</label>
-              <input
-                type="password"
-                className="input-field"
-                value={passwordData.confirmPassword}
-                onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                required
-              />
-            </div>
-
-            <button type="submit" className="btn-primary" disabled={isChangingPassword} style={{ marginTop: '8px' }}>
-              {isChangingPassword ? 'Zmienianie...' : 'Zmień hasło'}
-            </button>
-          </form>
-        </div>
-
-        {/* Panel 2FA (MFA) */}
-        <div className="glass-card">
-          <h3 className="card-title">🛡️ Dwuetapowa Weryfikacja (2FA)</h3>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
-            Zabezpiecz dodatkowo swoje konto za pomocą kodu z aplikacji Google Authenticator lub Authy.
-          </p>
-
-          {totpMessage.text && (
-            <div className={`alert alert-${totpMessage.type}`} style={{ marginBottom: '16px' }}>
-              {totpMessage.text}
-            </div>
-          )}
-
-          {userProfile.totp_enabled ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', color: 'var(--success-light)', fontSize: '0.9rem' }}>
-                <span>🛡️</span>
-                <strong>Weryfikacja 2FA jest aktywna.</strong>
-              </div>
-              <button 
-                type="button" 
-                className="btn-danger"
-                onClick={handleDisable2FA}
-                disabled={isDisabling2fa}
-                style={{ width: '100%', padding: '10px' }}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleExportData}
+                disabled={isExportingData}
+                style={{ marginBottom: '24px' }}
               >
-                {isDisabling2fa ? 'Wyłączanie...' : 'Wyłącz 2FA'}
+                {isExportingData ? 'Przygotowywanie...' : '⬇️ Eksportuj moje dane (JSON)'}
               </button>
-            </div>
-          ) : !isSettingUp2fa ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '8px', color: '#fbbf24', fontSize: '0.9rem' }}>
-                <span>🔓</span>
-                <strong>Weryfikacja 2FA jest nieaktywna.</strong>
-              </div>
-              <button 
-                type="button" 
-                className="btn-primary" 
-                onClick={handleSetup2FA}
-                style={{ width: '100%', padding: '10px' }}
-              >
-                Skonfiguruj i Włącz 2FA
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={handleVerify2FASetup} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                Zeskanuj ten kod w aplikacji autoryzacyjnej i podaj 6-cyfrowy kod, aby włączyć zabezpieczenie.
+
+              {/* Raport PDF dla lekarza/dietetyka - zwięzłe podsumowanie danych z
+                  wybranego okresu (cele, średnie, sen/skład ciała, obwody, suplementy),
+                  bez tekstu generowanego przez AI, żeby dokument pokazywany lekarzowi
+                  zawierał tylko surowe, policzone dane. */}
+              <h4 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}>Raport dla lekarza/dietetyka</h4>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                Pobierz zwięzłe podsumowanie PDF z wybranego okresu - możesz zabrać je na wizytę.
               </p>
-              
-              <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0' }}>
-                <img 
-                  src={totpSetupData.qrCode} 
-                  alt="QR Code" 
-                  style={{ borderRadius: '12px', border: '1px solid var(--border-glass)', padding: '6px', background: '#fff', width: '150px', height: '150px' }} 
-                />
-              </div>
 
-              <div className="input-group">
-                <label className="input-label">Kod z aplikacji (6 cyfr)</label>
-                <input
-                  type="text"
-                  pattern="[0-9]*"
-                  inputMode="numeric"
-                  maxLength="6"
+              {pdfExportMessage.text && (
+                <div className={`alert alert-${pdfExportMessage.type}`} style={{ marginBottom: '16px' }}>
+                  {pdfExportMessage.text}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '24px' }}>
+                <select
                   className="input-field"
-                  value={totpSetupCode}
-                  onChange={(e) => setTotpSetupCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="000 000"
-                  required
-                  autoFocus
-                />
+                  aria-label="Okres raportu PDF"
+                  value={pdfReportDays}
+                  onChange={(e) => setPdfReportDays(Number(e.target.value))}
+                  style={{ width: 'auto' }}
+                  disabled={isExportingPdfReport}
+                >
+                  <option value={30}>Ostatnie 30 dni</option>
+                  <option value={90}>Ostatnie 90 dni</option>
+                  <option value={180}>Ostatnie 180 dni</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleExportPdfReport}
+                  disabled={isExportingPdfReport}
+                >
+                  {isExportingPdfReport ? 'Generowanie...' : '📄 Pobierz raport PDF'}
+                </button>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button 
-                  type="button" 
-                  className="btn-secondary" 
-                  onClick={() => setIsSettingUp2fa(false)}
-                  style={{ flex: 1, padding: '8px' }}
+              {/* Udostępnianie raportu linkiem (read-only) - alternatywa dla pobrania
+                  pliku powyżej: link można wysłać lekarzowi/dietetykowi, który otworzy
+                  go bez konta w aplikacji. Token jest jedyną autoryzacją (patrz
+                  backend/routes/sharedReport.js), więc link ma ograniczony czas
+                  ważności i można go w każdej chwili odwołać poniżej. */}
+              <h4 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}>Udostępnij raport linkiem</h4>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                Wygeneruj link do raportu, który można wysłać lekarzowi/dietetykowi - otworzy go bez logowania się do aplikacji.
+              </p>
+
+              {shareLinkMessage.text && (
+                <div className={`alert alert-${shareLinkMessage.type}`} style={{ marginBottom: '16px' }}>
+                  {shareLinkMessage.text}
+                </div>
+              )}
+
+              {lastCreatedShareUrl && (
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '16px' }}>
+                  <input
+                    type="text"
+                    className="input-field"
+                    readOnly
+                    value={lastCreatedShareUrl}
+                    onFocus={(e) => e.target.select()}
+                    style={{ flex: '1 1 280px' }}
+                    aria-label="Link udostępniania raportu"
+                  />
+                  <button type="button" className="btn-secondary" onClick={handleCopyShareLink}>
+                    📋 Kopiuj
+                  </button>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '16px' }}>
+                <select
+                  className="input-field"
+                  aria-label="Okres danych w udostępnianym raporcie"
+                  value={shareLinkDays}
+                  onChange={(e) => setShareLinkDays(Number(e.target.value))}
+                  style={{ width: 'auto' }}
+                  disabled={isCreatingShareLink}
                 >
-                  Anuluj
-                </button>
-                <button 
-                  type="submit" 
-                  className="btn-primary" 
-                  disabled={isVerifying2fa}
-                  style={{ flex: 2, padding: '8px' }}
+                  <option value={30}>Dane z ostatnich 30 dni</option>
+                  <option value={90}>Dane z ostatnich 90 dni</option>
+                  <option value={180}>Dane z ostatnich 180 dni</option>
+                </select>
+                <select
+                  className="input-field"
+                  aria-label="Czas ważności linku"
+                  value={shareValidityKey}
+                  onChange={(e) => setShareValidityKey(e.target.value)}
+                  style={{ width: 'auto' }}
+                  disabled={isCreatingShareLink}
                 >
-                  {isVerifying2fa ? 'Weryfikacja...' : 'Aktywuj 2FA'}
+                  <option value="24h">Link ważny 24 godziny</option>
+                  <option value="7d">Link ważny 7 dni</option>
+                  <option value="30d">Link ważny 30 dni</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleCreateShareLink}
+                  disabled={isCreatingShareLink}
+                >
+                  {isCreatingShareLink ? 'Tworzenie...' : '🔗 Utwórz link'}
                 </button>
               </div>
-            </form>
-          )}
-        </div>
+
+              {sharedReports.length > 0 && (
+                <div style={{ marginBottom: '24px' }}>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                    Historia udostępnień:
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {sharedReports.map((share) => (
+                      <div
+                        key={share.id}
+                        style={{
+                          display: 'flex',
+                          gap: '12px',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          fontSize: '0.85rem',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          background: 'var(--bg-secondary)'
+                        }}
+                      >
+                        <span>Utworzono: {formatShareDate(share.createdAt)}</span>
+                        <span>Dane: {share.days} dni</span>
+                        <span>Ważny do: {formatShareDate(share.expiresAt)}</span>
+                        <span>Status: {SHARE_STATUS_LABELS[share.status] || share.status}</span>
+                        {share.status === 'active' && (
+                          <button
+                            type="button"
+                            className="btn-danger"
+                            style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: '0.8rem' }}
+                            onClick={() => handleRevokeShareLink(share.id)}
+                          >
+                            Odwołaj
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {sharedReports.length === 0 && !isLoadingSharedReports && (
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '24px' }}>
+                  Brak utworzonych linków udostępniania.
+                </p>
+              )}
+
+              <h4 style={{ fontSize: '1rem', color: 'var(--danger)', marginBottom: '8px' }}>Usunięcie konta</h4>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                Trwale usuwa Twoje konto i wszystkie powiązane dane (posiłki, ustawienia, historię zdrowotną, połączenia Oura/Withings/Google). Tej operacji nie można odwrócić.
+              </p>
+
+              {deleteMessage.text && (
+                <div className={`alert alert-${deleteMessage.type}`} style={{ marginBottom: '16px' }}>
+                  {deleteMessage.text}
+                </div>
+              )}
+
+              <form onSubmit={handleDeleteAccount} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div className="input-group">
+                  <label className="input-label">Potwierdź hasłem</label>
+                  <input
+                    type="password"
+                    className="input-field"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <button type="submit" className="btn-danger" disabled={isDeletingAccount}>
+                  {isDeletingAccount ? 'Usuwanie...' : 'Usuń moje konto na zawsze'}
+                </button>
+              </form>
+            </div>
+          </div>
 
         </div>
 

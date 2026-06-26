@@ -1744,43 +1744,6 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
         </div>
 
-        {/* CIŚNIENIE TĘTNICZE - dodane pod kartą snu na stronie głównej, na życzenie
-            użytkownika. Dane (blood_pressure_systolic/diastolic) pochodzą z tego samego
-            obiektu `summary` co sleepScore powyżej, więc nie wymaga to nowych zapytań API. */}
-        <div className="premium-card">
-          <div className="premium-title-row">
-            <span className="premium-title">🩺 Ciśnienie tętnicze</span>
-            <span className="premium-title-info">ⓘ</span>
-          </div>
-
-          {summary.blood_pressure_systolic !== null && summary.blood_pressure_systolic !== undefined ? (
-            (() => {
-              const sys = summary.blood_pressure_systolic;
-              const dia = summary.blood_pressure_diastolic;
-              let color = 'var(--success-light)';
-              let label = 'Optymalne';
-              if (sys >= 140 || dia >= 90) { color = 'var(--danger-light)'; label = 'Wysokie'; }
-              else if (sys >= 130 || dia >= 80) { color = '#fbbf24'; label = 'Podwyższone'; }
-              else if (sys >= 120) { color = '#fbbf24'; label = 'Prawidłowe wysokie'; }
-              return (
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', margin: '8px 0' }}>
-                  <span style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>
-                    {sys}/{dia}
-                  </span>
-                  <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)' }}>mmHg</span>
-                  <span style={{ fontSize: '0.8rem', fontWeight: '700', color, marginLeft: 'auto' }}>
-                    {label}
-                  </span>
-                </div>
-              );
-            })()
-          ) : (
-            <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.3)', margin: '8px 0' }}>
-              Brak danych (zsynchronizuj Withings, by zobaczyć pomiar ciśnienia)
-            </p>
-          )}
-        </div>
-
       </div>
 
       <div className="dashboard-column">
@@ -2275,6 +2238,41 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
         </div>
         )}
+
+        {/* CIŚNIENIE TĘTNICZE - przeniesione pod strefy tętna w prawej kolumnie na życzenie użytkownika */}
+        <div className="premium-card">
+          <div className="premium-title-row">
+            <span className="premium-title">🩺 Ciśnienie tętnicze</span>
+            <span className="premium-title-info">ⓘ</span>
+          </div>
+
+          {summary.blood_pressure_systolic !== null && summary.blood_pressure_systolic !== undefined ? (
+            (() => {
+              const sys = summary.blood_pressure_systolic;
+              const dia = summary.blood_pressure_diastolic;
+              let color = 'var(--success-light)';
+              let label = 'Optymalne';
+              if (sys >= 140 || dia >= 90) { color = 'var(--danger-light)'; label = 'Wysokie'; }
+              else if (sys >= 130 || dia >= 80) { color = '#fbbf24'; label = 'Podwyższone'; }
+              else if (sys >= 120) { color = '#fbbf24'; label = 'Prawidłowe wysokie'; }
+              return (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', margin: '8px 0' }}>
+                  <span style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>
+                    {sys}/{dia}
+                  </span>
+                  <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)' }}>mmHg</span>
+                  <span style={{ fontSize: '0.8rem', fontWeight: '700', color, marginLeft: 'auto' }}>
+                    {label}
+                  </span>
+                </div>
+              );
+            })()
+          ) : (
+            <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.3)', margin: '8px 0' }}>
+              Brak danych (zsynchronizuj Withings, by zobaczyć pomiar ciśnienia)
+            </p>
+          )}
+        </div>
       </div>
 
 

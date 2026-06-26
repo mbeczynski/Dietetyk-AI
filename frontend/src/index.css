@@ -834,6 +834,13 @@ header {
   align-items: start;
 }
 
+.settings-right-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
 .activity-charts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
@@ -1624,6 +1631,9 @@ header {
      nie szła nadpisać tu bez podniesienia jej do klasy .settings-main-grid -
      patrz Settings.jsx. */
   .settings-main-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .settings-right-grid {
     grid-template-columns: 1fr !important;
   }
 }

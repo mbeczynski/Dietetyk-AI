@@ -21,6 +21,14 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   const [isSyncing, setIsSyncing] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
+  // Zwijalne pola poświadczeń integracji (UX: runda 7) - gdy integracja jest już
+  // połączona, pola Client ID/Secret i instrukcje nie muszą rzucać się w oczy,
+  // więc startują zwinięte za "Zaawansowane". Gdy NIE jest połączona, muszą być
+  // od razu widoczne, bo użytkownik musi je wypełnić, żeby połączyć.
+  const [isOuraAdvancedOpen, setIsOuraAdvancedOpen] = useState(!userProfile.has_oura);
+  const [isWithingsAdvancedOpen, setIsWithingsAdvancedOpen] = useState(!userProfile.has_withings);
+  const [isAppleHealthInstructionsOpen, setIsAppleHealthInstructionsOpen] = useState(false);
+
   // Stan avatara i profilu
   const [avatarMessage, setAvatarMessage] = useState({ type: '', text: '' });
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -1703,7 +1711,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                     style={{ flex: '1 1 280px' }}
                     aria-label="Link udostępniania raportu"
                   />
-                  <button type="button" className="btn-secondary" onClick={handleCopyShareLink}>
+                  <button type="button" className="btn-secondary" onClick={handleCopyShareLink} aria-label="Kopiuj link do schowka">
                     📋 Kopiuj
                   </button>
                 </div>
@@ -1962,7 +1970,17 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '12px' }}>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setIsOuraAdvancedOpen(o => !o)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsOuraAdvancedOpen(o => !o); } }}
+              style={{ fontSize: '0.8rem', color: '#60a5fa', cursor: 'pointer', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '12px' }}
+            >
+              {isOuraAdvancedOpen ? '▲ Zwiń ustawienia Oura' : '▼ Zaawansowane (Client ID/Secret)'}
+            </div>
+            {isOuraAdvancedOpen && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                 <div className="input-group">
                   <label className="input-label" style={{ fontSize: '0.8rem' }}>Oura Client ID</label>
@@ -1990,12 +2008,13 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 </div>
               </div>
               <div style={{ fontSize: '0.8rem', color: '#fbbf24', background: 'rgba(251, 191, 36, 0.05)', border: '1px solid rgba(251, 191, 36, 0.15)', padding: '10px', borderRadius: '8px', marginTop: '4px', lineHeight: '1.4' }}>
-                ⚠️ <strong>Ważne:</strong> Upewnij się, że w konfiguracji Twojej aplikacji na 
+                ⚠️ <strong>Ważne:</strong> Upewnij się, że w konfiguracji Twojej aplikacji na
                 <a href="https://cloud.ouraring.com/developer/manage" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'underline', marginLeft: '4px', marginRight: '4px' }}>
                   Oura Developer Portal
                 </a> zaznaczyłeś zakresy (scopes) <strong>"daily"</strong> (dane dobowe), <strong>"heartrate"</strong> oraz <strong>"personal"</strong>. Bez tych zakresów API Oura zwróci błąd autoryzacji (401 - Token is not authorized access daily scope) i pobranie parametrów snu, gotowości oraz aktywności nie powiedzie się. Po zmianie zakresów na portalu Oura, odłącz i połącz Oura ponownie w aplikacji.
               </div>
             </div>
+            )}
           </div>
 
           {/* Withings */}
@@ -2043,7 +2062,17 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '12px' }}>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setIsWithingsAdvancedOpen(o => !o)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsWithingsAdvancedOpen(o => !o); } }}
+              style={{ fontSize: '0.8rem', color: '#60a5fa', cursor: 'pointer', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '12px' }}
+            >
+              {isWithingsAdvancedOpen ? '▲ Zwiń ustawienia Withings' : '▼ Zaawansowane (Client ID/Secret)'}
+            </div>
+            {isWithingsAdvancedOpen && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                 <div className="input-group">
                   <label className="input-label" style={{ fontSize: '0.8rem' }}>Withings Client ID</label>
@@ -2086,6 +2115,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 </div>
               </div>
             </div>
+            )}
           </div>
 
           {/* Apple Health (poprzez Health Auto Export) */}
@@ -2136,6 +2166,16 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 </button>
               </div>
 
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setIsAppleHealthInstructionsOpen(o => !o)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsAppleHealthInstructionsOpen(o => !o); } }}
+                style={{ fontSize: '0.8rem', color: '#60a5fa', cursor: 'pointer' }}
+              >
+                {isAppleHealthInstructionsOpen ? '▲ Zwiń instrukcję' : '▼ Pokaż instrukcję konfiguracji (Health Auto Export)'}
+              </div>
+              {isAppleHealthInstructionsOpen && (
               <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', lineHeight: '1.6' }}>
                 <strong style={{ color: 'var(--text-muted)' }}>Konfiguracja w apce Health Auto Export (iOS):</strong>
                 <ol style={{ margin: '6px 0 0', paddingLeft: '20px' }}>
@@ -2146,6 +2186,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                   <li>Ustaw harmonogram automatycznego wysyłania (np. co godzinę) lub wysyłaj ręcznie.</li>
                 </ol>
               </div>
+              )}
             </div>
           </div>
 

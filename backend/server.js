@@ -72,6 +72,13 @@ app.use(require('./routes/healthcheck'));
 // patrz routes/appleHealth.js), a nie sesję/ciasteczko jak resztę /api/.
 app.use(require('./routes/appleHealth'));
 
+// Publiczny, nieuwierzytelniony odbiór udostępnionego raportu PDF (Produkt:
+// udostępnianie raportu linkiem) - z tych samych powodów musi być zamontowany PRZED
+// requireAuth: token w adresie URL (patrz routes/sharedReport.js i
+// services/sharedReports.js) jest jedyną autoryzacją tego endpointu, bo odbiorca
+// linku (lekarz/dietetyk) nie ma konta w aplikacji.
+app.use(require('./routes/sharedReport'));
+
 // Zabezpieczenie wszystkich tras /api/ za pomocą middleware
 app.use('/api', requireAuth);
 

@@ -12,7 +12,10 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
     target_steps: 10000,
     target_active_calories: 500,
     target_sleep_duration: 7.2,
-    target_active_minutes: 30
+    target_active_minutes: 30,
+    // 0 = brak ustawionego celu wagowego (pole opcjonalne, w przeciwieństwie do
+    // pozostałych celów aktywności, które zawsze mają sensowną wartość domyślną).
+    target_weight_kg: 0
   });
   const [isSavingGoals, setIsSavingGoals] = useState(false);
   const [goalsMessage, setGoalsMessage] = useState({ type: '', text: '' });
@@ -29,7 +32,8 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
         target_steps: summary.target_steps ?? 10000,
         target_active_calories: summary.target_active_calories ?? 500,
         target_sleep_duration: summary.target_sleep_duration ?? 7.2,
-        target_active_minutes: summary.target_active_minutes ?? 30
+        target_active_minutes: summary.target_active_minutes ?? 30,
+        target_weight_kg: summary.target_weight_kg ?? 0
       });
     }
   }, [summary]);
@@ -466,8 +470,11 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
     );
   };
 
-  // Prognoza trendu wagi na podstawie regresji liniowej z danych historycznych
-  const computeWeightForecast = (data, daysAhead) => {
+  // Prognoza trendu wagi na podstawie regresji liniowej z danych historycznych.
+  // targetWeight (opcjonalny, kg) - jeśli podany (>0), funkcja dodatkowo liczy,
+  // za ile dni/kiedy linia trendu przetnie wagę docelową ("prognoza do celu"),
+  // a nie tylko wagę za sztywne `daysAhead` dni.
+  const computeWeightForecast = (data, daysAhead, targetWeight) => {
     const validData = data
       .filter(d => d.weight !== null && d.weight !== undefined && d.date)
       .map(d => ({ date: d.date, weight: d.weight }))
@@ -500,15 +507,49 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
     const currentWeight = validData[validData.length - 1].weight;
     const deltaPerWeek = slope * 7;
 
+    // "Prognoza do celu" - data, kiedy linia trendu przetnie wagę docelową.
+    // Liczymy tylko jeśli cel jest realnie ustawiony (>0) i trend nie jest
+    // płaski (slope !== 0, inaczej linia nigdy nie dotknie celu).
+    let goalWeight = null;
+    let goalEtaDays = null;
+    let goalDate = null;
+    let goalMovingAway = false;
+    let goalTooFar = false;
+
+    if (targetWeight && targetWeight > 0 && slope !== 0) {
+      goalWeight = targetWeight;
+      const goalX = (targetWeight - intercept) / slope;
+      const daysFromNow = goalX - lastX;
+
+      if (daysFromNow <= 0) {
+        // Cel byłby "w przeszłości" względem ostatniego pomiaru - trend
+        // oddala się od celu (np. cel to spadek wagi, a waga rośnie).
+        goalMovingAway = true;
+      } else if (daysFromNow > 3650) {
+        // Trend zbyt płaski/odległy, żeby sensownie podać konkretną datę
+        // (>10 lat ekstrapolacji z kilkutygodniowych danych byłoby mylące).
+        goalTooFar = true;
+      } else {
+        goalEtaDays = Math.round(daysFromNow);
+        const goalTime = baseTime + (lastX + daysFromNow) * msPerDay;
+        goalDate = new Date(goalTime).toISOString().split('T')[0];
+      }
+    }
+
     return {
       forecastWeight: Math.round(forecastWeight * 10) / 10,
       currentWeight,
       deltaPerWeek: Math.round(deltaPerWeek * 100) / 100,
-      daysAhead
+      daysAhead,
+      goalWeight,
+      goalEtaDays,
+      goalDate,
+      goalMovingAway,
+      goalTooFar
     };
   };
 
-  const weightForecast = computeWeightForecast(historyData, 30);
+  const weightForecast = computeWeightForecast(historyData, 30, goals.target_weight_kg);
 
   // Fazy snu w czasie - "lekki sen" nie jest zapisywany jako osobna kolumna,
   // wyliczamy go z realnych danych (całkowity czas snu minus głęboki i REM)
@@ -533,7 +574,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
             <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>💍</span> Oura Ring Status
             </h3>
-            <span style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', background: userProfile?.has_oura ? 'rgba(52, 211, 153, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: userProfile?.has_oura ? '#34d399' : '#f87171' }}>
+            <span style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', background: userProfile?.has_oura ? 'rgba(52, 211, 153, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: userProfile?.has_oura ? 'var(--success-light)' : 'var(--danger-light)' }}>
               {userProfile?.has_oura ? 'Połączono' : 'Rozłączono'}
             </span>
           </div>
@@ -586,7 +627,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Odchylenie temperatury:</span>
-                  <span style={{ color: summary.temperature_deviation > 0 ? '#f87171' : '#34d399', fontWeight: 600 }}>
+                  <span style={{ color: summary.temperature_deviation > 0 ? 'var(--danger-light)' : 'var(--success-light)', fontWeight: 600 }}>
                     {summary.temperature_deviation != null ? `${summary.temperature_deviation > 0 ? '+' : ''}${summary.temperature_deviation.toFixed(2)} °C` : '--'}
                   </span>
                 </div>
@@ -601,7 +642,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
             <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>⚖️</span> Withings Status
             </h3>
-            <span style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', background: userProfile?.has_withings ? 'rgba(52, 211, 153, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: userProfile?.has_withings ? '#34d399' : '#f87171' }}>
+            <span style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', background: userProfile?.has_withings ? 'rgba(52, 211, 153, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: userProfile?.has_withings ? 'var(--success-light)' : 'var(--danger-light)' }}>
               {userProfile?.has_withings ? 'Połączono' : 'Rozłączono'}
             </span>
           </div>
@@ -636,7 +677,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Masa mięśniowa (Muscle mass):</span>
-                  <span style={{ color: '#34d399', fontWeight: 600 }}>
+                  <span style={{ color: 'var(--success-light)', fontWeight: 600 }}>
                     {summary.muscle_mass != null ? `${summary.muscle_mass.toFixed(1)} kg` : '--'}
                   </span>
                 </div>
@@ -746,11 +787,27 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 required
               />
             </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Waga docelowa (kg, opcjonalnie)</label>
+              {/* Pole opcjonalne (0 = brak celu) - używane do wyliczenia szacowanej
+                  daty osiągnięcia celu na podstawie regresji liniowej z wykresu
+                  "Spalanie Tłuszczu" poniżej (patrz computeWeightForecast). */}
+              <input
+                type="number"
+                step="0.1"
+                className="input-field"
+                style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                value={goals.target_weight_kg}
+                onChange={(e) => setGoals({...goals, target_weight_kg: Number(e.target.value)})}
+                min="0"
+                placeholder="np. 75"
+              />
+            </div>
             <button type="submit" className="btn-primary" style={{ padding: '6px 12px', fontSize: '0.85rem', marginTop: '6px', height: '34px' }} disabled={isSavingGoals}>
               {isSavingGoals ? 'Zapisywanie...' : 'Zapisz cele'}
             </button>
             {goalsMessage.text && (
-              <div style={{ fontSize: '0.8rem', color: goalsMessage.type === 'success' ? '#34d399' : '#f87171', textAlign: 'center', marginTop: '4px' }}>
+              <div style={{ fontSize: '0.8rem', color: goalsMessage.type === 'success' ? 'var(--success-light)' : 'var(--danger-light)', textAlign: 'center', marginTop: '4px' }}>
                 {goalsMessage.text}
               </div>
             )}
@@ -759,7 +816,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
       </div>
 
       {/* 2. Wykresy trendów z 30 dni (Spalanie Tłuszczu i Masa Mięśniowa) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px', marginTop: '10px' }}>
+      <div className="activity-charts-grid">
         
         {/* Wykres 1: Spalanie Tłuszczu (Waga i Fat %) */}
         <div className="glass-card">
@@ -779,12 +836,36 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
               <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
                 📐 Prognoza (regresja liniowa) na {weightForecast.daysAhead} dni:
               </span>
-              <span style={{ fontSize: '0.85rem', fontWeight: '700', color: weightForecast.deltaPerWeek < 0 ? '#34d399' : weightForecast.deltaPerWeek > 0 ? '#f87171' : '#fff' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: '700', color: weightForecast.deltaPerWeek < 0 ? 'var(--success-light)' : weightForecast.deltaPerWeek > 0 ? 'var(--danger-light)' : '#fff' }}>
                 ~{weightForecast.forecastWeight} kg
                 <span style={{ fontSize: '0.7rem', fontWeight: '500', color: 'var(--text-dim)', marginLeft: '6px' }}>
                   ({weightForecast.deltaPerWeek > 0 ? '+' : ''}{weightForecast.deltaPerWeek} kg/tydz.)
                 </span>
               </span>
+            </div>
+          )}
+          {/* Prognoza "do celu" - osobna linia, bo to inna informacja niż prognoza
+              na sztywne 30 dni powyżej: tu liczymy datę przecięcia linii trendu
+              z wagą docelową ustawioną w formularzu "Cele Aktywności". */}
+          {!isLoadingHistory && weightForecast && weightForecast.goalWeight && (
+            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)', fontSize: '0.75rem', textAlign: 'center' }}>
+              {weightForecast.goalDate && (
+                <span style={{ color: 'var(--text-dim)' }}>
+                  🎯 Przy obecnym tempie cel <strong style={{ color: '#fff' }}>{weightForecast.goalWeight} kg</strong> osiągniesz około{' '}
+                  <strong style={{ color: 'var(--success-light)' }}>{weightForecast.goalDate}</strong>
+                  {' '}(~{weightForecast.goalEtaDays} dni).
+                </span>
+              )}
+              {weightForecast.goalMovingAway && (
+                <span style={{ color: 'var(--danger-light)' }}>
+                  ⚠️ Obecny trend wagi oddala się od celu {weightForecast.goalWeight} kg, nie zbliża.
+                </span>
+              )}
+              {weightForecast.goalTooFar && (
+                <span style={{ color: 'var(--text-dim)' }}>
+                  Trend jest zbyt płaski, aby oszacować realistyczną datę osiągnięcia celu {weightForecast.goalWeight} kg.
+                </span>
+              )}
             </div>
           )}
           {!isLoadingHistory && !weightForecast && historyData.length > 0 && (
@@ -805,7 +886,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
               Ładowanie wykresu...
             </div>
           ) : (
-            renderLineChart(historyData, 'muscle_mass', '#34d399', 'Masa mięśniowa (kg)')
+            renderLineChart(historyData, 'muscle_mass', 'var(--success-light)', 'Masa mięśniowa (kg)')
           )}
         </div>
 
@@ -1020,7 +1101,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
               </button>
             </div>
             {measurementMessage.text && (
-              <div style={{ fontSize: '0.8rem', color: measurementMessage.type === 'success' ? '#34d399' : '#f87171', marginTop: '4px' }}>
+              <div style={{ fontSize: '0.8rem', color: measurementMessage.type === 'success' ? 'var(--success-light)' : 'var(--danger-light)', marginTop: '4px' }}>
                 {measurementMessage.text}
               </div>
             )}
@@ -1032,6 +1113,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
               <strong style={{ fontSize: '0.9rem', color: '#fff' }}>📉 Wykres Trendów Obwodów</strong>
               <select
                 className="input-field"
+                aria-label="Wybierz obwód do wykresu trendu"
                 style={{ width: 'auto', padding: '4px 10px', fontSize: '0.8rem', height: '30px', background: 'var(--bg-glass)', border: '1px solid var(--border-glass)', borderRadius: '6px', color: '#fff' }}
                 value={selectedMeasure}
                 onChange={(e) => setSelectedMeasure(e.target.value)}
@@ -1106,13 +1188,14 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                           style={{
                             background: 'none',
                             border: 'none',
-                            color: '#f87171',
+                            color: 'var(--danger-light)',
                             cursor: 'pointer',
                             padding: '4px',
                             fontSize: '1rem'
                           }}
                           onClick={() => handleDeleteMeasurement(m.id)}
                           title="Usuń pomiar"
+                          aria-label={`Usuń pomiar z dnia ${m.date}`}
                         >
                           🗑️
                         </button>

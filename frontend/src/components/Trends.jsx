@@ -642,7 +642,12 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
       
       <div className="premium-title-row" style={{ padding: '0 4px' }}>
         <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#fff' }}>Twoje wykresy</h2>
-        <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)', cursor: 'pointer' }}>Edytuj</span>
+        {/* "Edytuj" nie ma tu żadnego onClick (sprawdzone w całym pliku) - to martwy
+            element, nie tylko brak aria/role. Dodanie role="button"/tabIndex bez
+            faktycznej akcji byłoby gorsze niż brak interaktywności (czytnik ekranu
+            ogłosiłby przycisk, który nic nie robi po aktywacji) - usuwamy więc tylko
+            mylący wizualny afordans (cursor: pointer), zamiast udawać interaktywność. */}
+        <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)' }}>Edytuj</span>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>

@@ -273,6 +273,139 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const [calorieBalance, setCalorieBalance] = useState(null);
   const [isLoadingComparison, setIsLoadingComparison] = useState(false);
 
+  // Insight: sen -> kalorie/cukier następnego dnia (porównanie opisowe średnich
+  // z ostatnich 90 dni, patrz endpoint /api/dashboard/sleep-insight).
+  const [sleepInsight, setSleepInsight] = useState(null);
+  const [isLoadingSleepInsight, setIsLoadingSleepInsight] = useState(false);
+
+  useEffect(() => {
+    const fetchSleepInsight = async () => {
+      if (!sessionToken) return;
+      setIsLoadingSleepInsight(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/sleep-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setSleepInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu sen-odżywianie:', err);
+      } finally {
+        setIsLoadingSleepInsight(false);
+      }
+    };
+    fetchSleepInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Alert/insight: sód -> ciśnienie (patrz endpoint /api/dashboard/sodium-bp-insight).
+  const [sodiumBpInsight, setSodiumBpInsight] = useState(null);
+
+  useEffect(() => {
+    const fetchSodiumBpInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/sodium-bp-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setSodiumBpInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu sód-ciśnienie:', err);
+      }
+    };
+    fetchSodiumBpInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Wskaźnik regeneracji: HRV/RHR następnego dnia po znaczącym treningu
+  // (patrz endpoint /api/dashboard/recovery-insight).
+  const [recoveryInsight, setRecoveryInsight] = useState(null);
+
+  useEffect(() => {
+    const fetchRecoveryInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/recovery-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setRecoveryInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania wskaźnika regeneracji:', err);
+      }
+    };
+    fetchRecoveryInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Insight: suplementy (wolny tekst) vs sen/regeneracja TEGO SAMEGO dnia
+  // (patrz endpoint /api/dashboard/supplements-sleep-insight) - własna analiza
+  // danych już zbieranych przez aplikację (suplementy + Oura), bez kopiowania
+  // niczego z konkurencyjnych apek.
+  const [supplementsSleepInsight, setSupplementsSleepInsight] = useState(null);
+
+  useEffect(() => {
+    const fetchSupplementsSleepInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/supplements-sleep-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setSupplementsSleepInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu suplementy-sen:', err);
+      }
+    };
+    fetchSupplementsSleepInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Adaptacyjna korekta celu kalorycznego: porównanie deklarowanego bilansu
+  // (z zalogowanych posiłków) z bilansem wynikającym z realnej zmiany wagi
+  // (patrz endpoint /api/dashboard/calorie-target-suggestion). caloriesTrigger
+  // wymusza ponowne pobranie po kliknięciu "Zastosuj", żeby karta zniknęła/
+  // zaktualizowała się bez czekania na pełne odświeżenie strony.
+  const [calorieSuggestion, setCalorieSuggestion] = useState(null);
+  const [caloriesTrigger, setCaloriesTrigger] = useState(0);
+  const [isApplyingCalorieSuggestion, setIsApplyingCalorieSuggestion] = useState(false);
+
+  useEffect(() => {
+    const fetchCalorieSuggestion = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/calorie-target-suggestion${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setCalorieSuggestion(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania korekty celu kalorycznego:', err);
+      }
+    };
+    fetchCalorieSuggestion();
+  }, [sessionToken, selectedDate, caloriesTrigger]);
+
+  const handleApplyCalorieSuggestion = async () => {
+    if (!calorieSuggestion || !calorieSuggestion.suggestedTargetCalories || isApplyingCalorieSuggestion) return;
+    setIsApplyingCalorieSuggestion(true);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`
+        },
+        body: JSON.stringify({ target_calories: calorieSuggestion.suggestedTargetCalories })
+      });
+      if (res.ok) {
+        if (onRefresh) onRefresh();
+        setCaloriesTrigger(t => t + 1);
+      }
+    } catch (err) {
+      console.error('Błąd zapisu nowego celu kalorycznego:', err);
+    } finally {
+      setIsApplyingCalorieSuggestion(false);
+    }
+  };
+
   useEffect(() => {
     const fetchHistory = async () => {
       if (!sessionToken) return;
@@ -410,7 +543,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               <span style={{ width: '6px', height: '6px', background: '#38bdf8', borderRadius: '50%' }}></span> Waga
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-              <span style={{ width: '6px', height: '6px', background: '#34d399', borderRadius: '50%' }}></span> Mięśnie
+              <span style={{ width: '6px', height: '6px', background: 'var(--success-light)', borderRadius: '50%' }}></span> Mięśnie
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
               <span style={{ width: '6px', height: '6px', background: '#fbbf24', borderRadius: '50%' }}></span> Tłuszcz %
@@ -430,7 +563,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <text x={width - paddingRight + 4} y={height - paddingBottom + 3} fill="rgba(255,255,255,0.3)" fontSize="8" textAnchor="start">{Math.round(minRight)}%</text>
 
             {dWeight && <path d={dWeight} fill="none" stroke="#38bdf8" strokeWidth="1.5" strokeLinecap="round" />}
-            {dMuscle && <path d={dMuscle} fill="none" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" />}
+            {dMuscle && <path d={dMuscle} fill="none" stroke="var(--success-light)" strokeWidth="1.5" strokeLinecap="round" />}
             {dFat && <path d={dFat} fill="none" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="3,3" strokeLinecap="round" />}
           </svg>
         </div>
@@ -878,7 +1011,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             {/* Wysiłek */}
             <div className="ring-item">
               <div style={{ position: 'relative', width: 84, height: 84, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <RenderProgressCircle size={84} strokeWidth={7} percentage={effortScore} color={effortScore > 0 ? "#ef4444" : "rgba(255,255,255,0.08)"} />
+                <RenderProgressCircle size={84} strokeWidth={7} percentage={effortScore} color={effortScore > 0 ? "var(--danger)" : "rgba(255,255,255,0.08)"} />
                 <div style={{ position: 'absolute', fontSize: '1.05rem', fontWeight: '800', color: '#fff' }}>
                   {effortScore}%
                 </div>
@@ -981,7 +1114,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                         </span>
                         <span style={{
                           fontWeight: '700',
-                          color: data.calories_change_pct == null ? 'rgba(255,255,255,0.4)' : data.calories_change_pct > 0 ? '#f87171' : data.calories_change_pct < 0 ? '#34d399' : '#fff'
+                          color: data.calories_change_pct == null ? 'rgba(255,255,255,0.4)' : data.calories_change_pct > 0 ? 'var(--danger-light)' : data.calories_change_pct < 0 ? 'var(--success-light)' : '#fff'
                         }}>
                           {data.calories_change_pct == null ? 'brak danych do porównania' : `${data.calories_change_pct > 0 ? '+' : ''}${data.calories_change_pct}% vs poprzedni okres`}
                         </span>
@@ -1006,7 +1139,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                         <span style={{ color: 'rgba(255,255,255,0.6)' }}>
                           Bilans {label} vs cel ({data.days_with_data} {data.days_with_data === 1 ? 'dzień' : 'dni'} z danymi)
                         </span>
-                        <span style={{ fontWeight: '700', color: data.balance_vs_target > 0 ? '#f87171' : data.balance_vs_target < 0 ? '#34d399' : '#fff' }}>
+                        <span style={{ fontWeight: '700', color: data.balance_vs_target > 0 ? 'var(--danger-light)' : data.balance_vs_target < 0 ? 'var(--success-light)' : '#fff' }}>
                           {data.balance_vs_target > 0 ? '+' : ''}{Math.round(data.balance_vs_target)} kcal
                         </span>
                       </div>
@@ -1017,6 +1150,226 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </>
           )}
         </div>
+
+        {/* INSIGHT: SEN -> ODŻYWIANIE NASTĘPNEGO DNIA */}
+        {!isLoadingSleepInsight && sleepInsight && sleepInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">😴 Sen → następny dzień</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Po nocach krócej niż {sleepInsight.sleepThreshold}h (cel snu) vs po nocach z wystarczającym snem - ostatnie 90 dni
+              ({sleepInsight.shortSleepNights} vs {sleepInsight.goodSleepNights} dni z danymi).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  Kalorie: {sleepInsight.avgCaloriesAfterShortSleep} kcal vs {sleepInsight.avgCaloriesAfterGoodSleep} kcal
+                </span>
+                <span style={{ fontWeight: '700', color: sleepInsight.caloriesDiff > 0 ? 'var(--danger-light)' : sleepInsight.caloriesDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                  {sleepInsight.caloriesDiff > 0 ? '+' : ''}{sleepInsight.caloriesDiff} kcal
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  Cukier: {sleepInsight.avgSugarAfterShortSleep}g vs {sleepInsight.avgSugarAfterGoodSleep}g
+                </span>
+                <span style={{ fontWeight: '700', color: sleepInsight.sugarDiff > 0 ? 'var(--danger-light)' : sleepInsight.sugarDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                  {sleepInsight.sugarDiff > 0 ? '+' : ''}{sleepInsight.sugarDiff} g
+                </span>
+              </div>
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              To porównanie dwóch średnich z Twoich danych, nie dowód naukowy - im więcej dni z danymi, tym bardziej wiarygodne.
+            </p>
+          </div>
+        )}
+        {!isLoadingSleepInsight && sleepInsight && !sleepInsight.hasEnoughData && sleepInsight.reason === 'not_enough_nights' && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">😴 Sen → następny dzień</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              Za mało dni z danymi o śnie i posiłkach (min. {sleepInsight.minNightsRequired} w każdej grupie - krótki/wystarczający sen).
+              Obecnie: {sleepInsight.shortSleepNights} vs {sleepInsight.goodSleepNights}.
+            </p>
+          </div>
+        )}
+
+        {/* ALERT/INSIGHT: SÓD -> CIŚNIENIE - karta pojawia się tylko, gdy jest coś
+            realnie do powiedzenia: dzisiejszy sód jest wysoki LUB mamy wystarczającą
+            historię do personalnego porównania. Inaczej karta byłaby pustym szumem
+            na większości dni. */}
+        {sodiumBpInsight && (sodiumBpInsight.today?.isHigh || sodiumBpInsight.insight?.hasEnoughData) && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🧂 Sód → ciśnienie</span>
+            </div>
+            {sodiumBpInsight.today?.isHigh && (
+              <p style={{ fontSize: '0.78rem', color: 'var(--danger-light)', marginTop: '2px', marginBottom: sodiumBpInsight.insight?.hasEnoughData ? '10px' : 0, fontWeight: 600 }}>
+                ⚠️ Dziś spożycie sodu: {sodiumBpInsight.today.sodium} mg - powyżej zalecanego dziennego limitu ({sodiumBpInsight.sodiumThresholdMg} mg, wytyczne WHO/AHA).
+              </p>
+            )}
+            {sodiumBpInsight.insight?.hasEnoughData && (
+              <>
+                <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginBottom: '10px' }}>
+                  Dni z wysokim sodem vs dni z sodem w normie - ciśnienie następnego dnia, ostatnie 90 dni
+                  ({sodiumBpInsight.insight.highSodiumDays} vs {sodiumBpInsight.insight.normalSodiumDays} dni z danymi).
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                      Skurczowe: {sodiumBpInsight.insight.avgSystolicAfterHighSodium} vs {sodiumBpInsight.insight.avgSystolicAfterNormalSodium} mmHg
+                    </span>
+                    <span style={{ fontWeight: '700', color: sodiumBpInsight.insight.systolicDiff > 0 ? 'var(--danger-light)' : sodiumBpInsight.insight.systolicDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                      {sodiumBpInsight.insight.systolicDiff > 0 ? '+' : ''}{sodiumBpInsight.insight.systolicDiff} mmHg
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                      Rozkurczowe: {sodiumBpInsight.insight.avgDiastolicAfterHighSodium} vs {sodiumBpInsight.insight.avgDiastolicAfterNormalSodium} mmHg
+                    </span>
+                    <span style={{ fontWeight: '700', color: sodiumBpInsight.insight.diastolicDiff > 0 ? 'var(--danger-light)' : sodiumBpInsight.insight.diastolicDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                      {sodiumBpInsight.insight.diastolicDiff > 0 ? '+' : ''}{sodiumBpInsight.insight.diastolicDiff} mmHg
+                    </span>
+                  </div>
+                </div>
+                <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+                  Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* WSKAŹNIK REGENERACJI: HRV/RHR PO TRENINGU */}
+        {recoveryInsight && recoveryInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔄 Regeneracja po treningu</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              {/* Próg "znaczącego" treningu (20 min) jest ustalony w backendzie
+                  (SIGNIFICANT_WORKOUT_MIN_MINUTES w dashboard.js) - tu tylko opisowo. */}
+              Dzień po znaczącym treningu (min. 20 min) vs zwykłe dni - ostatnie 90 dni
+              ({recoveryInsight.postWorkoutDays} vs {recoveryInsight.otherDays} dni z danymi).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  HRV: {recoveryInsight.avgHrvPostWorkout} vs {recoveryInsight.avgHrvOtherDays} ms
+                </span>
+                <span style={{ fontWeight: '700', color: recoveryInsight.hrvDiff < 0 ? 'var(--danger-light)' : recoveryInsight.hrvDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                  {recoveryInsight.hrvDiff > 0 ? '+' : ''}{recoveryInsight.hrvDiff} ms
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  RHR: {recoveryInsight.avgRhrPostWorkout} vs {recoveryInsight.avgRhrOtherDays} bpm
+                </span>
+                <span style={{ fontWeight: '700', color: recoveryInsight.rhrDiff > 0 ? 'var(--danger-light)' : recoveryInsight.rhrDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                  {recoveryInsight.rhrDiff > 0 ? '+' : ''}{recoveryInsight.rhrDiff} bpm
+                </span>
+              </div>
+            </div>
+            {recoveryInsight.latest && (
+              <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.05)', marginBottom: 0 }}>
+                Ostatni trening ({recoveryInsight.latest.workoutDate}): regeneracja {recoveryInsight.latest.recoveryDate} -
+                HRV {recoveryInsight.latest.hrv} ms, RHR {recoveryInsight.latest.rhr} bpm.
+              </p>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie diagnoza medyczna.
+            </p>
+          </div>
+        )}
+
+        {/* SUPLEMENTY VS SEN/REGENERACJA */}
+        {supplementsSleepInsight && supplementsSleepInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💊 Suplementy vs sen i regeneracja</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Dni z danym suplementem vs bez niego, ten sam dzień - ostatnie {supplementsSleepInsight.lookbackDays} dni.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {supplementsSleepInsight.findings.map((f) => (
+                <div key={f.supplement} style={{ paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#fff', marginBottom: '4px' }}>
+                    {f.supplement} <span style={{ fontWeight: '400', color: 'rgba(255,255,255,0.4)' }}>({f.daysWith} vs {f.daysWithout} dni)</span>
+                  </div>
+                  {f.sleepScoreDiff != null && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                        Sen: {f.avgSleepScoreWith} vs {f.avgSleepScoreWithout}
+                      </span>
+                      <span style={{ fontWeight: '700', color: f.sleepScoreDiff < 0 ? 'var(--danger-light)' : f.sleepScoreDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                        {f.sleepScoreDiff > 0 ? '+' : ''}{f.sleepScoreDiff}
+                      </span>
+                    </div>
+                  )}
+                  {f.readinessScoreDiff != null && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                        Gotowość: {f.avgReadinessScoreWith} vs {f.avgReadinessScoreWithout}
+                      </span>
+                      <span style={{ fontWeight: '700', color: f.readinessScoreDiff < 0 ? 'var(--danger-light)' : f.readinessScoreDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                        {f.readinessScoreDiff > 0 ? '+' : ''}{f.readinessScoreDiff}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie dowód skuteczności suplementu.
+            </p>
+          </div>
+        )}
+
+        {/* ADAPTACYJNA KOREKTA CELU KALORYCZNEGO */}
+        {calorieSuggestion && calorieSuggestion.hasEnoughData && calorieSuggestion.suggestionNeeded && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🎯 Adaptacyjna korekta celu kalorycznego</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Twój zalogowany bilans i bilans wynikający z realnej zmiany wagi (ostatnie ~3 tygodnie) rozjeżdżają się.
+              To zwykle oznacza niedoszacowane porcje albo nieuwzględnione podjadanie, nie błędnie ustawiony cel.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Bilans z logów</span>
+                <span style={{ fontWeight: '700', color: '#fff' }}>{calorieSuggestion.loggedDailyBalance > 0 ? '+' : ''}{calorieSuggestion.loggedDailyBalance} kcal/dzień</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Bilans z realnej wagi</span>
+                <span style={{ fontWeight: '700', color: '#fff' }}>{calorieSuggestion.actualDailyBalance > 0 ? '+' : ''}{calorieSuggestion.actualDailyBalance} kcal/dzień</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginTop: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Obecny cel</span>
+                <span style={{ color: '#fff' }}>{calorieSuggestion.currentTargetCalories} kcal</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Sugerowany cel</span>
+                <span style={{ fontWeight: '700', color: 'var(--success-light)' }}>{calorieSuggestion.suggestedTargetCalories} kcal</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleApplyCalorieSuggestion}
+              disabled={isApplyingCalorieSuggestion}
+              style={{ marginTop: '12px', width: '100%', padding: '8px 14px', fontSize: '0.85rem' }}
+            >
+              {isApplyingCalorieSuggestion ? 'Zapisywanie...' : `Zastosuj cel ${calorieSuggestion.suggestedTargetCalories} kcal`}
+            </button>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Sugestia oparta na Twoich danych z ostatnich tygodni, nie porada medyczna. Zawsze możesz ustawić cel ręcznie w Aktywności.
+            </p>
+          </div>
+        )}
 
         {/* LICZNIK WODY - szybkie dodawanie */}
         <div className="premium-card">
@@ -1101,7 +1454,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
 
           {waterMessage && (
-            <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#ef4444' }}>
+            <div style={{ marginTop: '8px', fontSize: '0.75rem', color: 'var(--danger)' }}>
               {waterMessage}
             </div>
           )}
@@ -1167,7 +1520,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               }}
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.75rem', color: supplementsMessage.type === 'success' ? '#10b981' : supplementsMessage.type === 'error' ? '#ef4444' : 'rgba(255,255,255,0.3)' }}>
+              <span style={{ fontSize: '0.75rem', color: supplementsMessage.type === 'success' ? 'var(--color-secondary)' : supplementsMessage.type === 'error' ? 'var(--danger)' : 'rgba(255,255,255,0.3)' }}>
                 {supplementsMessage.text || 'Zapisz, aby AI wzięło je pod uwagę'}
               </span>
               <button
@@ -1195,7 +1548,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                     <span style={{ fontSize: '0.8rem', color: 'rgba(255, 255, 255, 0.6)', fontWeight: '600' }}>
                       Historia suplementacji
                     </span>
-                    <span style={{ fontSize: '0.7rem', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '10px', fontWeight: '700' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--color-secondary)', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '10px', fontWeight: '700' }}>
                       Aktywność: {complianceDays}/7 dni
                     </span>
                   </div>
@@ -1404,9 +1757,9 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             (() => {
               const sys = summary.blood_pressure_systolic;
               const dia = summary.blood_pressure_diastolic;
-              let color = '#34d399';
+              let color = 'var(--success-light)';
               let label = 'Optymalne';
-              if (sys >= 140 || dia >= 90) { color = '#f87171'; label = 'Wysokie'; }
+              if (sys >= 140 || dia >= 90) { color = 'var(--danger-light)'; label = 'Wysokie'; }
               else if (sys >= 130 || dia >= 80) { color = '#fbbf24'; label = 'Podwyższone'; }
               else if (sys >= 120) { color = '#fbbf24'; label = 'Prawidłowe wysokie'; }
               return (
@@ -1441,7 +1794,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           <div style={{ display: 'flex', alignItems: 'center', gap: '24px', margin: '8px 0' }}>
             <div style={{ position: 'relative', width: 92, height: 92, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               {/* Calories circular gauge */}
-              <RenderProgressCircle size={92} strokeWidth={8} percentage={Math.min((eatenCalories / (targetCalories || 2000)) * 100, 100)} color="#10b981" />
+              <RenderProgressCircle size={92} strokeWidth={8} percentage={Math.min((eatenCalories / (targetCalories || 2000)) * 100, 100)} color="var(--color-secondary)" />
               <div style={{ position: 'absolute', textAlign: 'center' }}>
                 <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>
                   {eatenCalories}
@@ -1531,7 +1884,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                       <span style={{ fontWeight: '700' }}>{muscleMass > 0 ? `${muscleMass} kg` : '--'} ({musclePercentage}%)</span>
                     </div>
                     <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', background: '#34d399', width: `${musclePercentage}%` }}></div>
+                      <div style={{ height: '100%', background: 'var(--success-light)', width: `${musclePercentage}%` }}></div>
                     </div>
                   </div>
                   <div>
@@ -1563,7 +1916,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>
               <span>Wskaźnik BMI</span>
               {bmiValue !== null ? (
-                <span style={{ color: '#34d399', fontWeight: '600' }}>
+                <span style={{ color: 'var(--success-light)', fontWeight: '600' }}>
                   {bmiValue} ({bmiCategory})
                 </span>
               ) : (
@@ -1578,9 +1931,9 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 {(() => {
                   const sys = summary.blood_pressure_systolic;
                   const dia = summary.blood_pressure_diastolic;
-                  let color = '#34d399';
+                  let color = 'var(--success-light)';
                   let label = 'Optymalne';
-                  if (sys >= 140 || dia >= 90) { color = '#f87171'; label = 'Wysokie'; }
+                  if (sys >= 140 || dia >= 90) { color = 'var(--danger-light)'; label = 'Wysokie'; }
                   else if (sys >= 130 || dia >= 80) { color = '#fbbf24'; label = 'Podwyższone'; }
                   else if (sys >= 120) { color = '#fbbf24'; label = 'Prawidłowe wysokie'; }
                   return (
@@ -1635,7 +1988,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               <>
                 <span className="energy-battery-pct">{batteryPct}%</span>
                 {batteryDelta !== null ? (
-                  <span style={{ fontSize: '0.75rem', color: batteryDelta >= 0 ? '#10b981' : '#f87171', fontWeight: '700' }}>
+                  <span style={{ fontSize: '0.75rem', color: batteryDelta >= 0 ? 'var(--color-secondary)' : 'var(--danger-light)', fontWeight: '700' }}>
                     {batteryDelta >= 0 ? '+' : ''}{batteryDelta}% vs wczoraj
                   </span>
                 ) : (
@@ -1656,20 +2009,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}>😮‍💨 Poziom stresu (Oura)</span>
                 {stressSummary && (
-                  <span style={{ fontSize: '0.75rem', fontWeight: '700', color: stressSummary === 'stressful' ? '#f87171' : stressSummary === 'restored' ? '#34d399' : '#fbbf24' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '700', color: stressSummary === 'stressful' ? 'var(--danger-light)' : stressSummary === 'restored' ? 'var(--success-light)' : '#fbbf24' }}>
                     {stressSummaryLabels[stressSummary] || stressSummary}
                   </span>
                 )}
               </div>
               <div style={{ display: 'flex', gap: '16px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '1rem', fontWeight: '700', color: '#f87171' }}>
+                  <span style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--danger-light)' }}>
                     {stressHighMinutes != null ? `${stressHighMinutes} min` : '-'}
                   </span>
                   <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)' }}>Stres dzisiaj</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '1rem', fontWeight: '700', color: '#34d399' }}>
+                  <span style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--success-light)' }}>
                     {stressRecoveryMinutes != null ? `${stressRecoveryMinutes} min` : '-'}
                   </span>
                   <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)' }}>Regeneracja dzisiaj</span>
@@ -1711,7 +2064,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               </div>
               {(activeMinutes > 0 || lowActivityMinutes > 0 || sedentaryMinutes > 0) && (
                 <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', marginTop: '4px', background: 'rgba(255,255,255,0.05)' }}>
-                  {activeMinutes > 0 && <div style={{ background: '#ef4444', flex: activeMinutes }}></div>}
+                  {activeMinutes > 0 && <div style={{ background: 'var(--danger)', flex: activeMinutes }}></div>}
                   {lowActivityMinutes > 0 && <div style={{ background: '#fbbf24', flex: lowActivityMinutes }}></div>}
                   {sedentaryMinutes > 0 && <div style={{ background: 'rgba(255,255,255,0.15)', flex: sedentaryMinutes }}></div>}
                 </div>
@@ -1891,7 +2244,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '6px 8px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', borderLeft: '3px solid #34d399' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.8rem', fontWeight: '600', color: '#fff' }}>Strefa 2 (Spalanie Tłuszczu)</span>
-                <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#34d399' }}>{hrZone2Min}-{hrZone2Max} bpm</span>
+                <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--success-light)' }}>{hrZone2Min}-{hrZone2Max} bpm</span>
               </div>
               <span style={{ fontSize: '0.68rem', color: 'rgba(255, 255, 255, 0.4)' }}>Baza tlenowa, optymalne spalanie tłuszczu</span>
             </div>
@@ -1907,7 +2260,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '6px 8px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', borderLeft: '3px solid #f87171' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.8rem', fontWeight: '600', color: '#fff' }}>Strefa 4 (Próg / Threshold)</span>
-                <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#f87171' }}>{hrZone4Min}-{hrZone4Max} bpm</span>
+                <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--danger-light)' }}>{hrZone4Min}-{hrZone4Max} bpm</span>
               </div>
               <span style={{ fontSize: '0.68rem', color: 'rgba(255, 255, 255, 0.4)' }}>Budowanie wytrzymałości beztlenowej</span>
             </div>
@@ -1915,7 +2268,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '6px 8px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', borderLeft: '3px solid #ef4444' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.8rem', fontWeight: '600', color: '#fff' }}>Strefa 5 (Maks. Wysiłek)</span>
-                <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#ef4444' }}>{hrZone5Min}-{userMaxHr} bpm</span>
+                <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--danger)' }}>{hrZone5Min}-{userMaxHr} bpm</span>
               </div>
               <span style={{ fontSize: '0.68rem', color: 'rgba(255, 255, 255, 0.4)' }}>Trening beztlenowy, interwały, maksymalna wydolność</span>
             </div>

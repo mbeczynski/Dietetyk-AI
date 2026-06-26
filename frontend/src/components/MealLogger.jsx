@@ -4,7 +4,12 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
   const [mealText, setMealText] = useState('');
   const [imageSrc, setImageSrc] = useState(null);
   const [isCompressing, setIsCompressing] = useState(false);
+  // Komunikat potwierdzający zapisanie posiłku - wcześniej formularz po zapisie
+  // tylko czyścił pola, bez żadnego wyraźnego potwierdzenia sukcesu (jedynym
+  // sygnałem była nowa pozycja na liście posiłków poniżej, łatwa do przeoczenia).
+  const [successMessage, setSuccessMessage] = useState('');
   const fileInputRef = useRef(null);
+  const successTimeoutRef = useRef(null);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -49,14 +54,23 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!mealText.trim() && !imageSrc) return;
-    onAddMeal(mealText, imageSrc);
+    setSuccessMessage('');
+    // onAddMeal (handleAddMeal w App.jsx) zwraca boolean - pokazujemy komunikat
+    // sukcesu tylko gdy zapis w backendzie faktycznie się powiódł (nie optymistycznie
+    // od razu po kliknięciu), żeby nie potwierdzać czegoś, co mogło się nie udać.
+    const ok = await onAddMeal(mealText, imageSrc);
     setMealText('');
     setImageSrc(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+    if (ok) {
+      setSuccessMessage('Posiłek zapisany!');
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+      successTimeoutRef.current = setTimeout(() => setSuccessMessage(''), 4000);
     }
   };
 
@@ -86,15 +100,19 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
   return (
     <div className="logger-card">
       <div className="glass-card">
-        <h3 className="card-title">✍️ Co dziś jadłeś?</h3>
+        <h3 className="card-title" id="meal-logger-heading">✍️ Co dziś jadłeś?</h3>
         <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
           Wpisz posiłek w języku naturalnym lub <strong>dodaj zdjęcie swojego talerza</strong>. Sztuczna inteligencja automatycznie wyliczy kalorie i makro.
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div className="textarea-wrapper">
+            {/* aria-labelledby wiąże textarea z nagłówkiem sekcji (id="meal-logger-heading")
+                zamiast dublować widoczny tekst w dodatkowym, wizualnie zbędnym <label> -
+                wcześniej pole nie miało żadnej programowej etykiety dla czytników ekranu. */}
             <textarea
               className="meal-input"
+              aria-labelledby="meal-logger-heading"
               value={mealText}
               onChange={(e) => setMealText(e.target.value)}
               placeholder="Opisz swój posiłek (np. 'Kurczak z ryżem i warzywami') lub zostaw puste, jeśli wgrywasz tylko zdjęcie..."
@@ -165,6 +183,12 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
               </div>
             )}
           </div>
+
+          {successMessage && (
+            <div className="alert alert-success" role="status">
+              ✅ {successMessage}
+            </div>
+          )}
 
           <button
             type="submit"
@@ -257,6 +281,30 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
                     <p className="meal-comment">
                       <strong>Dietetyk AI:</strong> {meal.dietician_comment}
                     </p>
+                  )}
+
+                  {/* Detektor anomalii: niezgodność makro/kalorii lub statystyczny odstrój
+                      względem własnej historii posiłków użytkownika (patrz detectMealAnomalies
+                      w backend/routes/meals.js). To opisowe sygnały, nie diagnoza - dlatego
+                      neutralny ton i brak czerwieni "błędu", a kolor ostrzegawczy. */}
+                  {meal.anomalies && meal.anomalies.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {meal.anomalies.map((a, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--text-main)',
+                            background: 'rgba(251, 191, 36, 0.08)',
+                            border: '1px solid rgba(251, 191, 36, 0.3)',
+                            borderRadius: '8px',
+                            padding: '6px 10px'
+                          }}
+                        >
+                          ⚠️ {a.message}
+                        </div>
+                      ))}
+                    </div>
                   )}
 
                   {meal.food_items && meal.food_items.length > 0 && (

@@ -492,9 +492,9 @@ export default function AdminPanel({ sessionToken, onLogout }) {
                           )}
                           <button
                             onClick={() => handleUserAction(u.id, 'delete', `Czy na pewno chcesz usunąć użytkownika ${u.username} i wszystkie jego dane? Tej operacji nie można cofnąć.`)}
-                            className="btn-secondary"
+                            className="btn-danger"
                             disabled={actioningUserId === u.id}
-                            style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)', opacity: actioningUserId === u.id ? 0.5 : 1 }}
+                            style={{ padding: '4px 8px', fontSize: '0.75rem', opacity: actioningUserId === u.id ? 0.5 : 1 }}
                           >
                             Usuń
                           </button>

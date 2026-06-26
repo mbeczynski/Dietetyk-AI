@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const { getLocalDateString } = require('../utils/dates');
 const { getDefaultHealthMetrics } = require('../utils/defaultHealthMetrics');
+const { getCalorieBaseline, detectMealAnomalies } = require('../utils/mealAnomaly');
 const { genAI, generateContentWithFallback } = require('../config');
 
 // Blokada równoległego generowania porady AI dla tej samej (user, data) - bez tego
@@ -109,6 +110,9 @@ router.get('/api/dashboard', async (req, res) => {
 
     // Posiłki z dzisiaj
     const mealRows = await db.all(`SELECT * FROM meals WHERE user_id = ? AND date = ?`, [req.user.id, date]);
+    // Detektor anomalii (patrz utils/mealAnomaly.js) - bazowy rozkład kalorii liczony
+    // RAZ dla całego dnia, z historii PRZED `date`, a nie per posiłek.
+    const calorieBaseline = await getCalorieBaseline(req.user.id, date);
     let totalEaten = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0 };
     const meals = mealRows.map(r => {
       let analysis = {};
@@ -127,7 +131,11 @@ router.get('/api/dashboard', async (req, res) => {
       // Kolumny bazy (po sanityzacji przy zapisie) muszą nadpisać spread z `analysis`
       // (niesanityzowany JSON z AI) - inaczej karta posiłku pokaże inne wartości niż
       // te użyte tuż wyżej do totalEaten.
-      return { id: r.id, raw_text: r.raw_text, timestamp: r.timestamp, image_base64: r.image_base64, ...analysis, calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat };
+      return {
+        id: r.id, raw_text: r.raw_text, timestamp: r.timestamp, image_base64: r.image_base64, ...analysis,
+        calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat,
+        anomalies: detectMealAnomalies({ calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat }, calorieBaseline)
+      };
     });
 
     // Zaokrąglenie makr zjedzonych
@@ -577,6 +585,11 @@ Używaj **pogrubienia** dla kluczowych liczb i fraz w Analizie i Rekomendacjach.
         target_sleep_duration: (settings.target_sleep_duration === undefined || isNaN(settings.target_sleep_duration)) ? 7.2 : settings.target_sleep_duration,
         target_active_minutes: (settings.target_active_minutes === undefined || isNaN(settings.target_active_minutes)) ? 30 : settings.target_active_minutes,
         target_water_ml: (settings.target_water_ml === undefined || isNaN(settings.target_water_ml)) ? 2500 : settings.target_water_ml,
+        // Cel wagowy (kg) - pole opcjonalne (0 = brak ustawionego celu), używane
+        // przez ActivityTracker.jsx do prognozy "do celu" (regresja liniowa).
+        // Bez wpisania tu nie wracałoby z /api/dashboard mimo zapisania w
+        // tabeli settings przez POST /api/settings (patrz account.js).
+        target_weight_kg: (settings.target_weight_kg === undefined || isNaN(settings.target_weight_kg)) ? 0 : settings.target_weight_kg,
         height_cm: isNaN(settings.height_cm) || !settings.height_cm || settings.height_cm <= 0 ? null : settings.height_cm,
         bmr,
         calories_eaten: totalEaten.calories,
@@ -696,6 +709,522 @@ router.get('/api/dashboard/calorie-balance', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd pobierania bilansu kalorycznego.' });
+  }
+});
+
+// Insight: wpływ snu na odżywianie NASTĘPNEGO dnia (kalorie/cukier). Dzielimy
+// noce z danymi o śnie (Oura) na "krótki sen" i "wystarczający sen" względem
+// celu użytkownika (target_sleep_duration, domyślnie 7.2h - ten sam cel co na
+// karcie "Czas snu"), a potem porównujemy średnie spożycie kalorii/cukru
+// następnego dnia w obu grupach. To nie jest test statystyczny - to opisowe
+// porównanie dwóch średnich na realnych danych użytkownika, więc wymagamy
+// minimalnej liczby dni w KAŻDEJ grupie (MIN_NIGHTS_PER_GROUP), inaczej wynik
+// byłby przypadkowy (np. 1 krótka noc z akurat sytą kolacją następnego dnia).
+const MIN_NIGHTS_PER_GROUP = 5;
+const SLEEP_INSIGHT_LOOKBACK_DAYS = 90;
+
+router.get('/api/dashboard/sleep-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -SLEEP_INSIGHT_LOOKBACK_DAYS);
+
+    const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
+    const settings = {};
+    settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
+    const sleepThreshold = isNaN(settings.target_sleep_duration) || !settings.target_sleep_duration
+      ? 7.2
+      : settings.target_sleep_duration;
+
+    // Noce ze znanym czasem snu - data tej noclegówki to dzień, do którego Oura
+    // przypisuje sen (rano po przebudzeniu), więc "następny dzień" w sensie
+    // odżywiania to po prostu data+1.
+    const sleepRows = await db.all(
+      `SELECT date, sleep_duration FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ? AND sleep_duration IS NOT NULL`,
+      [req.user.id, startDate, today]
+    );
+
+    if (sleepRows.length === 0) {
+      return res.json({ hasEnoughData: false, reason: 'no_sleep_data', sleepThreshold });
+    }
+
+    // Posiłki zgrupowane po dniu - potrzebujemy sum kalorii/cukru dla KAŻDEGO
+    // dnia w oknie (+1 dzień ponad zakres snu, żeby objąć "następny dzień" po
+    // ostatniej nocy z danymi).
+    const mealRows = await db.all(
+      `SELECT date, SUM(calories) AS calories, SUM(sugar) AS sugar
+       FROM meals WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date`,
+      [req.user.id, startDate, shiftDate(today, 1)]
+    );
+    const mealsByDate = new Map(mealRows.map(r => [r.date, { calories: r.calories || 0, sugar: r.sugar || 0 }]));
+
+    const shortSleepNext = [];
+    const goodSleepNext = [];
+
+    sleepRows.forEach(row => {
+      const nextDay = shiftDate(row.date, 1);
+      const nextMeals = mealsByDate.get(nextDay);
+      // Dzień bez ŻADNEGO zapisanego posiłku (nie ma wpisu w mealsByDate) nie
+      // wchodzi do porównania - "0 kcal następnego dnia" oznaczałoby tu brak
+      // logowania, nie realny fakt "nic nie jadł", co fałszywie zaniżałoby
+      // średnią danej grupy.
+      if (!nextMeals) return;
+      const bucket = row.sleep_duration < sleepThreshold ? shortSleepNext : goodSleepNext;
+      bucket.push(nextMeals);
+    });
+
+    if (shortSleepNext.length < MIN_NIGHTS_PER_GROUP || goodSleepNext.length < MIN_NIGHTS_PER_GROUP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_nights',
+        sleepThreshold,
+        shortSleepNights: shortSleepNext.length,
+        goodSleepNights: goodSleepNext.length,
+        minNightsRequired: MIN_NIGHTS_PER_GROUP
+      });
+    }
+
+    const avg = (arr, key) => Math.round((arr.reduce((s, x) => s + x[key], 0) / arr.length) * 10) / 10;
+
+    const avgCaloriesShort = avg(shortSleepNext, 'calories');
+    const avgCaloriesGood = avg(goodSleepNext, 'calories');
+    const avgSugarShort = avg(shortSleepNext, 'sugar');
+    const avgSugarGood = avg(goodSleepNext, 'sugar');
+
+    res.json({
+      hasEnoughData: true,
+      sleepThreshold,
+      shortSleepNights: shortSleepNext.length,
+      goodSleepNights: goodSleepNext.length,
+      avgCaloriesAfterShortSleep: avgCaloriesShort,
+      avgCaloriesAfterGoodSleep: avgCaloriesGood,
+      caloriesDiff: Math.round((avgCaloriesShort - avgCaloriesGood) * 10) / 10,
+      avgSugarAfterShortSleep: avgSugarShort,
+      avgSugarAfterGoodSleep: avgSugarGood,
+      sugarDiff: Math.round((avgSugarShort - avgSugarGood) * 10) / 10
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu sen-odżywianie.' });
+  }
+});
+
+// Próg "wysokiego sodu" wg wytycznych WHO/AHA (górna granica dziennego spożycia
+// dla populacji ogólnej) - świadomie NIE jest to ustawienie użytkownika, bo to
+// uznany punkt odniesienia kliniczny, a nie cel personalny jak target_calories.
+const SODIUM_HIGH_THRESHOLD_MG = 2300;
+const MIN_DAYS_PER_SODIUM_GROUP = 5;
+const SODIUM_BP_LOOKBACK_DAYS = 90;
+
+// Alert/insight: sód -> ciśnienie następnego dnia. Dwie niezależne części:
+// 1) "today" - czy DZIŚ spożycie sodu już przekroczyło próg WHO/AHA (działa
+//    od razu, niezależnie od historii - to ostrzeżenie wg wytycznych, nie
+//    odkrycie z danych użytkownika).
+// 2) "insight" - porównanie średniego ciśnienia NASTĘPNEGO dnia po dniach z
+//    wysokim sodem vs dniach z sodem w normie, na bazie realnej historii
+//    użytkownika (Withings) - jak przy insighcie sen->odżywianie, wymaga
+//    minimalnej liczby dni w każdej grupie.
+router.get('/api/dashboard/sodium-bp-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -SODIUM_BP_LOOKBACK_DAYS);
+
+    // Część 1: sód zjedzony dziś (niezależnie od tego, czy mamy już wystarczającą historię).
+    const todayRow = await db.get(
+      `SELECT SUM(sodium) AS sodium FROM meals WHERE user_id = ? AND date = ?`,
+      [req.user.id, today]
+    );
+    const todaySodium = todayRow && todayRow.sodium != null ? Math.round(todayRow.sodium) : null;
+    const todayHighSodium = todaySodium != null && todaySodium >= SODIUM_HIGH_THRESHOLD_MG;
+
+    // Część 2: historia sodu (dzień) -> ciśnienie (dzień+1).
+    const sodiumRows = await db.all(
+      `SELECT date, SUM(sodium) AS sodium FROM meals
+       WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date`,
+      [req.user.id, startDate, today]
+    );
+    const bpRows = await db.all(
+      `SELECT date, blood_pressure_systolic, blood_pressure_diastolic FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ?
+       AND blood_pressure_systolic IS NOT NULL AND blood_pressure_diastolic IS NOT NULL`,
+      [req.user.id, startDate, shiftDate(today, 1)]
+    );
+    const bpByDate = new Map(bpRows.map(r => [r.date, { sys: r.blood_pressure_systolic, dia: r.blood_pressure_diastolic }]));
+
+    const highSodiumNext = [];
+    const normalSodiumNext = [];
+
+    sodiumRows.forEach(row => {
+      if (row.sodium == null) return;
+      const nextDay = shiftDate(row.date, 1);
+      const nextBp = bpByDate.get(nextDay);
+      if (!nextBp) return;
+      const bucket = row.sodium >= SODIUM_HIGH_THRESHOLD_MG ? highSodiumNext : normalSodiumNext;
+      bucket.push(nextBp);
+    });
+
+    let insight;
+    if (highSodiumNext.length < MIN_DAYS_PER_SODIUM_GROUP || normalSodiumNext.length < MIN_DAYS_PER_SODIUM_GROUP) {
+      insight = {
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        highSodiumDays: highSodiumNext.length,
+        normalSodiumDays: normalSodiumNext.length,
+        minDaysRequired: MIN_DAYS_PER_SODIUM_GROUP
+      };
+    } else {
+      const avg = (arr, key) => Math.round((arr.reduce((s, x) => s + x[key], 0) / arr.length) * 10) / 10;
+      const avgSysHigh = avg(highSodiumNext, 'sys');
+      const avgSysNormal = avg(normalSodiumNext, 'sys');
+      const avgDiaHigh = avg(highSodiumNext, 'dia');
+      const avgDiaNormal = avg(normalSodiumNext, 'dia');
+      insight = {
+        hasEnoughData: true,
+        highSodiumDays: highSodiumNext.length,
+        normalSodiumDays: normalSodiumNext.length,
+        avgSystolicAfterHighSodium: avgSysHigh,
+        avgSystolicAfterNormalSodium: avgSysNormal,
+        systolicDiff: Math.round((avgSysHigh - avgSysNormal) * 10) / 10,
+        avgDiastolicAfterHighSodium: avgDiaHigh,
+        avgDiastolicAfterNormalSodium: avgDiaNormal,
+        diastolicDiff: Math.round((avgDiaHigh - avgDiaNormal) * 10) / 10
+      };
+    }
+
+    res.json({
+      sodiumThresholdMg: SODIUM_HIGH_THRESHOLD_MG,
+      today: { sodium: todaySodium, isHigh: todayHighSodium },
+      insight
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu sód-ciśnienie.' });
+  }
+});
+
+// Trening uznajemy za "znaczący" (a nie incydentalną aktywność dnia) od tej
+// liczby minut łącznie w danym dniu (apple_health_workouts.duration_minutes) -
+// to próg odróżniający realny trening od np. krótkiego spaceru zarejestrowanego
+// jako "workout" przez zegarek.
+const SIGNIFICANT_WORKOUT_MIN_MINUTES = 20;
+const MIN_DAYS_PER_RECOVERY_GROUP = 5;
+const RECOVERY_LOOKBACK_DAYS = 90;
+
+// Wskaźnik regeneracji: jak HRV/RHR dnia NASTĘPNEGO po znaczącym treningu
+// wypadają na tle "normalnych" dni użytkownika (bez treningu dzień wcześniej).
+// HRV niższe i/lub RHR wyższe niż baseline po treningu = sygnał niedostatecznej
+// regeneracji (typowo po zbyt intensywnym/częstym treningu); odwrotnie = dobra
+// adaptacja. To opisowe porównanie dwóch średnich z danych Oura użytkownika,
+// nie diagnoza medyczna.
+router.get('/api/dashboard/recovery-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -RECOVERY_LOOKBACK_DAYS);
+
+    const workoutRows = await db.all(
+      `SELECT date, SUM(duration_minutes) AS total_minutes
+       FROM apple_health_workouts WHERE user_id = ? AND date >= ? AND date <= ?
+       GROUP BY date HAVING total_minutes >= ?`,
+      [req.user.id, startDate, today, SIGNIFICANT_WORKOUT_MIN_MINUTES]
+    );
+
+    if (workoutRows.length === 0) {
+      return res.json({ hasEnoughData: false, reason: 'no_significant_workouts' });
+    }
+
+    const hrvRhrRows = await db.all(
+      `SELECT date, hrv, rhr FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ?
+       AND hrv IS NOT NULL AND hrv > 0 AND rhr IS NOT NULL AND rhr > 0`,
+      [req.user.id, startDate, shiftDate(today, 1)]
+    );
+    const metricsByDate = new Map(hrvRhrRows.map(r => [r.date, { hrv: r.hrv, rhr: r.rhr }]));
+
+    const postWorkoutDates = new Set(workoutRows.map(r => shiftDate(r.date, 1)));
+    const postWorkout = [];
+    const otherDays = [];
+
+    hrvRhrRows.forEach(r => {
+      if (postWorkoutDates.has(r.date)) {
+        postWorkout.push(metricsByDate.get(r.date));
+      } else {
+        otherDays.push(metricsByDate.get(r.date));
+      }
+    });
+
+    if (postWorkout.length < MIN_DAYS_PER_RECOVERY_GROUP || otherDays.length < MIN_DAYS_PER_RECOVERY_GROUP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        postWorkoutDays: postWorkout.length,
+        otherDays: otherDays.length,
+        minDaysRequired: MIN_DAYS_PER_RECOVERY_GROUP
+      });
+    }
+
+    const avg = (arr, key) => Math.round((arr.reduce((s, x) => s + x[key], 0) / arr.length) * 10) / 10;
+    const avgHrvPostWorkout = avg(postWorkout, 'hrv');
+    const avgHrvOther = avg(otherDays, 'hrv');
+    const avgRhrPostWorkout = avg(postWorkout, 'rhr');
+    const avgRhrOther = avg(otherDays, 'rhr');
+
+    // Najnowszy trening ze znaną regeneracją następnego dnia - konkretny,
+    // aktualny punkt odniesienia pokazywany razem ze statystyką ogólną.
+    const latestWorkout = [...workoutRows].sort((a, b) => (a.date < b.date ? 1 : -1))
+      .find(w => metricsByDate.has(shiftDate(w.date, 1)));
+    let latest = null;
+    if (latestWorkout) {
+      const nextDate = shiftDate(latestWorkout.date, 1);
+      const m = metricsByDate.get(nextDate);
+      latest = { workoutDate: latestWorkout.date, recoveryDate: nextDate, hrv: m.hrv, rhr: m.rhr };
+    }
+
+    res.json({
+      hasEnoughData: true,
+      postWorkoutDays: postWorkout.length,
+      otherDays: otherDays.length,
+      avgHrvPostWorkout,
+      avgHrvOtherDays: avgHrvOther,
+      hrvDiff: Math.round((avgHrvPostWorkout - avgHrvOther) * 10) / 10,
+      avgRhrPostWorkout,
+      avgRhrOtherDays: avgRhrOther,
+      rhrDiff: Math.round((avgRhrPostWorkout - avgRhrOther) * 10) / 10,
+      latest
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania wskaźnika regeneracji.' });
+  }
+});
+
+// Próg minimalnej liczby dni z/bez danego suplementu, żeby w ogóle pokazać go
+// w wynikach - jak w pozostałych insightach (sen-odżywianie, sód-ciśnienie,
+// regeneracja), bez tego pojedynczy dzień z suplementem i dobrym snem
+// wygenerowałby fałszywie mocny wniosek ("suplement X = +2 pkt snu!").
+const MIN_DAYS_PER_SUPPLEMENT_GROUP = 3;
+const SUPPLEMENTS_SLEEP_LOOKBACK_DAYS = 90;
+// Maksymalna liczba suplementów pokazywanych w wyniku - tylko te z największą
+// (co do wartości absolutnej) różnicą, żeby nie zasypywać użytkownika
+// dziesiątkami marginalnych porównań.
+const MAX_SUPPLEMENT_FINDINGS = 5;
+
+// Insight: suplementy (wolny tekst, pole health_metrics.supplements) vs sen/
+// regeneracja TEGO SAMEGO dnia. Pairing "ten sam dzień" (nie dzień+1) jest
+// świadomy i zgodny z istniejącą konwencją już ustaloną w tym pliku (prompt AI
+// dashboardu, ok. linii 456-519) oraz w services/summaries.js - suplementy
+// zalogowane na dzień D są tam zestawiane z sleep_score/readiness_score z
+// dnia D, nie D+1. Nie kopiujemy tu żadnego mechanizmu z konkurencyjnych apek -
+// to wyłącznie własna analiza już zbieranych przez Dietetyk-AI danych
+// (suplementy z routes/health.js + sleep_score/readiness_score z Oura).
+//
+// Parsowanie tekstu suplementów: split po przecinku + trim, identycznie jak
+// w istniejącej logice frontu (Dashboard.jsx, handleSaveSupplements) - jedyna
+// ustalona w kodzie konwencja separatora, nie wprowadzamy tu nowej.
+router.get('/api/dashboard/supplements-sleep-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -SUPPLEMENTS_SLEEP_LOOKBACK_DAYS);
+
+    const rows = await db.all(
+      `SELECT date, supplements, sleep_score, readiness_score FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ?
+       AND supplements IS NOT NULL AND TRIM(supplements) != ''
+       AND (sleep_score IS NOT NULL OR readiness_score IS NOT NULL)`,
+      [req.user.id, startDate, today]
+    );
+
+    if (rows.length === 0) {
+      return res.json({ hasEnoughData: false, reason: 'no_supplement_data' });
+    }
+
+    // Wszystkie dni w oknie z choć jednym znanym wskaźnikiem snu/regeneracji -
+    // potrzebne jako "wszechświat" do policzenia grupy "BEZ" danego suplementu
+    // (dzień bez wpisanych suplementów liczy się jako "bez" KAŻDEGO z nich;
+    // brak wpisu w polu supplements traktujemy jako realny fakt "nie brał",
+    // nie jako brak danych - w przeciwieństwie do np. brakującego logowania
+    // posiłków w innych insightach).
+    const allDaysRows = await db.all(
+      `SELECT date, supplements, sleep_score, readiness_score FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ?
+       AND (sleep_score IS NOT NULL OR readiness_score IS NOT NULL)`,
+      [req.user.id, startDate, today]
+    );
+
+    const parseSupplements = (text) =>
+      (text || '').split(',').map((s) => s.trim()).filter(Boolean);
+
+    // Zbiór unikalnych suplementów (porównanie bez rozróżniania wielkości liter,
+    // ale do wyświetlenia używamy pierwszej napotkanej wersji zapisu, żeby nie
+    // psuć np. nazw własnych).
+    const displayNameByKey = new Map();
+    rows.forEach((r) => {
+      parseSupplements(r.supplements).forEach((s) => {
+        const key = s.toLowerCase();
+        if (!displayNameByKey.has(key)) displayNameByKey.set(key, s);
+      });
+    });
+
+    const avg = (arr, key) => {
+      const vals = arr.map((x) => x[key]).filter((v) => v != null);
+      if (vals.length === 0) return null;
+      return Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10;
+    };
+
+    const findings = [];
+    for (const [key, displayName] of displayNameByKey.entries()) {
+      const withDays = [];
+      const withoutDays = [];
+      allDaysRows.forEach((r) => {
+        const tokens = parseSupplements(r.supplements).map((s) => s.toLowerCase());
+        (tokens.includes(key) ? withDays : withoutDays).push(r);
+      });
+
+      if (withDays.length < MIN_DAYS_PER_SUPPLEMENT_GROUP || withoutDays.length < MIN_DAYS_PER_SUPPLEMENT_GROUP) {
+        continue;
+      }
+
+      const avgSleepWith = avg(withDays, 'sleep_score');
+      const avgSleepWithout = avg(withoutDays, 'sleep_score');
+      const avgReadinessWith = avg(withDays, 'readiness_score');
+      const avgReadinessWithout = avg(withoutDays, 'readiness_score');
+      const sleepDiff = avgSleepWith != null && avgSleepWithout != null
+        ? Math.round((avgSleepWith - avgSleepWithout) * 10) / 10
+        : null;
+      const readinessDiff = avgReadinessWith != null && avgReadinessWithout != null
+        ? Math.round((avgReadinessWith - avgReadinessWithout) * 10) / 10
+        : null;
+
+      // Suplement bez żadnej liczonej różnicy (np. brak danych sleep_score
+      // ANI readiness_score w obu grupach) nie wnosi nic do wyniku.
+      if (sleepDiff == null && readinessDiff == null) continue;
+
+      findings.push({
+        supplement: displayName,
+        daysWith: withDays.length,
+        daysWithout: withoutDays.length,
+        avgSleepScoreWith: avgSleepWith,
+        avgSleepScoreWithout: avgSleepWithout,
+        sleepScoreDiff: sleepDiff,
+        avgReadinessScoreWith: avgReadinessWith,
+        avgReadinessScoreWithout: avgReadinessWithout,
+        readinessScoreDiff: readinessDiff
+      });
+    }
+
+    if (findings.length === 0) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days_per_supplement',
+        minDaysRequired: MIN_DAYS_PER_SUPPLEMENT_GROUP
+      });
+    }
+
+    // Sortowanie po największej (co do wartości absolutnej) różnicy snu, a przy
+    // jej braku - regeneracji. Najbardziej "zauważalne" wyniki na początku.
+    findings.sort((a, b) => {
+      const scoreOf = (f) => Math.max(Math.abs(f.sleepScoreDiff || 0), Math.abs(f.readinessScoreDiff || 0));
+      return scoreOf(b) - scoreOf(a);
+    });
+
+    res.json({
+      hasEnoughData: true,
+      lookbackDays: SUPPLEMENTS_SLEEP_LOOKBACK_DAYS,
+      findings: findings.slice(0, MAX_SUPPLEMENT_FINDINGS)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu suplementy-sen.' });
+  }
+});
+
+// Adaptacyjna korekta celu kalorycznego: porównuje DEKLAROWANY bilans kaloryczny
+// (na bazie zalogowanych posiłków: zjedzone - (BMR + kalorie aktywne)) z bilansem
+// WYNIKAJĄCYM Z REALNEJ zmiany wagi (regresja liniowa po pomiarach wagi, slope
+// kg/dzień razy przybliżenie 7700 kcal/kg). Rozjazd między tymi dwiema liczbami
+// (gap) zwykle oznacza niedoszacowanie/przeszacowanie porcji, nieuwzględnione
+// "podjadanie" albo nieprecyzyjny BMR - a nie że cel kaloryczny jest źle ustawiony
+// per se. Sugerujemy więc korektę CELU tak, aby przy dotychczasowym sposobie
+// logowania realny efekt zbliżył się do oryginalnie zamierzonego tempa.
+// Wymagamy solidnej próbki w obu wymiarach (dni z posiłkami i pomiary wagi
+// rozciągnięte na sensowny okres) - inaczej szum pomiarowy (np. wahania wody)
+// dałby fałszywą sugestię.
+const CALORIE_RECAL_LOOKBACK_DAYS = 21;
+const KCAL_PER_KG = 7700; // szacunkowa wartość energetyczna 1 kg tkanki - powszechnie używane przybliżenie
+const MIN_LOGGED_DAYS = 10;
+const MIN_WEIGHT_MEASUREMENTS = 4;
+const MIN_WEIGHT_SPAN_DAYS = 10;
+const MIN_MEANINGFUL_GAP_KCAL = 100;
+
+router.get('/api/dashboard/calorie-target-suggestion', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -(CALORIE_RECAL_LOOKBACK_DAYS - 1));
+
+    const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
+    const settings = {};
+    settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
+    const currentTargetCalories = isNaN(settings.target_calories) || !settings.target_calories ? 2000 : settings.target_calories;
+    const bmr = isNaN(settings.bmr) || !settings.bmr ? 1800 : settings.bmr;
+
+    const balance = await aggregateCalorieBalance(req.user.id, startDate, today, currentTargetCalories, bmr);
+    if (balance.days_with_data < MIN_LOGGED_DAYS) {
+      return res.json({ hasEnoughData: false, reason: 'not_enough_logged_days', daysLogged: balance.days_with_data, minDaysRequired: MIN_LOGGED_DAYS });
+    }
+    const loggedDailyBalance = balance.balance_vs_burned / balance.days_with_data;
+
+    const weightRows = await db.all(
+      `SELECT date, weight FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ? AND weight IS NOT NULL ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+    if (weightRows.length < MIN_WEIGHT_MEASUREMENTS) {
+      return res.json({ hasEnoughData: false, reason: 'not_enough_weight_data', weightMeasurements: weightRows.length, minWeightMeasurementsRequired: MIN_WEIGHT_MEASUREMENTS });
+    }
+    const baseTime = new Date(weightRows[0].date).getTime();
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const points = weightRows.map(r => ({ x: (new Date(r.date).getTime() - baseTime) / msPerDay, y: r.weight }));
+    const spanDays = points[points.length - 1].x;
+    if (spanDays < MIN_WEIGHT_SPAN_DAYS) {
+      return res.json({ hasEnoughData: false, reason: 'weight_span_too_short', spanDays: Math.round(spanDays), minSpanDaysRequired: MIN_WEIGHT_SPAN_DAYS });
+    }
+    const n = points.length;
+    const sumX = points.reduce((s, p) => s + p.x, 0);
+    const sumY = points.reduce((s, p) => s + p.y, 0);
+    const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
+    const sumXX = points.reduce((s, p) => s + p.x * p.x, 0);
+    const denom = n * sumXX - sumX * sumX;
+    if (denom === 0) {
+      return res.json({ hasEnoughData: false, reason: 'flat_weight_data' });
+    }
+    const slope = (n * sumXY - sumX * sumY) / denom; // kg/dzień
+    const actualDailyBalance = slope * KCAL_PER_KG;
+    const gap = actualDailyBalance - loggedDailyBalance;
+
+    if (Math.abs(gap) < MIN_MEANINGFUL_GAP_KCAL) {
+      return res.json({
+        hasEnoughData: true,
+        suggestionNeeded: false,
+        loggedDailyBalance: Math.round(loggedDailyBalance),
+        actualDailyBalance: Math.round(actualDailyBalance),
+        gap: Math.round(gap)
+      });
+    }
+
+    const suggestedTargetCalories = Math.round(currentTargetCalories - gap);
+
+    res.json({
+      hasEnoughData: true,
+      suggestionNeeded: true,
+      daysLogged: balance.days_with_data,
+      weightMeasurements: weightRows.length,
+      loggedDailyBalance: Math.round(loggedDailyBalance),
+      actualDailyBalance: Math.round(actualDailyBalance),
+      gap: Math.round(gap),
+      currentTargetCalories,
+      suggestedTargetCalories
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd wyznaczania korekty celu kalorycznego.' });
   }
 });
 

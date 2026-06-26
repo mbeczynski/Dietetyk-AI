@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const { getLocalDateString } = require('../utils/dates');
 const { generateContentWithFallback } = require('../config');
+const { getCalorieBaseline, detectMealAnomalies } = require('../utils/mealAnomaly');
 
 // Model AI (Gemini) czasem zwraca nierealistyczne lub ujemne wartości kalorii/makro
 // (np. błąd parsowania wielkości porcji, halucynacja liczby) - bez tego zabezpieczenia
@@ -14,6 +15,15 @@ function sanitizeNumber(val, min, max, fallback = 0) {
   if (!Number.isFinite(num)) return fallback;
   return Math.min(Math.max(num, min), max);
 }
+
+// Limit rozmiaru pojedynczego zdjęcia posiłku zapisywanego w bazie SQLite jako base64.
+// Bez tego limitu jedyną granicą był globalny express.json({limit:'20mb'}) w server.js
+// (myślany pod webhooki, nie pod pojedyncze zdjęcia) - użytkownik mógłby dodawać zdjęcia
+// w oryginalnej rozdzielczości telefonu (10-20MB), co przy kilku posiłkach dziennie
+// szybko rozdęłoby plik bazy SQLite (jeden plik, brak osobnego storage na obrazy).
+// 7MB base64 odpowiada ok. 5.25MB danych binarnych po dekodowaniu - wystarczające dla
+// zdjęcia jedzenia w rozsądnej jakości, a wciąż chroni przed ekstremalnie dużymi plikami.
+const MAX_MEAL_IMAGE_BASE64_CHARS = 7 * 1024 * 1024;
 
 // Wariant dla pól, które mogą być prawdziwie nieznane (błonnik/cukry/sód - AI nie zawsze
 // jest w stanie je oszacować) - w przeciwieństwie do sanitizeNumber NIE fabrykujemy zera,
@@ -28,6 +38,11 @@ function sanitizeNullableNumber(val, min, max) {
   if (!Number.isFinite(num)) return null;
   return Math.min(Math.max(num, min), max);
 }
+
+// Detektor anomalii w posiłkach - logika (oba sygnały: niezgodność makro/kalorii
+// i statystyczny odstrój vs własna historia) wydzielona do utils/mealAnomaly.js,
+// bo jest współdzielona z routes/dashboard.js (lista posiłków dnia w /api/dashboard,
+// z którego faktycznie korzysta MealLogger.jsx po stronie frontendu).
 
 router.post('/api/meals', async (req, res) => {
   const { rawText, date, image } = req.body;
@@ -46,6 +61,12 @@ router.post('/api/meals', async (req, res) => {
       if (match) {
         const mimeType = match[1];
         const base64Data = match[2];
+
+        if (base64Data.length > MAX_MEAL_IMAGE_BASE64_CHARS) {
+          console.warn(`[API WARNING] Odrzucono zdjęcie posiłku - za duży rozmiar (${base64Data.length} znaków base64).`);
+          return res.status(413).json({ error: 'Zdjęcie jest za duże. Maksymalny rozmiar to ok. 5MB - spróbuj zrobić zdjęcie w niższej rozdzielczości.' });
+        }
+
         imagePart = {
           inlineData: {
             data: base64Data,
@@ -170,6 +191,11 @@ Struktura JSON:
       mealsToInsert = [{ ...analysis, name: rawText }];
     }
 
+    // Bazowy rozkład kalorii liczony RAZ dla całego żądania (nie per posiłek) - przy
+    // zdjęciu rozbitym na kilka sekcji (Śniadanie/Obiad/Kolacja) wszystkie porównujemy
+    // do tej samej, historycznej linii bazowej z dni PRZED targetDate.
+    const calorieBaseline = await getCalorieBaseline(req.user.id, targetDate);
+
     const insertedMeals = [];
     for (const m of mealsToInsert) {
       const mealDescription = (imagePart ? (m.name || rawText || 'Posiłek ze zdjęcia') : (m.name || rawText));
@@ -220,7 +246,8 @@ Struktura JSON:
         fat: safeFat,
         fiber: safeFiber,
         sugar: safeSugar,
-        sodium: safeSodium
+        sodium: safeSodium,
+        anomalies: detectMealAnomalies({ calories: safeCalories, protein: safeProtein, carbs: safeCarbs, fat: safeFat }, calorieBaseline)
       });
     }
 
@@ -246,6 +273,11 @@ router.get('/api/meals', async (req, res) => {
       SELECT * FROM meals WHERE user_id = ? AND date = ? ORDER BY timestamp DESC
     `, [req.user.id, date]);
 
+    // Ta sama linia bazowa co przy zapisie (POST) - dni PRZED `date`, więc wynik
+    // anomalii dla danego dnia jest stabilny niezależnie od tego, ile razy
+    // odświeżymy widok (nie zmienia się przy każdym kolejnym posiłku tego samego dnia).
+    const calorieBaseline = await getCalorieBaseline(req.user.id, date);
+
     const meals = rows.map(r => {
       let analysis = {};
       try {
@@ -267,7 +299,8 @@ router.get('/api/meals', async (req, res) => {
         calories: r.calories,
         protein: r.protein,
         carbs: r.carbs,
-        fat: r.fat
+        fat: r.fat,
+        anomalies: detectMealAnomalies({ calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat }, calorieBaseline)
       };
     });
 

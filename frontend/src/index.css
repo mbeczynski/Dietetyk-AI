@@ -11,7 +11,12 @@
   --color-orange: #f59e0b; /* Pomarańcz */
   --color-blue: #06b6d4; /* Cyjan aktywności */
   --danger: #ef4444; /* Czerwień dla akcji destrukcyjnych (usunięcie konta itp.) */
-  
+  --danger-light: #f87171; /* Jaśniejszy czerwony do tekstu na ciemnym tle (np. alert-error) */
+  --success-light: #34d399; /* Jaśniejszy zielony do tekstu na ciemnym tle (np. alert-success) -
+    wcześniej zaszyty na sztywno w kilku miejscach (index.css, Dashboard.jsx) razem z
+    --color-secondary (#10b981) jako dwa niezależne "zielone sukcesu" - teraz jedna zmienna. */
+  --focus-ring: 0 0 0 3px rgba(124, 58, 237, 0.45); /* Widoczny pierścień fokusu (nawigacja klawiaturą) */
+
   --gradient-ai: linear-gradient(135deg, #7c3aed 0%, #c084fc 100%);
   --gradient-health: linear-gradient(135deg, #059669 0%, #34d399 100%);
   --gradient-dark: linear-gradient(180deg, #070913 0%, #0d1127 100%);
@@ -40,6 +45,19 @@
   padding: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Widoczny pierścień fokusu dla nawigacji klawiaturą - wcześniej wiele elementów
+   (.btn-primary/.btn-secondary/.btn-danger/.nav-tab/.input-field/.date-input)
+   nie miało ŻADNEGO zdefiniowanego stanu fokusu poza domyślnym outline, które
+   część z nich jawnie wyłączała (outline: none) bez zamiennika - klawiaturowy
+   użytkownik nie widział, który element jest aktywny. `:focus-visible` (nie
+   `:focus`) celowo pokazuje pierścień tylko przy nawigacji klawiaturą/Tab, nie
+   przy zwykłym kliknięciu myszą, więc nie zmienia wizualnie aplikacji dla
+   większości użytkowników.*/
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 body {
@@ -806,6 +824,23 @@ header {
   margin-bottom: 24px;
 }
 
+/* Bazowe (desktopowe) wartości siatek przeniesione tu z inline style w JSX,
+   żeby media queries powyżej mogły je nadpisać na wąskich ekranach
+   (inline style ma wyższą specyficzność niż zwykła reguła CSS w media query). */
+.settings-main-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(320px, 1.4fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.activity-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 24px;
+  margin-top: 10px;
+}
+
 .input-group {
   display: flex;
   flex-direction: column;
@@ -845,13 +880,13 @@ header {
 .alert-success {
   background: rgba(16, 185, 129, 0.1);
   border: 1px solid rgba(16, 185, 129, 0.2);
-  color: #34d399;
+  color: var(--success-light);
 }
 
 .alert-error {
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.2);
-  color: #f87171;
+  color: var(--danger-light);
 }
 
 .empty-state {
@@ -1580,5 +1615,26 @@ header {
     flex-shrink: 0;
     padding: 8px 12px;
     font-size: 0.85rem;
+  }
+
+  /* Settings.jsx: siatka "Profil | 4 karty" zakłada min. 320px na kolumnę,
+     czyli min. ~664px szerokości - na ekranach <=768px (tablet portrait,
+     telefony) wymuszamy jedną kolumnę, inaczej karty się ścieśniają/wychodzą
+     poza ekran. Wcześniej ta siatka była ustawiona inline stylem w JSX, więc
+     nie szła nadpisać tu bez podniesienia jej do klasy .settings-main-grid -
+     patrz Settings.jsx. */
+  .settings-main-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ActivityTracker.jsx: siatka 4 wykresów trendów (auto-fit, minmax(400px,1fr))
+   sama zwija się do jednej kolumny, gdy kontener jest węższy niż ~824px (2
+   kolumny x 400px + gap), ale poniżej 400px szerokości kontenera nadal wymusza
+   min. 400px na jedyną kolumnę, co na typowych telefonach (~360-390px) powoduje
+   poziomy scroll/przycinanie. Poniżej tej granicy wymuszamy 1fr bez minimum. */
+@media (max-width: 480px) {
+  .activity-charts-grid {
+    grid-template-columns: 1fr !important;
   }
 }

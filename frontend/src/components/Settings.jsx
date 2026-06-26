@@ -37,6 +37,24 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   // Stan eksportu danych i usuwania konta (RODO/GDPR)
   const [isExportingData, setIsExportingData] = useState(false);
   const [exportMessage, setExportMessage] = useState({ type: '', text: '' });
+  // Stan eksportu raportu PDF dla lekarza/dietetyka - niezależny od eksportu JSON
+  // powyżej (inny endpoint, inny format pliku, własny okres raportu).
+  const [pdfReportDays, setPdfReportDays] = useState(30);
+  const [isExportingPdfReport, setIsExportingPdfReport] = useState(false);
+  const [pdfExportMessage, setPdfExportMessage] = useState({ type: '', text: '' });
+  // Stan udostępniania raportu linkiem (read-only) - rozszerzenie eksportu PDF
+  // powyżej o wariant "wyślij link" zamiast "pobierz i wyślij plik samodzielnie".
+  // `shareLinkDays` to okres danych w samym raporcie (jak pdfReportDays), niezależny
+  // od `shareValidityKey` - czyli tego, jak długo sam LINK będzie działał.
+  const [shareLinkDays, setShareLinkDays] = useState(30);
+  const [shareValidityKey, setShareValidityKey] = useState('7d');
+  const [isCreatingShareLink, setIsCreatingShareLink] = useState(false);
+  const [shareLinkMessage, setShareLinkMessage] = useState({ type: '', text: '' });
+  // Ostatnio wygenerowany link - pokazywany tylko raz, do skopiowania (backend nie
+  // zwraca tokenu przy liście udostępnień, patrz listSharesForUser w sharedReports.js).
+  const [lastCreatedShareUrl, setLastCreatedShareUrl] = useState('');
+  const [sharedReports, setSharedReports] = useState([]);
+  const [isLoadingSharedReports, setIsLoadingSharedReports] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState({ type: '', text: '' });
@@ -112,6 +130,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
   useEffect(() => {
     fetchSettings();
+    fetchSharedReports();
   }, []);
 
   const fetchSettings = async () => {
@@ -502,6 +521,129 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
       setExportMessage({ type: 'error', text: 'Problem z połączeniem z serwerem.' });
     } finally {
       setIsExportingData(false);
+    }
+  };
+
+  // Eksport raportu PDF dla lekarza/dietetyka - zwięzłe podsumowanie (cele, średnie
+  // z wybranego okresu, sen/skład ciała, obwody ciała, suplementy), w odróżnieniu
+  // od pełnego zrzutu JSON powyżej. Ten sam wzorzec pobierania pliku (blob + link).
+  const handleExportPdfReport = async () => {
+    setPdfExportMessage({ type: '', text: '' });
+    setIsExportingPdfReport(true);
+    try {
+      const res = await fetch(`/api/user/export-pdf-report?days=${pdfReportDays}`, {
+        headers: { 'Authorization': `Bearer ${sessionToken}` }
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setPdfExportMessage({ type: 'error', text: data.error || 'Błąd generowania raportu PDF.' });
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dietetyk-ai-raport-${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setPdfExportMessage({ type: 'error', text: 'Problem z połączeniem z serwerem.' });
+    } finally {
+      setIsExportingPdfReport(false);
+    }
+  };
+
+  // Lista istniejących udostępnień (Produkt: udostępnianie raportu linkiem) -
+  // wołane przy montowaniu komponentu i po każdej zmianie (stworzenie/odwołanie
+  // linku), żeby lista w UI nie rozjeżdżała się ze stanem na backendzie.
+  const fetchSharedReports = async () => {
+    setIsLoadingSharedReports(true);
+    try {
+      const res = await fetch('/api/user/shared-reports', {
+        headers: { 'Authorization': `Bearer ${sessionToken}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSharedReports(data.shares || []);
+      }
+    } catch (err) {
+      // Nieudane odświeżenie listy nie jest krytyczne (lista po prostu zostaje
+      // nieaktualna do następnej próby) - nie pokazujemy z tego powodu błędu.
+    } finally {
+      setIsLoadingSharedReports(false);
+    }
+  };
+
+  // Stworzenie nowego linku udostępniania - token jest pokazany TYLKO tu, w
+  // odpowiedzi na stworzenie (patrz komentarz w listSharesForUser, backend), więc
+  // zapisujemy go w stanie do wyświetlenia/skopiowania, zanim zniknie.
+  const handleCreateShareLink = async () => {
+    setShareLinkMessage({ type: '', text: '' });
+    setLastCreatedShareUrl('');
+    setIsCreatingShareLink(true);
+    try {
+      const res = await fetch('/api/user/shared-reports', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${sessionToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ days: shareLinkDays, validityKey: shareValidityKey })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setShareLinkMessage({ type: 'error', text: data.error || 'Błąd tworzenia linku udostępniania.' });
+        return;
+      }
+      setLastCreatedShareUrl(data.url);
+      setShareLinkMessage({ type: 'success', text: 'Link utworzony. Skopiuj go poniżej - nie będzie ponownie wyświetlony.' });
+      fetchSharedReports();
+    } catch (err) {
+      setShareLinkMessage({ type: 'error', text: 'Problem z połączeniem z serwerem.' });
+    } finally {
+      setIsCreatingShareLink(false);
+    }
+  };
+
+  const handleCopyShareLink = () => {
+    if (!lastCreatedShareUrl) return;
+    navigator.clipboard.writeText(lastCreatedShareUrl).then(
+      () => setShareLinkMessage({ type: 'success', text: 'Link skopiowany do schowka.' }),
+      () => setShareLinkMessage({ type: 'error', text: 'Nie udało się skopiować linku - zaznacz i skopiuj go ręcznie.' })
+    );
+  };
+
+  // Odwołanie udostępnienia - od razu odświeża listę, żeby status "active" zmienił
+  // się na "revoked" bez konieczności ręcznego odświeżenia strony.
+  const handleRevokeShareLink = async (shareId) => {
+    setShareLinkMessage({ type: '', text: '' });
+    try {
+      const res = await fetch(`/api/user/shared-reports/${shareId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${sessionToken}` }
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setShareLinkMessage({ type: 'error', text: data.error || 'Błąd odwoływania udostępnienia.' });
+        return;
+      }
+      fetchSharedReports();
+    } catch (err) {
+      setShareLinkMessage({ type: 'error', text: 'Problem z połączeniem z serwerem.' });
+    }
+  };
+
+  // Etykiety statusu udostępnienia (status liczony na backendzie, patrz
+  // listSharesForUser w services/sharedReports.js) i okresu ważności - do
+  // czytelnego wyświetlenia listy w UI.
+  const SHARE_STATUS_LABELS = { active: 'Aktywny', expired: 'Wygasł', revoked: 'Odwołany' };
+  const formatShareDate = (isoString) => {
+    try {
+      return new Date(isoString).toLocaleString('pl-PL');
+    } catch (e) {
+      return isoString;
     }
   };
 
@@ -962,7 +1104,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           rzędzie - patrz zgłoszenie użytkownika), dzielimy układ na dwie kolumny:
           lewa - sama, wysoka karta Profilu; prawa - stała siatka 2x2 dla czterech
           mniejszych kart, więc nie ma już "dziur" ani nierównych linii. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(320px, 1.4fr)', gap: '24px', alignItems: 'start' }}>
+      <div className="settings-main-grid">
 
         {/* Panel Profilu i Avatara */}
         <div className="glass-card">
@@ -1004,9 +1146,9 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               {userProfile.avatar_base64 && (
                 <button 
                   type="button" 
-                  className="btn-secondary" 
+                  className="btn-danger"
                   onClick={handleRemoveAvatar}
-                  style={{ padding: '6px 12px', fontSize: '0.8rem', background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
                 >
                   Usuń zdjęcie
                 </button>
@@ -1086,7 +1228,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 <span style={{ fontSize: '1.6rem' }}>🔗</span>
                 <div>
                   <strong style={{ display: 'block', color: '#fff' }}>Konto Google</strong>
-                  <span style={{ fontSize: '0.8rem', color: userProfile.has_google ? '#34d399' : 'var(--text-dim)' }}>
+                  <span style={{ fontSize: '0.8rem', color: userProfile.has_google ? 'var(--success-light)' : 'var(--text-dim)' }}>
                     {userProfile.has_google ? '✅ Połączono z kontem Google' : '❌ Brak połączenia'}
                   </span>
                 </div>
@@ -1094,8 +1236,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               {userProfile.has_google ? (
                 <button
                   type="button"
-                  className="btn-secondary"
-                  style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '8px 16px' }}
+                  className="btn-danger"
+                  style={{ padding: '8px 16px' }}
                   onClick={handleUnlinkGoogle}
                 >
                   Odłącz Google
@@ -1294,10 +1436,10 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               {userProfile.body_goal_photo_base64 && (
                 <button
                   type="button"
-                  className="btn-secondary"
+                  className="btn-danger"
                   onClick={handleRemoveBodyGoalPhoto}
                   disabled={isUploadingBodyGoalPhoto}
-                  style={{ padding: '6px 12px', fontSize: '0.8rem', background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
                 >
                   Usuń zdjęcie
                 </button>
@@ -1344,6 +1486,157 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           >
             {isExportingData ? 'Przygotowywanie...' : '⬇️ Eksportuj moje dane (JSON)'}
           </button>
+
+          {/* Raport PDF dla lekarza/dietetyka - zwięzłe podsumowanie danych z
+              wybranego okresu (cele, średnie, sen/skład ciała, obwody, suplementy),
+              bez tekstu generowanego przez AI, żeby dokument pokazywany lekarzowi
+              zawierał tylko surowe, policzone dane. */}
+          <h4 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}>Raport dla lekarza/dietetyka</h4>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+            Pobierz zwięzłe podsumowanie PDF z wybranego okresu - możesz zabrać je na wizytę.
+          </p>
+
+          {pdfExportMessage.text && (
+            <div className={`alert alert-${pdfExportMessage.type}`} style={{ marginBottom: '16px' }}>
+              {pdfExportMessage.text}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '24px' }}>
+            <select
+              className="input-field"
+              aria-label="Okres raportu PDF"
+              value={pdfReportDays}
+              onChange={(e) => setPdfReportDays(Number(e.target.value))}
+              style={{ width: 'auto' }}
+              disabled={isExportingPdfReport}
+            >
+              <option value={30}>Ostatnie 30 dni</option>
+              <option value={90}>Ostatnie 90 dni</option>
+              <option value={180}>Ostatnie 180 dni</option>
+            </select>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handleExportPdfReport}
+              disabled={isExportingPdfReport}
+            >
+              {isExportingPdfReport ? 'Generowanie...' : '📄 Pobierz raport PDF'}
+            </button>
+          </div>
+
+          {/* Udostępnianie raportu linkiem (read-only) - alternatywa dla pobrania
+              pliku powyżej: link można wysłać lekarzowi/dietetykowi, który otworzy
+              go bez konta w aplikacji. Token jest jedyną autoryzacją (patrz
+              backend/routes/sharedReport.js), więc link ma ograniczony czas
+              ważności i można go w każdej chwili odwołać poniżej. */}
+          <h4 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}>Udostępnij raport linkiem</h4>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+            Wygeneruj link do raportu, który można wysłać lekarzowi/dietetykowi - otworzy go bez logowania się do aplikacji.
+          </p>
+
+          {shareLinkMessage.text && (
+            <div className={`alert alert-${shareLinkMessage.type}`} style={{ marginBottom: '16px' }}>
+              {shareLinkMessage.text}
+            </div>
+          )}
+
+          {lastCreatedShareUrl && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '16px' }}>
+              <input
+                type="text"
+                className="input-field"
+                readOnly
+                value={lastCreatedShareUrl}
+                onFocus={(e) => e.target.select()}
+                style={{ flex: '1 1 280px' }}
+                aria-label="Link udostępniania raportu"
+              />
+              <button type="button" className="btn-secondary" onClick={handleCopyShareLink}>
+                📋 Kopiuj
+              </button>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '16px' }}>
+            <select
+              className="input-field"
+              aria-label="Okres danych w udostępnianym raporcie"
+              value={shareLinkDays}
+              onChange={(e) => setShareLinkDays(Number(e.target.value))}
+              style={{ width: 'auto' }}
+              disabled={isCreatingShareLink}
+            >
+              <option value={30}>Dane z ostatnich 30 dni</option>
+              <option value={90}>Dane z ostatnich 90 dni</option>
+              <option value={180}>Dane z ostatnich 180 dni</option>
+            </select>
+            <select
+              className="input-field"
+              aria-label="Czas ważności linku"
+              value={shareValidityKey}
+              onChange={(e) => setShareValidityKey(e.target.value)}
+              style={{ width: 'auto' }}
+              disabled={isCreatingShareLink}
+            >
+              <option value="24h">Link ważny 24 godziny</option>
+              <option value="7d">Link ważny 7 dni</option>
+              <option value="30d">Link ważny 30 dni</option>
+            </select>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handleCreateShareLink}
+              disabled={isCreatingShareLink}
+            >
+              {isCreatingShareLink ? 'Tworzenie...' : '🔗 Utwórz link'}
+            </button>
+          </div>
+
+          {sharedReports.length > 0 && (
+            <div style={{ marginBottom: '24px' }}>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Historia udostępnień:
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {sharedReports.map((share) => (
+                  <div
+                    key={share.id}
+                    style={{
+                      display: 'flex',
+                      gap: '12px',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      fontSize: '0.85rem',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      background: 'var(--bg-secondary)'
+                    }}
+                  >
+                    <span>Utworzono: {formatShareDate(share.createdAt)}</span>
+                    <span>Dane: {share.days} dni</span>
+                    <span>Ważny do: {formatShareDate(share.expiresAt)}</span>
+                    <span>Status: {SHARE_STATUS_LABELS[share.status] || share.status}</span>
+                    {share.status === 'active' && (
+                      <button
+                        type="button"
+                        className="btn-danger"
+                        style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: '0.8rem' }}
+                        onClick={() => handleRevokeShareLink(share.id)}
+                      >
+                        Odwołaj
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {sharedReports.length === 0 && !isLoadingSharedReports && (
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '24px' }}>
+              Brak utworzonych linków udostępniania.
+            </p>
+          )}
 
           <h4 style={{ fontSize: '1rem', color: 'var(--danger)', marginBottom: '8px' }}>Usunięcie konta</h4>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
@@ -1441,16 +1734,16 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
           {userProfile.totp_enabled ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', color: '#34d399', fontSize: '0.9rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', color: 'var(--success-light)', fontSize: '0.9rem' }}>
                 <span>🛡️</span>
                 <strong>Weryfikacja 2FA jest aktywna.</strong>
               </div>
               <button 
                 type="button" 
-                className="btn-secondary" 
+                className="btn-danger"
                 onClick={handleDisable2FA}
                 disabled={isDisabling2fa}
-                style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)', width: '100%', padding: '10px' }}
+                style={{ width: '100%', padding: '10px' }}
               >
                 {isDisabling2fa ? 'Wyłączanie...' : 'Wyłącz 2FA'}
               </button>
@@ -1592,7 +1885,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 <span style={{ fontSize: '2rem' }}>🏃</span>
                 <div>
                   <strong style={{ display: 'block', color: '#fff' }}>Google Fit (Kroki, Kalorie, Aktywność)</strong>
-                  <span style={{ fontSize: '0.8rem', color: userProfile.has_google_fit ? '#34d399' : 'var(--text-dim)' }}>
+                  <span style={{ fontSize: '0.8rem', color: userProfile.has_google_fit ? 'var(--success-light)' : 'var(--text-dim)' }}>
                     {userProfile.has_google_fit ? '✅ Połączono z Google Fit' : '❌ Brak połączenia'}
                   </span>
                 </div>
@@ -1601,8 +1894,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 {userProfile.has_google_fit ? (
                   <button
                     type="button"
-                    className="btn-secondary"
-                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '8px 16px' }}
+                    className="btn-danger"
+                    style={{ padding: '8px 16px' }}
                     onClick={handleDisconnectGoogleFit}
                   >
                     Odłącz Google Fit
@@ -1636,7 +1929,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 <span style={{ fontSize: '2rem' }}>💍</span>
                 <div>
                   <strong style={{ display: 'block', color: '#fff' }}>Oura Ring (Sen, HRV, Aktywność)</strong>
-                  <span style={{ fontSize: '0.8rem', color: userProfile.has_oura ? '#34d399' : 'var(--text-dim)' }}>
+                  <span style={{ fontSize: '0.8rem', color: userProfile.has_oura ? 'var(--success-light)' : 'var(--text-dim)' }}>
                     {userProfile.has_oura ? '✅ Połączono z kontem Oura' : '❌ Brak połączenia'}
                   </span>
                 </div>
@@ -1645,8 +1938,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 {userProfile.has_oura ? (
                   <button
                     type="button"
-                    className="btn-secondary"
-                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '8px 16px' }}
+                    className="btn-danger"
+                    style={{ padding: '8px 16px' }}
                     onClick={() => handleDisconnect('oura')}
                   >
                     Odłącz Oura
@@ -1717,7 +2010,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 <span style={{ fontSize: '2rem' }}>⚖️</span>
                 <div>
                   <strong style={{ display: 'block', color: '#fff' }}>Withings (Waga, Skład ciała)</strong>
-                  <span style={{ fontSize: '0.8rem', color: userProfile.has_withings ? '#34d399' : 'var(--text-dim)' }}>
+                  <span style={{ fontSize: '0.8rem', color: userProfile.has_withings ? 'var(--success-light)' : 'var(--text-dim)' }}>
                     {userProfile.has_withings ? '✅ Połączono z kontem Withings' : '❌ Brak połączenia'}
                   </span>
                 </div>
@@ -1726,8 +2019,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 {userProfile.has_withings ? (
                   <button
                     type="button"
-                    className="btn-secondary"
-                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '8px 16px' }}
+                    className="btn-danger"
+                    style={{ padding: '8px 16px' }}
                     onClick={() => handleDisconnect('withings')}
                   >
                     Odłącz Withings
@@ -1806,7 +2099,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               <span style={{ fontSize: '2rem' }}>🍏</span>
               <div>
                 <strong style={{ display: 'block', color: '#fff' }}>Apple Health (Kroki, Kalorie, Minuty Aktywności)</strong>
-                <span style={{ fontSize: '0.8rem', color: '#34d399' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--success-light)' }}>
                   ✅ Webhook gotowy do skonfigurowania
                 </span>
               </div>
@@ -1867,7 +2160,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               <span style={{ fontSize: '2rem' }}>🤖</span>
               <div>
                 <strong style={{ display: 'block', color: '#fff' }}>Gemini AI (Inteligentne Analizy i Wskazówki)</strong>
-                <span style={{ fontSize: '0.8rem', color: settings.gemini_api_key ? '#34d399' : 'var(--text-dim)' }}>
+                <span style={{ fontSize: '0.8rem', color: settings.gemini_api_key ? 'var(--success-light)' : 'var(--text-dim)' }}>
                   {settings.gemini_api_key ? '✅ Klucz skonfigurowany' : '❌ Brak skonfigurowanego klucza'}
                 </span>
               </div>

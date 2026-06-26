@@ -571,6 +571,35 @@ const initDb = async () => {
   await run(`CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON app_logs(timestamp)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_logs_level ON app_logs(level)`);
 
+  // 10. Tabela linków do udostępniania raportu PDF (Produkt: udostępnianie raportu
+  // linkiem, read-only) - token zamiast sesji/ciasteczka, bo link ma działać dla
+  // lekarza/dietetyki bez konta w aplikacji. `revoked` jako osobna flaga (nie samo
+  // DELETE wiersza), żeby właściciel widział historię udostępnień w Ustawieniach,
+  // a nie tylko aktualnie aktywne linki. `expires_at` wymagane (NOT NULL) - link bez
+  // terminu ważności byłby trwałym, niewygasającym dostępem do danych zdrowotnych.
+  await run(`
+    CREATE TABLE IF NOT EXISTS shared_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      days INTEGER NOT NULL DEFAULT 30,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      expires_at TEXT NOT NULL,
+      revoked INTEGER DEFAULT 0,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_shared_reports_user ON shared_reports(user_id)`);
+
+  // Indeksy pod zapytania zakresowe "WHERE user_id = ? AND date >= ?" (agregacje
+  // 7/30/90-dniowe w dashboard.js/summaries.js/chat.js). health_metrics i
+  // body_measurements mają już taki indeks "za darmo" (PRIMARY KEY(user_id, date)
+  // dla health_metrics, UNIQUE(user_id, date) dla body_measurements tworzy
+  // niejawny indeks) - brakowało go dla meals i apple_health_workouts, gdzie
+  // (user_id, date) nie jest częścią klucza głównego/unikalności.
+  await run(`CREATE INDEX IF NOT EXISTS idx_meals_user_date ON meals(user_id, date)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_workouts_user_date ON apple_health_workouts(user_id, date)`);
+
   console.log('Baza danych SQLite została pomyślnie zmigrowana i zainicjalizowana.');
 };
 

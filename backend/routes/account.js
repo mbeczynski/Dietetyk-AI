@@ -6,6 +6,9 @@ const crypto = require('crypto');
 const { authenticator } = require('otplib');
 const QRCode = require('qrcode');
 const { sendWeeklySummaryForUser, sendDailySummaryForUser, sendMonthlySummaryForUser } = require('../services/summaries');
+const { buildHealthReportPdf } = require('../services/pdfReport');
+const { createShareLink, listSharesForUser, revokeShare, VALIDITY_OPTIONS_HOURS } = require('../services/sharedReports');
+const { getAppConfig } = require('../services/oauthHelpers');
 const { summaryEmailLimiter } = require('../middleware/rateLimit');
 
 // Prosta walidacja formatu e-maila (nie pełny RFC 5322 - to wystarcza, żeby
@@ -23,6 +26,10 @@ const MAX_BODY_GOAL_TEXT_LENGTH = 1000;
 // kompresowane/skalowane po stronie frontendu (patrz Settings.jsx), ale to
 // jedyna realna ochrona przed kimś, kto wysyła żądanie bezpośrednio do API.
 const MAX_BODY_GOAL_PHOTO_LENGTH = 4 * 1024 * 1024;
+// Limit rozmiaru avatara - analogicznie do zdjęcia celu sylwetki powyżej. Wcześniej
+// endpoint POST /api/user/profile zapisywał `avatar` bez ŻADNEJ walidacji rozmiaru -
+// jedyną ochroną był globalny express.json({limit:'20mb'}) w server.js.
+const MAX_AVATAR_BASE64_LENGTH = 3 * 1024 * 1024;
 
 router.get('/api/settings', async (req, res) => {
   try {
@@ -166,6 +173,10 @@ router.post('/api/user/profile', async (req, res) => {
     // wartość nie powinna trafić do bazy.
     if (email !== undefined && email !== '' && !EMAIL_REGEX.test(email)) {
       return res.status(400).json({ error: 'Niepoprawny format adresu e-mail.' });
+    }
+
+    if (avatar !== undefined && avatar !== null && avatar.length > MAX_AVATAR_BASE64_LENGTH) {
+      return res.status(400).json({ error: 'Zdjęcie profilowe jest zbyt duże.' });
     }
 
     if (avatar !== undefined && email !== undefined) {
@@ -561,6 +572,75 @@ router.get('/api/user/export', async (req, res) => {
   } catch (err) {
     console.error('[EXPORT ERROR]', err);
     res.status(500).json({ error: 'Błąd eksportu danych.' });
+  }
+});
+
+// Eksport PDF dla lekarza/dietetyka (Produkt: eksport PDF dla lekarza/dietetyka) -
+// niezależny od eksportu JSON powyżej: ten dokument jest zwięzłym, czytelnym
+// podsumowaniem (cele, średnie z okresu, sen/skład ciała, obwody, suplementy),
+// a nie surowym zrzutem wszystkich wierszy z bazy. Parametr days ograniczony w
+// buildHealthReportPdf (services/pdfReport.js) do maks. PDF_REPORT_MAX_DAYS dni.
+router.get('/api/user/export-pdf-report', async (req, res) => {
+  try {
+    const pdfBuffer = await buildHealthReportPdf(req.user.id, req.query.days);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="dietetyk-ai-raport-${dateStr}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[PDF EXPORT ERROR]', err);
+    res.status(500).json({ error: 'Błąd generowania raportu PDF.' });
+  }
+});
+
+// Udostępnianie raportu PDF linkiem (Produkt: udostępnianie raportu linkiem,
+// read-only) - alternatywa dla pobrania pliku powyżej: zamiast samodzielnie
+// wysłać plik lekarzowi/dietetykowi, użytkownik wysyła link, który ten może
+// otworzyć bez konta w aplikacji (patrz routes/sharedReport.js, publiczny
+// endpoint zamontowany w server.js przed requireAuth).
+router.post('/api/user/shared-reports', async (req, res) => {
+  try {
+    const validityKey = Object.prototype.hasOwnProperty.call(VALIDITY_OPTIONS_HOURS, req.body.validityKey)
+      ? req.body.validityKey
+      : undefined;
+    const { token, days, expiresAt } = await createShareLink(req.user.id, req.body.days, validityKey);
+
+    const appUrl = await getAppConfig('app_url');
+    const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+    const url = `${base}/api/public/shared-reports/${token}`;
+
+    res.json({ url, days, expiresAt });
+  } catch (err) {
+    console.error('[SHARE LINK CREATE ERROR]', err);
+    res.status(500).json({ error: 'Błąd tworzenia linku udostępniania.' });
+  }
+});
+
+// Lista udostępnień użytkownika - bez samych tokenów (patrz komentarz w
+// listSharesForUser), tylko metadane potrzebne do wyświetlenia historii i
+// pozwolenia na odwołanie.
+router.get('/api/user/shared-reports', async (req, res) => {
+  try {
+    const shares = await listSharesForUser(req.user.id);
+    res.json({ shares });
+  } catch (err) {
+    console.error('[SHARE LIST ERROR]', err);
+    res.status(500).json({ error: 'Błąd pobierania listy udostępnień.' });
+  }
+});
+
+// Odwołanie udostępnienia - revokeShare sprawdza własność (user_id w WHERE), więc
+// nie trzeba tu dodatkowego sprawdzenia poza tym, że żądanie jest uwierzytelnione.
+router.delete('/api/user/shared-reports/:id', async (req, res) => {
+  try {
+    const ok = await revokeShare(req.user.id, req.params.id);
+    if (!ok) {
+      return res.status(404).json({ error: 'Nie znaleziono udostępnienia.' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[SHARE REVOKE ERROR]', err);
+    res.status(500).json({ error: 'Błąd odwoływania udostępnienia.' });
   }
 });
 

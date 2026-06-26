@@ -30,7 +30,42 @@ async function getUserSettings(userId) {
     targetCarbs: settings.target_carbs || 250,
     targetFat: settings.target_fat || 80,
     bmr: settings.bmr || 1800,
-    targetWaterMl: settings.target_water_ml || 2500
+    targetWaterMl: settings.target_water_ml || 2500,
+    // 0 = nieustawiony (ta sama konwencja co w routes/dashboard.js) - liczbowy cel
+    // wagi jest opcjonalny, w przeciwieństwie do kalorii/makro, które mają sensowne
+    // wartości domyślne.
+    targetWeightKg: settings.target_weight_kg || 0
+  };
+}
+
+// Rozbieżność cel wagi (liczbowy target_weight_kg) vs realne tempo zmiany wagi w
+// tym tygodniu - jedyna nowa logika produktowa w tym raporcie (resztę stanowi
+// wpięcie do już istniejącego maila tygodniowego). Wykorzystuje wyłącznie dane już
+// zbierane przez aplikację (cel wagi z ustawień + historia wagi z health_metrics) -
+// żadnych nowych danych od użytkownika, żadnego kopiowania funkcji z konkurencji.
+// Zwraca null, gdy nie da się sensownie ocenić tempa (brak celu, brak aktualnej
+// wagi, albo za mało pomiarów w tym tygodniu, żeby tempo nie było zgadywane z
+// jednego punktu) - zgodnie z ustalonym wzorcem "nie fabrykuj wniosków z rzadkich
+// danych" używanym w innych funkcjach produktowych (patrz routes/dashboard.js).
+function buildGoalPaceAnalysis(targetWeightKg, currentWeight, weeklyWeightChange) {
+  if (!targetWeightKg || currentWeight === null || weeklyWeightChange === null) {
+    return null;
+  }
+  const GOAL_REACHED_TOLERANCE_KG = 0.3;
+  const remainingKg = Math.round((currentWeight - targetWeightKg) * 10) / 10; // >0: trzeba schudnąć, <0: trzeba przybrać
+  if (Math.abs(remainingKg) <= GOAL_REACHED_TOLERANCE_KG) {
+    return { status: 'reached', remainingKg, currentWeight, targetWeightKg, weeklyWeightChange };
+  }
+  const goalDirection = remainingKg > 0 ? -1 : 1; // kierunek WYMAGANY przez cel
+  const actualDirection = weeklyWeightChange === 0 ? 0 : (weeklyWeightChange > 0 ? 1 : -1);
+  const directionMismatch = actualDirection !== 0 && actualDirection !== goalDirection;
+  let weeksToGoal = null;
+  if (!directionMismatch && actualDirection !== 0) {
+    weeksToGoal = Math.round(Math.abs(remainingKg / weeklyWeightChange) * 10) / 10;
+  }
+  return {
+    status: directionMismatch ? 'wrong_direction' : (actualDirection === 0 ? 'stalled' : 'on_track'),
+    remainingKg, currentWeight, targetWeightKg, weeklyWeightChange, weeksToGoal
   };
 }
 
@@ -344,13 +379,17 @@ function buildSummaryEmailHtml({ title, headerSubtitleHtml, statsSectionTitle, v
 // ===== Raport tygodniowy =====
 async function sendWeeklySummaryForUser(userId, customEmail = null) {
   const { user, emailToUse } = await getUserAndEmail(userId, customEmail);
-  const { targetCalories, targetProtein, targetCarbs, targetFat, bmr, targetWaterMl } = await getUserSettings(userId);
+  const { targetCalories, targetProtein, targetCarbs, targetFat, bmr, targetWaterMl, targetWeightKg } = await getUserSettings(userId);
 
   // Pobranie danych z ostatnich 7 dni
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+  // Tylko kolumny faktycznie używane przez aggregateNutritionAndHealth poniżej
+  // (sumy/średnie liczbowe) - SELECT * ściągał tu niepotrzebnie image_base64
+  // (potencjalnie kilka MB na posiłek) i pełny analysis_json, mimo że raport
+  // tygodniowy nigdy nie wyświetla zdjęć ani pełnej analizy AI per posiłek.
   const meals = await db.all(`
-    SELECT * FROM meals WHERE user_id = ? AND date >= ?
+    SELECT calories, protein, carbs, fat, fiber, sugar, sodium FROM meals WHERE user_id = ? AND date >= ?
   `, [userId, sevenDaysAgo]);
 
   const healthMetrics = await db.all(`
@@ -361,6 +400,29 @@ async function sendWeeklySummaryForUser(userId, customEmail = null) {
   const stats = aggregateNutritionAndHealth(meals, healthMetrics, numDays);
   const avgTotalBurned = bmr + stats.avgActiveCalories;
   const avgNetCalories = stats.avgEatenCalories - avgTotalBurned;
+
+  // ===== Rozbieżność cel sylwetki/wagi vs tempo (Zadanie: tygodniowy raport
+  // rozbieżności cel-sylwetka vs tempo) - wpięte do już istniejącego maila
+  // tygodniowego, bo to najmniej inwazyjne miejsce: użytkownik i tak go dostaje
+  // raz w tygodniu, zamiast tworzyć osobny mail/scheduler dla tej samej częstotliwości.
+  const bodyGoalRow = await db.get(`SELECT body_goal_text FROM users WHERE id = ?`, [userId]);
+  const bodyGoalText = bodyGoalRow && bodyGoalRow.body_goal_text ? bodyGoalRow.body_goal_text : null;
+
+  // Aktualna waga = najnowszy pomiar w ogóle (nie tylko z tego tygodnia), bo
+  // użytkownik mógł nie zsynchronizować wagi akurat w ostatnich 7 dniach.
+  const latestWeightRow = await db.get(
+    `SELECT weight FROM health_metrics WHERE user_id = ? AND weight IS NOT NULL ORDER BY date DESC LIMIT 1`,
+    [userId]
+  );
+  const currentWeight = latestWeightRow ? latestWeightRow.weight : null;
+
+  // stats.weightChange (pierwszy-ostatni pomiar w oknie 7 dni) przy JEDNYM pomiarze
+  // w tygodniu wychodzi sztucznie jako 0 (stagnacja), co dla oceny tempa byłoby
+  // mylące - tu wymagamy minimum 2 pomiarów w tygodniu, inaczej nie oceniamy tempa.
+  const weightCountThisWeek = healthMetrics.filter(h => h.weight !== null && h.weight !== undefined).length;
+  const weeklyWeightChange = weightCountThisWeek >= 2 ? stats.weightChange : null;
+
+  const goalPaceAnalysis = buildGoalPaceAnalysis(targetWeightKg, currentWeight, weeklyWeightChange);
 
   const advicePrompt = `
 Jesteś profesjonalnym dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
@@ -378,6 +440,17 @@ Tygodniowe statystyki (średnie dzienne):
 - Średni dobowy kroki: ${stats.avgSteps}
 - Średnie dobowe nawodnienie: ${stats.avgWaterMl}ml (cel: ${targetWaterMl}ml)
 - Suplementy zapisane w tym tygodniu: ${stats.supplementsLogged.length > 0 ? stats.supplementsLogged.join('; ') : 'brak zapisanych suplementów'}
+${goalPaceAnalysis ? `
+Cel sylwetki i rozbieżność tempa:
+- Opisany cel sylwetki użytkownika: ${bodyGoalText || 'brak opisu słownego'}
+- Liczbowy cel wagi: ${goalPaceAnalysis.targetWeightKg} kg, aktualna waga: ${goalPaceAnalysis.currentWeight} kg (różnica do celu: ${Math.abs(goalPaceAnalysis.remainingKg)} kg ${goalPaceAnalysis.remainingKg > 0 ? 'do zrzucenia' : 'do przybrania'})
+- Zmiana wagi w tym tygodniu: ${goalPaceAnalysis.weeklyWeightChange > 0 ? '+' : ''}${goalPaceAnalysis.weeklyWeightChange} kg
+- Status tempa względem celu: ${
+    goalPaceAnalysis.status === 'reached' ? 'cel wagowy osiągnięty (w granicach tolerancji)'
+    : goalPaceAnalysis.status === 'wrong_direction' ? 'UWAGA: waga w tym tygodniu zmieniała się w kierunku PRZECIWNYM do celu'
+    : goalPaceAnalysis.status === 'stalled' ? 'waga w tym tygodniu się nie zmieniła (stagnacja względem celu)'
+    : `tempo zgodne z kierunkiem celu, szacowany czas do celu przy tym tempie: ~${goalPaceAnalysis.weeksToGoal} tyg.`
+  }` : ''}
 
 Dane z Oura & Withings (średnie tygodniowe):
 - Średni wynik snu (Sleep Score): ${stats.avgSleepScore !== null ? stats.avgSleepScore + '/100' : 'brak'}
@@ -394,6 +467,7 @@ Napisz profesjonalny, zwięzły i motywujący tygodniowy raport w języku polski
 4. Regenerację i zmiany w składzie ciała z Withings (przyrost masy mięśniowej vs spadek tkanki tłuszczowej) oraz ciśnienie tętnicze, jeśli dostępne.
 5. Poziom nawodnienia względem celu i jego wpływ na regenerację i wydolność.
 6. Suplementy: jeśli użytkownik zapisał suplementy w tym tygodniu, skomentuj krótko ich regularność i przydatność.
+7. Rozbieżność cel-tempo: jeśli powyżej podano status tempa względem celu wagi, odnieś się do niego wprost - czy obecne tempo realnie prowadzi do celu (i w jakim horyzoncie czasowym), czy kierunek jest odwrotny od celu, czy waga stoi w miejscu - i w każdym z tych przypadków zaproponuj konkretną korektę diety/treningu. Jeśli ta sekcja nie została podana (brak ustawionego celu wagi lub za mało pomiarów), pomiń ten punkt bez wzmianki o jego braku.
 
 Sformatuj odpowiedź w strukturze Markdown: krótkie zdanie wstępu, nagłówek "## Analiza" (zwięzłe akapity podsumowujące tydzień na bazie powyższych punktów), nagłówek "## Rekomendacje" z listą punktowaną (3 konkretne punkty na nadchodzący tydzień, każdy zaczynający się od "- "). Używaj **pogrubienia** dla kluczowych liczb i fraz. Pisz bezpośrednio do użytkownika.
 `;
@@ -419,7 +493,15 @@ Sformatuj odpowiedź w strukturze Markdown: krótkie zdanie wstępu, nagłówek 
       { label: 'Kroki', value: stats.avgSteps },
       { label: 'Kalorie Spalone (Aktywne)', value: `${stats.avgActiveCalories} kcal` },
       { label: 'Treningi w tygodniu', value: stats.workoutsCount },
-      { label: 'Woda', value: `${stats.avgWaterMl}ml`, target: `${targetWaterMl}ml` }
+      { label: 'Woda', value: `${stats.avgWaterMl}ml`, target: `${targetWaterMl}ml` },
+      // Wiersz celu wagi pokazywany tylko, gdy mamy z czego liczyć tempo (patrz
+      // buildGoalPaceAnalysis powyżej) - inaczej tabela sugerowałaby ocenę tempa
+      // bez wystarczających danych.
+      ...(goalPaceAnalysis ? [{
+        label: 'Zmiana wagi (tydzień)',
+        value: `${goalPaceAnalysis.weeklyWeightChange > 0 ? '+' : ''}${goalPaceAnalysis.weeklyWeightChange} kg`,
+        target: `cel: ${goalPaceAnalysis.targetWeightKg} kg`
+      }] : [])
     ],
     aiHtml: markdownToHtml(aiSummary)
   });
@@ -439,21 +521,22 @@ async function sendDailySummaryForUser(userId, customEmail = null) {
 
   const date = getLocalDateString();
 
-  // Posiłki z dzisiaj
-  const mealRows = await db.all(`SELECT * FROM meals WHERE user_id = ? AND date = ?`, [userId, date]);
+  // Posiłki z dzisiaj. Tylko kolumny potrzebne do listy w mailu (raw_text +
+  // wartości liczbowe) - bez image_base64/pełnego analysis_json, które tu
+  // nigdy nie są wyświetlane (patrz advicePrompt niżej - tylko nazwa + makro).
+  const mealRows = await db.all(`SELECT id, raw_text, calories, protein, carbs, fat FROM meals WHERE user_id = ? AND date = ?`, [userId, date]);
   let totalEaten = { calories: 0, protein: 0, carbs: 0, fat: 0 };
   const meals = mealRows.map(r => {
-    let analysis = {};
-    try {
-      analysis = JSON.parse(r.analysis_json);
-    } catch (e) {
-      analysis = { calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat };
-    }
     totalEaten.calories += r.calories;
     totalEaten.protein += r.protein;
     totalEaten.carbs += r.carbs;
     totalEaten.fat += r.fat;
-    return { id: r.id, raw_text: r.raw_text, ...analysis };
+    // UWAGA: wcześniej ten wiersz nadpisywał calories/protein/carbs/fat surowym,
+    // niesanityzowanym analysis_json (ten sam wzorzec błędu co w meals.js/dashboard.js,
+    // tu wcześniej przeoczony) - lista posiłków w mailu codziennym mogła pokazywać
+    // inne wartości niż realnie zsumowane w totalEaten powyżej. Skoro zapytanie nie
+    // ściąga już analysis_json, ten wiersz po prostu zwraca sanitizowane kolumny.
+    return { id: r.id, raw_text: r.raw_text, calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat };
   });
 
   totalEaten.protein = Math.round(totalEaten.protein * 10) / 10;
@@ -548,8 +631,11 @@ async function sendMonthlySummaryForUser(userId, customEmail = null) {
   // Pobranie danych z ostatnich 30 dni
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+  // Patrz komentarz w sendWeeklySummaryForUser - tylko kolumny liczbowe potrzebne
+  // do agregacji, bez image_base64/analysis_json (raport miesięczny tym bardziej
+  // nie wyświetla zdjęć pojedynczych posiłków).
   const meals = await db.all(`
-    SELECT * FROM meals WHERE user_id = ? AND date >= ?
+    SELECT calories, protein, carbs, fat, fiber, sugar, sodium FROM meals WHERE user_id = ? AND date >= ?
   `, [userId, thirtyDaysAgo]);
 
   const healthMetrics = await db.all(`
@@ -636,5 +722,10 @@ Sformatuj odpowiedź w strukturze Markdown: krótkie zdanie wstępu, nagłówek 
 module.exports = {
   sendWeeklySummaryForUser,
   sendDailySummaryForUser,
-  sendMonthlySummaryForUser
+  sendMonthlySummaryForUser,
+  // Wyeksportowane też jako samodzielne helpery - wykorzystywane przez
+  // services/pdfReport.js (eksport PDF dla lekarza/dietetyka), żeby nie
+  // duplikować tej samej logiki agregacji statystyk/ustawień.
+  getUserSettings,
+  aggregateNutritionAndHealth
 };

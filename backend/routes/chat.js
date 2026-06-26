@@ -13,6 +13,102 @@ const { generateContentWithFallback } = require('../config');
 // powodując błąd po stronie Gemini.
 const MAX_CHAT_MESSAGE_LENGTH = 2000;
 
+// Czat z dostępem do długiej historii: domyślnie czat widzi tylko ostatnie 7 dni
+// (CHAT_DEFAULT_LOOKBACK_DAYS) - wystarczające dla typowych pytań o "dzisiaj"/
+// "ostatnie dni" i utrzymujące prompt krótkim. Gdy treść wiadomości wskazuje, że
+// użytkownik pyta o szerszy okres (miesiąc, trend, konkretna nazwa miesiąca itp.),
+// rozszerzamy okno do CHAT_EXTENDED_LOOKBACK_DAYS (90 dni - ta sama wartość co w
+// innych funkcjach "długoterminowych" w aplikacji, np. SLEEP_INSIGHT_LOOKBACK_DAYS
+// w dashboard.js). Przy rozszerzonym oknie zamieniamy też szczegółowy log DZIENNY
+// na zwarte podsumowanie TYGODNIOWE (patrz buildWeeklyTrendSummary) - dziesiątki
+// pojedynczych dni w prompcie niepotrzebnie zwiększałyby koszt/czas odpowiedzi
+// Gemini bez realnej wartości dla odpowiedzi.
+const CHAT_DEFAULT_LOOKBACK_DAYS = 7;
+const CHAT_EXTENDED_LOOKBACK_DAYS = 90;
+
+const LONG_HISTORY_KEYWORDS = [
+  'miesiąc', 'miesiącu', 'miesiące', 'miesięcy', 'miesiącach',
+  'tygodni', 'tygodnie', 'tygodniach', 'kwartał', 'kwartale',
+  '30 dni', '60 dni', '90 dni', 'dłuższy okres', 'dłuższym okresie',
+  'od dawna', 'dawniej', 'histori', 'trend', 'w ciągu', 'ostatnich tygodni',
+  'styczni', 'lutego', 'lutym', 'marca', 'marcu', 'kwietnia', 'kwietniu',
+  'maja', 'maju', 'czerwca', 'czerwcu', 'lipca', 'lipcu', 'sierpnia', 'sierpniu',
+  'września', 'wrześniu', 'października', 'październiku', 'listopada', 'listopadzie',
+  'grudnia', 'grudniu', ' rok', 'roku', 'porównaj', 'porównanie'
+];
+
+// Heurystyka na bazie słów kluczowych - nie idealna (np. nie złapie pytania o
+// konkretną datę bez słowa-wskazówki), ale prosta, deterministyczna i bez kosztu
+// dodatkowego wywołania AI tylko do klasyfikacji intencji.
+function messageNeedsLongHistory(msg) {
+  const lower = msg.toLowerCase();
+  return LONG_HISTORY_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+// Podsumowanie tygodniowe (okna 7-dniowe od najstarszej daty w zakresie) - używane
+// przy rozszerzonym oknie historii. Pomija okna bez żadnych danych (brak posiłków,
+// wagi, kroków i snu), żeby nie zaśmiecać promptu liniami "brak danych".
+function buildWeeklyTrendSummary(historyMetrics, historyMeals, startDateStr, endDateStr) {
+  const mealsByDate = {};
+  historyMeals.forEach(m => {
+    if (!mealsByDate[m.date]) mealsByDate[m.date] = [];
+    mealsByDate[m.date].push(m);
+  });
+  const metricsByDate = {};
+  historyMetrics.forEach(hm => { metricsByDate[hm.date] = hm; });
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const startTime = new Date(startDateStr).getTime();
+  const endTime = new Date(endDateStr).getTime();
+  const totalDays = Math.round((endTime - startTime) / msPerDay);
+
+  let summary = '';
+  for (let bucketStart = 0; bucketStart < totalDays; bucketStart += 7) {
+    const bucketLen = Math.min(7, totalDays - bucketStart);
+    const bucketStartDate = new Date(startTime + bucketStart * msPerDay).toISOString().slice(0, 10);
+    const bucketEndDate = new Date(startTime + (bucketStart + bucketLen) * msPerDay).toISOString().slice(0, 10);
+
+    let daysWithMeals = 0, calSum = 0, pSum = 0, cSum = 0, fSum = 0;
+    const weightVals = [];
+    const stepsVals = [];
+    const sleepVals = [];
+
+    for (let d = bucketStart; d < bucketStart + bucketLen; d++) {
+      const dateStr = new Date(startTime + d * msPerDay).toISOString().slice(0, 10);
+      const dayMeals = mealsByDate[dateStr];
+      if (dayMeals && dayMeals.length > 0) {
+        daysWithMeals++;
+        calSum += dayMeals.reduce((s, m) => s + m.calories, 0);
+        pSum += dayMeals.reduce((s, m) => s + m.protein, 0);
+        cSum += dayMeals.reduce((s, m) => s + m.carbs, 0);
+        fSum += dayMeals.reduce((s, m) => s + m.fat, 0);
+      }
+      const hm = metricsByDate[dateStr];
+      if (hm) {
+        if (hm.weight) weightVals.push(hm.weight);
+        if (hm.steps) stepsVals.push(hm.steps);
+        if (hm.sleep_score) sleepVals.push(hm.sleep_score);
+      }
+    }
+
+    if (daysWithMeals === 0 && weightVals.length === 0 && stepsVals.length === 0 && sleepVals.length === 0) {
+      continue;
+    }
+
+    const avg = (arr) => arr.reduce((s, v) => s + v, 0) / arr.length;
+    const parts = [];
+    if (daysWithMeals > 0) {
+      parts.push(`śr. spożycie ${Math.round(calSum / daysWithMeals)} kcal/dzień (B:${Math.round(pSum / daysWithMeals)}g W:${Math.round(cSum / daysWithMeals)}g T:${Math.round(fSum / daysWithMeals)}g), zalogowano ${daysWithMeals}/${bucketLen} dni`);
+    }
+    if (weightVals.length > 0) parts.push(`waga śr. ${Math.round(avg(weightVals) * 10) / 10} kg`);
+    if (stepsVals.length > 0) parts.push(`kroki śr. ${Math.round(avg(stepsVals))}`);
+    if (sleepVals.length > 0) parts.push(`sen śr. ${Math.round(avg(sleepVals))}/100`);
+
+    summary += `- Okres ${bucketStartDate} – ${bucketEndDate}: ${parts.join(', ')}\n`;
+  }
+  return summary;
+}
+
 router.post('/api/chat', requireAuth, async (req, res) => {
   const { message, date, history } = req.body;
   if (!message || !message.trim()) {
@@ -37,7 +133,9 @@ router.post('/api/chat', requireAuth, async (req, res) => {
     // Pobierz dzisiejsze dane zdrowotne
     const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, queryDate]) || getDefaultHealthMetrics();
 
-    const mealRows = await db.all(`SELECT * FROM meals WHERE user_id = ? AND date = ?`, [req.user.id, queryDate]);
+    // Tylko kolumny liczbowe potrzebne do bilansu kalorycznego czatu - bez
+    // image_base64/analysis_json, które tu nigdy nie są używane (patrz forEach niżej).
+    const mealRows = await db.all(`SELECT calories, protein, carbs, fat FROM meals WHERE user_id = ? AND date = ?`, [req.user.id, queryDate]);
     let totalEaten = { calories: 0, protein: 0, carbs: 0, fat: 0 };
     mealRows.forEach(r => {
       totalEaten.calories += r.calories;
@@ -73,8 +171,11 @@ router.post('/api/chat', requireAuth, async (req, res) => {
       [req.user.id]
     );
 
-    // Pobranie trendów z ostatnich 7 dni przed wybraną datą
-    const pastDateLimit = new Date(new Date(queryDate).getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Okno historii: domyślnie 7 dni, rozszerzone do 90 dni jeśli treść wiadomości
+    // wskazuje na pytanie o dłuższy okres (patrz messageNeedsLongHistory powyżej).
+    const useExtendedHistory = messageNeedsLongHistory(message);
+    const lookbackDays = useExtendedHistory ? CHAT_EXTENDED_LOOKBACK_DAYS : CHAT_DEFAULT_LOOKBACK_DAYS;
+    const pastDateLimit = new Date(new Date(queryDate).getTime() - lookbackDays * 24 * 60 * 60 * 1000);
     const pastDateStr = pastDateLimit.toISOString().slice(0, 10);
 
     const historyMetrics = await db.all(`
@@ -93,40 +194,48 @@ router.post('/api/chat', requireAuth, async (req, res) => {
 
     let weeklyTrendSummary = '';
     if (historyMetrics.length > 0 || historyMeals.length > 0) {
-      weeklyTrendSummary = '\nHistoria i trendy użytkownika z ostatnich 7 dni (przed wybraną datą):\n';
-      
-      const mealsByDate = {};
-      historyMeals.forEach(m => {
-        if (!mealsByDate[m.date]) mealsByDate[m.date] = [];
-        mealsByDate[m.date].push(m);
-      });
+      if (useExtendedHistory) {
+        // Pytanie wskazuje na dłuższy okres - zwarte podsumowanie tygodniowe
+        // (patrz buildWeeklyTrendSummary) zamiast logu dzień po dniu, żeby nie
+        // rozdąć prompta przy oknie do 90 dni.
+        weeklyTrendSummary = `\nPodsumowanie tygodniowe użytkownika z ostatnich ${lookbackDays} dni (przed wybraną datą) - Twoje pytanie wskazuje na potrzebę szerszego kontekstu czasowego niż tylko ostatni tydzień:\n`
+          + buildWeeklyTrendSummary(historyMetrics, historyMeals, pastDateStr, queryDate);
+      } else {
+        weeklyTrendSummary = `\nHistoria i trendy użytkownika z ostatnich ${lookbackDays} dni (przed wybraną datą):\n`;
 
-      const allPastDates = new Set([...historyMetrics.map(hm => hm.date), ...Object.keys(mealsByDate)]);
-      const sortedPastDates = Array.from(allPastDates).sort();
+        const mealsByDate = {};
+        historyMeals.forEach(m => {
+          if (!mealsByDate[m.date]) mealsByDate[m.date] = [];
+          mealsByDate[m.date].push(m);
+        });
 
-      sortedPastDates.forEach(dStr => {
-        const hm = historyMetrics.find(h => h.date === dStr);
-        const dayMeals = mealsByDate[dStr] || [];
-        
-        let dayLog = `- Data ${dStr}: `;
-        if (hm) {
-          const parts = [];
-          if (hm.steps) parts.push(`Kroki: ${hm.steps}`);
-          if (hm.active_calories) parts.push(`Kalorie aktywne: ${hm.active_calories} kcal`);
-          if (hm.weight) parts.push(`Waga: ${hm.weight} kg`);
-          if (hm.sleep_score) parts.push(`Sen: ${hm.sleep_score}/100`);
-          if (hm.readiness_score) parts.push(`Gotowość: ${hm.readiness_score}/100`);
-          dayLog += parts.join(', ');
-        }
-        if (dayMeals.length > 0) {
-          const totalCal = dayMeals.reduce((sum, m) => sum + m.calories, 0);
-          const totalP = dayMeals.reduce((sum, m) => sum + m.protein, 0);
-          const totalC = dayMeals.reduce((sum, m) => sum + m.carbs, 0);
-          const totalF = dayMeals.reduce((sum, m) => sum + m.fat, 0);
-          dayLog += ` | Posiłki (${dayMeals.length}): łącznie zjedzone ${totalCal} kcal (B: ${totalP}g, W: ${totalC}g, T: ${totalF}g)`;
-        }
-        weeklyTrendSummary += dayLog + '\n';
-      });
+        const allPastDates = new Set([...historyMetrics.map(hm => hm.date), ...Object.keys(mealsByDate)]);
+        const sortedPastDates = Array.from(allPastDates).sort();
+
+        sortedPastDates.forEach(dStr => {
+          const hm = historyMetrics.find(h => h.date === dStr);
+          const dayMeals = mealsByDate[dStr] || [];
+
+          let dayLog = `- Data ${dStr}: `;
+          if (hm) {
+            const parts = [];
+            if (hm.steps) parts.push(`Kroki: ${hm.steps}`);
+            if (hm.active_calories) parts.push(`Kalorie aktywne: ${hm.active_calories} kcal`);
+            if (hm.weight) parts.push(`Waga: ${hm.weight} kg`);
+            if (hm.sleep_score) parts.push(`Sen: ${hm.sleep_score}/100`);
+            if (hm.readiness_score) parts.push(`Gotowość: ${hm.readiness_score}/100`);
+            dayLog += parts.join(', ');
+          }
+          if (dayMeals.length > 0) {
+            const totalCal = dayMeals.reduce((sum, m) => sum + m.calories, 0);
+            const totalP = dayMeals.reduce((sum, m) => sum + m.protein, 0);
+            const totalC = dayMeals.reduce((sum, m) => sum + m.carbs, 0);
+            const totalF = dayMeals.reduce((sum, m) => sum + m.fat, 0);
+            dayLog += ` | Posiłki (${dayMeals.length}): łącznie zjedzone ${totalCal} kcal (B: ${totalP}g, W: ${totalC}g, T: ${totalF}g)`;
+          }
+          weeklyTrendSummary += dayLog + '\n';
+        });
+      }
     }
 
     // Formatowanie historii czatu z tej sesji
@@ -191,7 +300,7 @@ ${weeklyTrendSummary}
 ${historyContext}
 Pytanie użytkownika: "${message}"
 
-Odpowiedz zwięźle, merytorycznie i praktycznie w języku polskim (maksymalnie 3-4 krótkie akapity). Skup się na bezpośrednich zaleceniach odnoszących się do powyższych danych zdrowotnych użytkownika. Nawiąż do historii rozmowy lub trendów z ubiegłego tygodnia, jeśli to istotne i odpowiada na pytanie. Jeśli użytkownik opisał swój cel sylwetki, odnoś rekomendacje do tego celu tam, gdzie to ma sens dla zadanego pytania - ale nie wspominaj o nim, jeśli pytanie go nie dotyczy. Możesz używać formatowania markdown (listy wypunktowane, pogrubienia). Odpowiedź powinna być profesjonalna, życzliwa i motywująca.
+Odpowiedz zwięźle, merytorycznie i praktycznie w języku polskim (maksymalnie 3-4 krótkie akapity). Skup się na bezpośrednich zaleceniach odnoszących się do powyższych danych zdrowotnych użytkownika. Nawiąż do historii rozmowy lub trendów z powyższego podsumowania historii, jeśli to istotne i odpowiada na pytanie. Jeśli użytkownik opisał swój cel sylwetki, odnoś rekomendacje do tego celu tam, gdzie to ma sens dla zadanego pytania - ale nie wspominaj o nim, jeśli pytanie go nie dotyczy. Możesz używać formatowania markdown (listy wypunktowane, pogrubienia). Odpowiedź powinna być profesjonalna, życzliwa i motywująca.
 `;
 
     const forceCustomKeyOnly = req.user.role !== 'admin';

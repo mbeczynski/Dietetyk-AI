@@ -438,6 +438,12 @@ export default function App() {
   const handleAddMeal = async (rawText, imageBase64) => {
     setIsAnalyzing(true);
     setErrorMessage('');
+    // Zwracana wartość boolean (sukces/błąd) - MealLogger.jsx czeka na nią, żeby
+    // pokazać komunikat "Posiłek zapisany" TYLKO po realnym powodzeniu zapisu,
+    // a nie optymistycznie zaraz po kliknięciu (wcześniej formularz nie dawał
+    // żadnego potwierdzenia poza nową pozycją na liście, która mogła się zgubić
+    // w długiej liście posiłków danego dnia).
+    let success = false;
     try {
       const res = await fetch('/api/meals', {
         method: 'POST',
@@ -455,6 +461,7 @@ export default function App() {
       if (res.ok) {
         // Pomyślnie dodano posiłek - przeładuj dashboard
         await fetchDashboardData();
+        success = true;
       } else {
         if (res.status === 401) {
           handleLogout();
@@ -476,6 +483,7 @@ export default function App() {
     } finally {
       setIsAnalyzing(false);
     }
+    return success;
   };
 
   const handleDeleteMeal = async (id) => {
@@ -1131,6 +1139,7 @@ export default function App() {
           <input
             type="date"
             className="date-input"
+            aria-label="Wybierz dzień"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
           />

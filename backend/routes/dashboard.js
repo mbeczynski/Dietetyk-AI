@@ -2076,4 +2076,77 @@ router.get('/api/dashboard/meal-timing-sleep-insight', async (req, res) => {
   }
 });
 
+// Insight (Runda 9): samodzielny trend ciśnienia krwi (ostatnie 7 dni vs poprzedzające
+// 28 dni) - w przeciwieństwie do istniejącego sodium-bp-insight (sód jako zmienna
+// wyjaśniająca), tutaj liczy się czysty trend w czasie, niezależnie od przyczyny.
+// Klasyfikacja kategorii to uproszczone progi AHA (American Heart Association) -
+// orientacyjna etykieta, nie diagnoza medyczna.
+const BP_RECENT_WINDOW_DAYS = 7;
+const BP_BASELINE_WINDOW_DAYS = 28;
+const MIN_RECENT_BP_DAYS = 3;
+const MIN_BASELINE_BP_DAYS = 7;
+
+function classifyBloodPressure(systolic, diastolic) {
+  if (systolic == null || diastolic == null) return null;
+  if (systolic >= 180 || diastolic >= 120) return 'Przełom nadciśnieniowy';
+  if (systolic >= 140 || diastolic >= 90) return 'Nadciśnienie 2. stopnia';
+  if (systolic >= 130 || diastolic >= 80) return 'Nadciśnienie 1. stopnia';
+  if (systolic >= 120) return 'Podwyższone';
+  return 'Prawidłowe';
+}
+
+router.get('/api/dashboard/bp-trend-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const recentStart = shiftDate(today, -(BP_RECENT_WINDOW_DAYS - 1));
+    const baselineEnd = shiftDate(recentStart, -1);
+    const baselineStart = shiftDate(baselineEnd, -(BP_BASELINE_WINDOW_DAYS - 1));
+
+    const rows = await db.all(
+      `SELECT date, blood_pressure_systolic, blood_pressure_diastolic FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ?
+       AND blood_pressure_systolic IS NOT NULL AND blood_pressure_diastolic IS NOT NULL
+       AND blood_pressure_systolic > 0 AND blood_pressure_diastolic > 0`,
+      [req.user.id, baselineStart, today]
+    );
+
+    const recent = rows.filter(r => r.date >= recentStart && r.date <= today);
+    const baseline = rows.filter(r => r.date >= baselineStart && r.date <= baselineEnd);
+
+    if (recent.length < MIN_RECENT_BP_DAYS || baseline.length < MIN_BASELINE_BP_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        recentDays: recent.length,
+        baselineDays: baseline.length,
+        minRecentDaysRequired: MIN_RECENT_BP_DAYS,
+        minBaselineDaysRequired: MIN_BASELINE_BP_DAYS
+      });
+    }
+
+    const avg = (arr, key) => Math.round((arr.reduce((s, r) => s + r[key], 0) / arr.length) * 10) / 10;
+    const avgRecentSystolic = avg(recent, 'blood_pressure_systolic');
+    const avgRecentDiastolic = avg(recent, 'blood_pressure_diastolic');
+    const avgBaselineSystolic = avg(baseline, 'blood_pressure_systolic');
+    const avgBaselineDiastolic = avg(baseline, 'blood_pressure_diastolic');
+
+    res.json({
+      hasEnoughData: true,
+      recentDays: recent.length,
+      baselineDays: baseline.length,
+      avgRecentSystolic,
+      avgRecentDiastolic,
+      avgBaselineSystolic,
+      avgBaselineDiastolic,
+      systolicDiff: Math.round((avgRecentSystolic - avgBaselineSystolic) * 10) / 10,
+      diastolicDiff: Math.round((avgRecentDiastolic - avgBaselineDiastolic) * 10) / 10,
+      recentCategory: classifyBloodPressure(avgRecentSystolic, avgRecentDiastolic),
+      baselineCategory: classifyBloodPressure(avgBaselineSystolic, avgBaselineDiastolic)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu trendu ciśnienia krwi.' });
+  }
+});
+
 module.exports = router;

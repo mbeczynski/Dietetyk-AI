@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 
-export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing }) {
+export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing, frequentMeals, onRepeatMeal }) {
   const [mealText, setMealText] = useState('');
   const [imageSrc, setImageSrc] = useState(null);
   const [isCompressing, setIsCompressing] = useState(false);
@@ -10,6 +10,23 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
   const [successMessage, setSuccessMessage] = useState('');
   const fileInputRef = useRef(null);
   const successTimeoutRef = useRef(null);
+  // ID posiłku aktualnie powtarzanego przez chip "częste posiłki" (Runda 9) - blokuje
+  // tylko ten jeden chip podczas zapisu, nie cały formularz (w przeciwieństwie do
+  // isAnalyzing, które dotyczy analizy AI nowego posiłku).
+  const [repeatingMealId, setRepeatingMealId] = useState(null);
+
+  const handleRepeatClick = async (mealId) => {
+    if (repeatingMealId) return;
+    setRepeatingMealId(mealId);
+    setSuccessMessage('');
+    const ok = await onRepeatMeal(mealId);
+    setRepeatingMealId(null);
+    if (ok) {
+      setSuccessMessage('Posiłek zapisany!');
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+      successTimeoutRef.current = setTimeout(() => setSuccessMessage(''), 4000);
+    }
+  };
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -104,6 +121,40 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
         <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
           Wpisz posiłek w języku naturalnym lub <strong>dodaj zdjęcie swojego talerza</strong>. Sztuczna inteligencja automatycznie wyliczy kalorie i makro.
         </p>
+
+        {/* Częste posiłki (Runda 9): chipy z najczęściej powtarzanymi posiłkami
+            użytkownika - jedno kliknięcie zapisuje "to samo co ostatnio" bez
+            ponownego wywołania AI (patrz POST /api/meals/repeat). */}
+        {frequentMeals && frequentMeals.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginBottom: '8px' }}>
+              ⚡ Często jadłeś:
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {frequentMeals.map((fm) => (
+                <button
+                  key={fm.mealId}
+                  type="button"
+                  onClick={() => handleRepeatClick(fm.mealId)}
+                  disabled={isAnalyzing || repeatingMealId !== null}
+                  title={`${fm.avgCalories} kcal | B: ${fm.avgProtein}g, W: ${fm.avgCarbs}g, T: ${fm.avgFat}g`}
+                  style={{
+                    background: 'rgba(124,58,237,0.12)',
+                    border: '1px solid rgba(124,58,237,0.3)',
+                    color: '#c4b5fd',
+                    borderRadius: '999px',
+                    padding: '6px 14px',
+                    fontSize: '0.76rem',
+                    cursor: repeatingMealId !== null || isAnalyzing ? 'default' : 'pointer',
+                    opacity: repeatingMealId !== null && repeatingMealId !== fm.mealId ? 0.5 : 1
+                  }}
+                >
+                  {repeatingMealId === fm.mealId ? 'Zapisywanie...' : `🔁 ${fm.rawText}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div className="textarea-wrapper">

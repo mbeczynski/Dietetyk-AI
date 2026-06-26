@@ -130,6 +130,10 @@ export default function App() {
     meals: [],
     aiAdvice: 'Ładowanie porad dietetyka...'
   });
+  // Lista najczęściej powtarzanych posiłków (Runda 9) - do szybkiego ponownego
+  // dodania w MealLogger.jsx bez ponownego wysyłania zapytania do AI. Niezależna od
+  // selectedDate (liczona z całej historii), więc trzymana osobno od dashboardData.
+  const [frequentMeals, setFrequentMeals] = useState([]);
   // Brak wartości domyślnej/placeholdera - prawdziwy token przychodzi z backendu
   // (fetchSyncToken). Pusty string sygnalizuje komponentom (np. Settings), że
   // token jeszcze się ładuje, zamiast budować URL webhooka z fałszywym tokenem.
@@ -164,6 +168,14 @@ export default function App() {
       isCurrentRequestRef.current = false;
     };
   }, [selectedDate, sessionToken]);
+
+  // Częste posiłki (Runda 9) - niezależne od selectedDate (liczone z całej historii),
+  // więc pobierane tylko raz na zmianę sesji, nie przy każdej zmianie daty.
+  useEffect(() => {
+    if (sessionToken) {
+      fetchFrequentMeals();
+    }
+  }, [sessionToken]);
 
   // Automatyczne odświeżanie danych z bazy co godzinę (zgodnie z godzinową
   // synchronizacją Oura/Withings po stronie backendu), żeby otwarty dashboard
@@ -414,6 +426,20 @@ export default function App() {
     }
   };
 
+  const fetchFrequentMeals = async () => {
+    if (!sessionToken) return;
+    try {
+      const res = await fetch('/api/meals/frequent', {
+        headers: { 'Authorization': `Bearer ${sessionToken}` }
+      });
+      if (res.ok) {
+        setFrequentMeals(await res.json());
+      }
+    } catch (err) {
+      console.error('Błąd pobierania częstych posiłków:', err);
+    }
+  };
+
   const fetchSyncToken = async () => {
     if (!sessionToken) return;
     try {
@@ -461,6 +487,9 @@ export default function App() {
       if (res.ok) {
         // Pomyślnie dodano posiłek - przeładuj dashboard
         await fetchDashboardData();
+        // Nowy posiłek mógł zmienić ranking "częstych posiłków" (np. dobił do progu
+        // 2 powtórzeń) - odświeżamy w tle, bez czekania/blokowania zwracanego success.
+        fetchFrequentMeals();
         success = true;
       } else {
         if (res.status === 401) {
@@ -479,6 +508,50 @@ export default function App() {
       }
     } catch (err) {
       setErrorMessage('Nie udało się połączyć z serwerem w celu analizy posiłku.');
+      console.error(err);
+    } finally {
+      setIsAnalyzing(false);
+    }
+    return success;
+  };
+
+  // Szybkie ponowne dodanie wcześniej zapisanego posiłku (chip "częste posiłki" w
+  // MealLogger.jsx) - wywołuje /api/meals/repeat, które kopiuje wartości odżywcze z
+  // oryginalnego wpisu BEZ ponownego wywołania AI (inaczej niż handleAddMeal powyżej),
+  // więc jest natychmiastowe i nie zużywa limitu zapytań do Gemini.
+  const handleRepeatMeal = async (mealId) => {
+    setIsAnalyzing(true);
+    setErrorMessage('');
+    let success = false;
+    try {
+      const res = await fetch('/api/meals/repeat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`
+        },
+        body: JSON.stringify({ mealId, date: selectedDate })
+      });
+
+      if (res.ok) {
+        await fetchDashboardData();
+        fetchFrequentMeals();
+        success = true;
+      } else if (res.status === 401) {
+        handleLogout();
+        setErrorMessage('Sesja wygasła. Zaloguj się ponownie.');
+      } else {
+        let errorMsg = 'Błąd podczas powtarzania posiłku.';
+        try {
+          const errData = await res.json();
+          errorMsg = errData.error || errorMsg;
+        } catch (e) {
+          // brak treści błędu w odpowiedzi - zostaje domyślny komunikat
+        }
+        setErrorMessage(errorMsg);
+      }
+    } catch (err) {
+      setErrorMessage('Nie udało się połączyć z serwerem w celu powtórzenia posiłku.');
       console.error(err);
     } finally {
       setIsAnalyzing(false);
@@ -1172,6 +1245,8 @@ export default function App() {
             onAddMeal={handleAddMeal}
             onDeleteMeal={handleDeleteMeal}
             isAnalyzing={isAnalyzing}
+            frequentMeals={frequentMeals}
+            onRepeatMeal={handleRepeatMeal}
           />
         )}
 

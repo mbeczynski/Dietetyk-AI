@@ -939,7 +939,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
           <p style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>
             Wprowadzaj regularnie pomiary obwodów swojego ciała, aby monitorować rozwój sylwetki.
           </p>
-          
+
           <form onSubmit={handleSaveMeasurement} style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(255,255,255,0.01)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' }}>
               <div className="input-group" style={{ marginBottom: 0 }}>

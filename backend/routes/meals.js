@@ -326,4 +326,116 @@ router.delete('/api/meals/:id', async (req, res) => {
   }
 });
 
+// Automatyzacja (Runda 9): lista najczęściej powtarzanych posiłków użytkownika
+// (grupowanie po znormalizowanym raw_text - LOWER(TRIM(...)), bo użytkownik zwykle
+// wpisuje tę samą nazwę posiłku z drobnymi różnicami wielkości liter/spacji, nie
+// identyczny ciąg znaków), do szybkiego ponownego dodania bez ponownego wywołania AI
+// (patrz POST /api/meals/repeat poniżej). Tylko posiłki powtórzone co najmniej 2 razy.
+router.get('/api/meals/frequent', async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 8, 1), 20);
+    const rows = await db.all(`
+      SELECT
+        MAX(id) AS latest_id,
+        raw_text,
+        COUNT(*) AS count,
+        MAX(date) AS last_date,
+        AVG(calories) AS avg_calories,
+        AVG(protein) AS avg_protein,
+        AVG(carbs) AS avg_carbs,
+        AVG(fat) AS avg_fat
+      FROM meals
+      WHERE user_id = ? AND raw_text IS NOT NULL AND TRIM(raw_text) != ''
+      GROUP BY LOWER(TRIM(raw_text))
+      HAVING COUNT(*) >= 2
+      ORDER BY count DESC, last_date DESC
+      LIMIT ?
+    `, [req.user.id, limit]);
+
+    res.json(rows.map(r => ({
+      mealId: r.latest_id,
+      rawText: r.raw_text,
+      count: r.count,
+      lastDate: r.last_date,
+      avgCalories: Math.round(r.avg_calories),
+      avgProtein: Math.round(r.avg_protein * 10) / 10,
+      avgCarbs: Math.round(r.avg_carbs * 10) / 10,
+      avgFat: Math.round(r.avg_fat * 10) / 10
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania częstych posiłków.' });
+  }
+});
+
+// Szybkie ponowne dodanie wcześniej zapisanego posiłku (na bazie jego id) - kopiuje
+// wartości odżywcze z oryginalnego wpisu BEZ ponownego wywołania AI (inaczej niż
+// POST /api/meals powyżej), bo posiłek już raz został przeanalizowany i użytkownik
+// chce po prostu zalogować "to samo co ostatnio" (np. swoje stałe śniadanie) - szybciej
+// i bez zużywania limitu/kosztu zapytań do Gemini.
+router.post('/api/meals/repeat', async (req, res) => {
+  const { mealId, date } = req.body;
+  const targetDate = date || getLocalDateString();
+
+  if (!mealId) {
+    return res.status(400).json({ error: 'Brak wskazania posiłku do powtórzenia.' });
+  }
+
+  try {
+    const original = await db.get(`SELECT * FROM meals WHERE id = ? AND user_id = ?`, [mealId, req.user.id]);
+    if (!original) {
+      return res.status(404).json({ error: 'Nie znaleziono oryginalnego posiłku do powtórzenia.' });
+    }
+
+    const calorieBaseline = await getCalorieBaseline(req.user.id, targetDate);
+
+    const result = await db.run(`
+      INSERT INTO meals (user_id, date, raw_text, calories, protein, carbs, fat, fiber, sugar, sodium, analysis_json, image_base64)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      req.user.id,
+      targetDate,
+      original.raw_text,
+      original.calories,
+      original.protein,
+      original.carbs,
+      original.fat,
+      original.fiber,
+      original.sugar,
+      original.sodium,
+      original.analysis_json,
+      original.image_base64
+    ]);
+
+    let analysis = {};
+    try {
+      analysis = JSON.parse(original.analysis_json);
+    } catch (e) {
+      analysis = {};
+    }
+
+    res.status(201).json({
+      count: 1,
+      meals: [{
+        id: result.id,
+        date: targetDate,
+        raw_text: original.raw_text,
+        image_base64: original.image_base64,
+        ...analysis,
+        calories: original.calories,
+        protein: original.protein,
+        carbs: original.carbs,
+        fat: original.fat,
+        fiber: original.fiber,
+        sugar: original.sugar,
+        sodium: original.sodium,
+        anomalies: detectMealAnomalies({ calories: original.calories, protein: original.protein, carbs: original.carbs, fat: original.fat }, calorieBaseline)
+      }]
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd powtarzania posiłku.' });
+  }
+});
+
 module.exports = router;

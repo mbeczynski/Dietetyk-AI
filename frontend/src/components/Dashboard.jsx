@@ -530,6 +530,23 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     fetchMealTimingSleepInsight();
   }, [sessionToken, selectedDate]);
 
+  const [bpTrendInsight, setBpTrendInsight] = useState(null);
+  useEffect(() => {
+    const fetchBpTrendInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/bp-trend-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setBpTrendInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu trendu ciśnienia krwi:', err);
+      }
+    };
+    fetchBpTrendInsight();
+  }, [sessionToken, selectedDate]);
+
   // Zwijalna sekcja "Analizy" (UX: rundy 7 - 12 kart insightów w jednym miejscu,
   // domyślnie zwinięta, żeby nie zalewać dashboardu od razu po wejściu).
   const [isAnalizyOpen, setIsAnalizyOpen] = useState(false);
@@ -1890,6 +1907,44 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
               Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 9): SAMODZIELNY TREND CIŚNIENIA KRWI */}
+        {bpTrendInsight && bpTrendInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🩺 Trend ciśnienia krwi</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Średnie ciśnienie z ostatnich {bpTrendInsight.recentDays} dni vs Twoja własna baseline z poprzedzających {bpTrendInsight.baselineDays} dni.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  Skurczowe: {bpTrendInsight.avgRecentSystolic} vs {bpTrendInsight.avgBaselineSystolic} mmHg
+                </span>
+                <span style={{ fontWeight: '700', color: bpTrendInsight.systolicDiff > 0 ? 'var(--danger-light)' : bpTrendInsight.systolicDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                  {bpTrendInsight.systolicDiff > 0 ? '+' : ''}{bpTrendInsight.systolicDiff}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  Rozkurczowe: {bpTrendInsight.avgRecentDiastolic} vs {bpTrendInsight.avgBaselineDiastolic} mmHg
+                </span>
+                <span style={{ fontWeight: '700', color: bpTrendInsight.diastolicDiff > 0 ? 'var(--danger-light)' : bpTrendInsight.diastolicDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                  {bpTrendInsight.diastolicDiff > 0 ? '+' : ''}{bpTrendInsight.diastolicDiff}
+                </span>
+              </div>
+            </div>
+            {bpTrendInsight.recentCategory && bpTrendInsight.recentCategory !== 'Prawidłowe' && (
+              <p style={{ fontSize: '0.74rem', color: 'var(--danger-light)', marginTop: '10px', marginBottom: 0 }}>
+                ⚠️ Kategoria ostatnich odczytów: {bpTrendInsight.recentCategory} (wg uproszczonych progów AHA).
+              </p>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie diagnoza medyczna. Skonsultuj się z lekarzem przy niepokojących odczytach.
             </p>
           </div>
         )}

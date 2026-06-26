@@ -4,6 +4,7 @@ const db = require('../db');
 const { getLocalDateString } = require('../utils/dates');
 const { getDefaultHealthMetrics } = require('../utils/defaultHealthMetrics');
 const { getCalorieBaseline, detectMealAnomalies } = require('../utils/mealAnomaly');
+const { DEFAULT_TARGET_WATER_ML, getTargetCalories, getBmr, getTargetWaterMl } = require('../utils/defaultSettings');
 const { genAI, generateContentWithFallback } = require('../config');
 
 // Blokada równoległego generowania porady AI dla tej samej (user, data) - bez tego
@@ -294,7 +295,7 @@ router.get('/api/dashboard', async (req, res) => {
     }));
 
     const activeCalories = displayActiveCalories || 0;
-    const bmr = settings.bmr || 1800;
+    const bmr = getBmr(settings);
     const totalBurned = displayTotalCaloriesBurned || (bmr + activeCalories);
     const netCalories = totalEaten.calories - totalBurned;
 
@@ -328,7 +329,7 @@ router.get('/api/dashboard', async (req, res) => {
     const calorieMap = new Map(calorieRows.map(r => [r.date, r.total_calories]));
     // "Trafienie" w cel kaloryczny = bilans w rozsądnym paśmie wokół celu (+/-15%), nie
     // dokładnie do kalorii - inaczej streak byłby praktycznie niemożliwy do utrzymania.
-    const targetCaloriesForStreak = settings.target_calories || 2000;
+    const targetCaloriesForStreak = getTargetCalories(settings);
     const calorieStreakDays = computeStreak(calorieMap, date, (total) =>
       total >= targetCaloriesForStreak * 0.85 && total <= targetCaloriesForStreak * 1.15
     );
@@ -457,7 +458,7 @@ router.get('/api/dashboard', async (req, res) => {
 Jesteś profesjonalnym, przyjaznym dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
 Przeanalizuj dzisiejszy bilans użytkownika ${displayName} dla dnia ${date}:
 Cele użytkownika:
-- Cel kaloryczny spożycia: ${settings.target_calories} kcal
+- Cel kaloryczny spożycia: ${getTargetCalories(settings)} kcal
 - Cel Białka: ${settings.target_protein}g, Węglowodanów: ${settings.target_carbs}g, Tłuszczu: ${settings.target_fat}g
 - BMR (Podstawowa Przemiana Materii): ${bmr} kcal
 - Cel sylwetki opisany przez użytkownika: ${bodyGoalText || 'użytkownik nie opisał celu sylwetki w Ustawieniach'}${bodyGoalImagePart ? '\n- Użytkownik dołączył też zdjęcie referencyjne celu sylwetki (patrz załączony obraz) - przeanalizuj je wizualnie i odnieś rekomendacje do tego, jak wygląda sylwetka na zdjęciu (np. poziom umięśnienia, tkanki tłuszczowej, proporcje), w kontekście pozostałych danych.' : ''}
@@ -469,7 +470,7 @@ Aktualny bilans dzisiejszy:
 - Bilans netto (zjedzone - spalone): ${netCalories} kcal
 - Wykonane kroki dzisiaj: ${displaySteps || 0}
 - Aktywność dzisiaj: ${displayActiveMinutes || 0} min aktywności, Dystans: ${displayDistanceMeters ? (Math.round(displayDistanceMeters / 100) / 10) + ' km' : '0 km'}, Czas siedzący: ${displaySedentaryMinutes || 0} min, Niska intensywność: ${displayLowActivityMinutes || 0} min
-- Wypita woda dzisiaj: ${health.water_ml || 0}ml (cel: ${isNaN(settings.target_water_ml) || !settings.target_water_ml ? 2500 : settings.target_water_ml}ml)
+- Wypita woda dzisiaj: ${health.water_ml || 0}ml (cel: ${getTargetWaterMl(settings)}ml)
 - Przyjęte suplementy dzisiaj: ${health.supplements || 'brak (użytkownik nie zapisał dzisiaj żadnych suplementów)'}
 - Treningi zarejestrowane dzisiaj (Apple Health): ${workouts.length > 0 ? workouts.map(w => `${w.type} (${w.duration_mins} min, ${w.calories} kcal)`).join(', ') : 'brak zarejestrowanych treningów'}
 - Passa (streak) trafiania w cel kaloryczny: ${calorieStreakDays} dni, Passa snu wg celu: ${sleepStreakDays} dni
@@ -584,7 +585,7 @@ Używaj **pogrubienia** dla kluczowych liczb i fraz w Analizie i Rekomendacjach.
         target_active_calories: (settings.target_active_calories === undefined || isNaN(settings.target_active_calories)) ? 500 : settings.target_active_calories,
         target_sleep_duration: (settings.target_sleep_duration === undefined || isNaN(settings.target_sleep_duration)) ? 7.2 : settings.target_sleep_duration,
         target_active_minutes: (settings.target_active_minutes === undefined || isNaN(settings.target_active_minutes)) ? 30 : settings.target_active_minutes,
-        target_water_ml: (settings.target_water_ml === undefined || isNaN(settings.target_water_ml)) ? 2500 : settings.target_water_ml,
+        target_water_ml: getTargetWaterMl(settings),
         // Cel wagowy (kg) - pole opcjonalne (0 = brak ustawionego celu), używane
         // przez ActivityTracker.jsx do prognozy "do celu" (regresja liniowa).
         // Bez wpisania tu nie wracałoby z /api/dashboard mimo zapisania w
@@ -697,8 +698,8 @@ router.get('/api/dashboard/calorie-balance', async (req, res) => {
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
     const settings = {};
     settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
-    const targetCalories = isNaN(settings.target_calories) || !settings.target_calories ? 2000 : settings.target_calories;
-    const bmr = isNaN(settings.bmr) || !settings.bmr ? 1800 : settings.bmr;
+    const targetCalories = getTargetCalories(settings);
+    const bmr = getBmr(settings);
 
     const [week, month] = await Promise.all([
       aggregateCalorieBalance(req.user.id, shiftDate(today, -6), today, targetCalories, bmr),
@@ -1163,8 +1164,8 @@ router.get('/api/dashboard/calorie-target-suggestion', async (req, res) => {
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
     const settings = {};
     settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
-    const currentTargetCalories = isNaN(settings.target_calories) || !settings.target_calories ? 2000 : settings.target_calories;
-    const bmr = isNaN(settings.bmr) || !settings.bmr ? 1800 : settings.bmr;
+    const currentTargetCalories = getTargetCalories(settings);
+    const bmr = getBmr(settings);
 
     const balance = await aggregateCalorieBalance(req.user.id, startDate, today, currentTargetCalories, bmr);
     if (balance.days_with_data < MIN_LOGGED_DAYS) {
@@ -1284,7 +1285,7 @@ router.get('/api/dashboard/hydration-readiness-insight', async (req, res) => {
     const startDate = shiftDate(today, -HYDRATION_LOOKBACK_DAYS);
 
     const settingsRow = await db.get(`SELECT value FROM settings WHERE user_id = ? AND key = 'target_water_ml'`, [req.user.id]);
-    const targetWaterMl = settingsRow && !isNaN(Number(settingsRow.value)) ? Number(settingsRow.value) : 2500;
+    const targetWaterMl = settingsRow && !isNaN(Number(settingsRow.value)) ? Number(settingsRow.value) : DEFAULT_TARGET_WATER_ML;
 
     const rows = await db.all(
       `SELECT date, water_ml, readiness_score, hrv, rhr FROM health_metrics
@@ -1355,11 +1356,20 @@ router.get('/api/dashboard/sedentary-sleep-insight', async (req, res) => {
     const today = req.query.date || getLocalDateString();
     const startDate = shiftDate(today, -SEDENTARY_LOOKBACK_DAYS);
 
-    const rows = await db.all(
+    const rawRows = await db.all(
       `SELECT date, sedentary_minutes, sleep_score, sleep_deep, sleep_rem FROM health_metrics
        WHERE user_id = ? AND date >= ? AND date <= ? AND sedentary_minutes IS NOT NULL AND sleep_score IS NOT NULL`,
       [req.user.id, startDate, today]
     );
+    // sleep_deep/sleep_rem są w bazie zapisane w GODZINACH (patrz services/sync.js -
+    // totalDeepSec / 3600), a odpowiedź tego endpointu jest opisana w UI jako "min" -
+    // konwertujemy tu na minuty, żeby sleepDeepDiff/sleepRemDiff faktycznie były w
+    // jednostce, w jakiej je wyświetlamy (wcześniej np. "+0.3 min" zamiast "+18 min").
+    const rows = rawRows.map(r => ({
+      ...r,
+      sleep_deep: r.sleep_deep != null ? r.sleep_deep * 60 : r.sleep_deep,
+      sleep_rem: r.sleep_rem != null ? r.sleep_rem * 60 : r.sleep_rem
+    }));
 
     if (rows.length < MIN_DAYS_PER_SEDENTARY_GROUP * 2) {
       return res.json({
@@ -1433,11 +1443,18 @@ router.get('/api/dashboard/fiber-sleep-insight', async (req, res) => {
        WHERE user_id = ? AND date >= ? AND date <= ? AND fiber IS NOT NULL GROUP BY date HAVING fiber > 0`,
       [req.user.id, startDate, today]
     );
-    const sleepRows = await db.all(
+    const rawSleepRows = await db.all(
       `SELECT date, sleep_deep, sleep_rem FROM health_metrics
        WHERE user_id = ? AND date >= ? AND date <= ? AND (sleep_deep IS NOT NULL OR sleep_rem IS NOT NULL)`,
       [req.user.id, startDate, today]
     );
+    // Konwersja godzin -> minuty (patrz analogiczny komentarz w sedentary-sleep-insight) -
+    // pole jest opisane w UI jako "min", a w bazie sleep_deep/sleep_rem są w godzinach.
+    const sleepRows = rawSleepRows.map(r => ({
+      ...r,
+      sleep_deep: r.sleep_deep != null ? r.sleep_deep * 60 : r.sleep_deep,
+      sleep_rem: r.sleep_rem != null ? r.sleep_rem * 60 : r.sleep_rem
+    }));
     const sleepByDate = new Map(sleepRows.map(r => [r.date, r]));
 
     const combined = fiberRows
@@ -1744,7 +1761,7 @@ router.get('/api/dashboard/meal-frequency-adherence-insight', async (req, res) =
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
     const settings = {};
     settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
-    const targetCalories = isNaN(settings.target_calories) || !settings.target_calories ? 2000 : settings.target_calories;
+    const targetCalories = getTargetCalories(settings);
 
     const rows = await db.all(
       `SELECT date, COUNT(*) AS meal_count, SUM(calories) AS total_calories
@@ -1816,7 +1833,7 @@ router.get('/api/dashboard/streak-drift-insight', async (req, res) => {
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
     const settings = {};
     settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
-    const targetCalories = isNaN(settings.target_calories) || !settings.target_calories ? 2000 : settings.target_calories;
+    const targetCalories = getTargetCalories(settings);
 
     const calorieRows = await db.all(
       `SELECT date, SUM(calories) AS total_calories FROM meals
@@ -1896,6 +1913,166 @@ router.get('/api/dashboard/streak-drift-insight', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd pobierania insightu passa-regeneracja.' });
+  }
+});
+
+const RHR_RECENT_WINDOW_DAYS = 7;
+const RHR_BASELINE_WINDOW_DAYS = 28;
+const MIN_RECENT_RHR_DAYS = 4;
+const MIN_BASELINE_RHR_DAYS = 14;
+
+// Insight (Runda 8): trend spoczynkowego tętna (rhr) - średnia z ostatnich 7 dni vs
+// własna baseline z poprzedzających 28 dni. Niezależny od early-strain-alert (tamten
+// klucz się o intensywność treningu) i od recovery-insight (tamten porównuje
+// HRV/RHR PO treningu vs spoczynku) - tu czysty trend RHR w czasie, użyteczny jako
+// wczesny sygnał przemęczenia/choroby/nadmiernego stresu, NIEZALEŻNIE od aktywności.
+// Próg "podniesionego" RHR liczony względem WŁASNEGO odchylenia standardowego
+// użytkownika (meanAndStdDev), nie sztywnej liczby uderzeń/min - naturalny rozrzut
+// RHR bardzo różni się między osobami.
+router.get('/api/dashboard/rhr-drift-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const recentStart = shiftDate(today, -(RHR_RECENT_WINDOW_DAYS - 1));
+    const baselineEnd = shiftDate(recentStart, -1);
+    const baselineStart = shiftDate(baselineEnd, -(RHR_BASELINE_WINDOW_DAYS - 1));
+
+    const rows = await db.all(
+      `SELECT date, rhr FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ? AND rhr IS NOT NULL AND rhr > 0`,
+      [req.user.id, baselineStart, today]
+    );
+
+    const recent = rows.filter(r => r.date >= recentStart && r.date <= today).map(r => r.rhr);
+    const baseline = rows.filter(r => r.date >= baselineStart && r.date <= baselineEnd).map(r => r.rhr);
+
+    if (recent.length < MIN_RECENT_RHR_DAYS || baseline.length < MIN_BASELINE_RHR_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        recentDays: recent.length,
+        baselineDays: baseline.length,
+        minRecentDaysRequired: MIN_RECENT_RHR_DAYS,
+        minBaselineDaysRequired: MIN_BASELINE_RHR_DAYS
+      });
+    }
+
+    const avg = (arr) => Math.round((arr.reduce((s, v) => s + v, 0) / arr.length) * 10) / 10;
+    const avgRecentRhr = avg(recent);
+    const avgBaselineRhr = avg(baseline);
+    const { stdDev: baselineStdDev } = meanAndStdDev(baseline);
+    const rhrDiff = Math.round((avgRecentRhr - avgBaselineRhr) * 10) / 10;
+    const isElevated = baselineStdDev > 0 ? rhrDiff > baselineStdDev : rhrDiff > 2;
+
+    res.json({
+      hasEnoughData: true,
+      recentDays: recent.length,
+      baselineDays: baseline.length,
+      avgRecentRhr,
+      avgBaselineRhr,
+      rhrDiff,
+      baselineStdDev: Math.round(baselineStdDev * 10) / 10,
+      isElevated
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu trendu tętna spoczynkowego.' });
+  }
+});
+
+const MIN_DAYS_PER_MEAL_TIMING_GROUP = 5;
+const MEAL_TIMING_LOOKBACK_DAYS = 90;
+
+// Insight (Runda 8): godzina ostatniego posiłku w ciągu dnia (MAX(timestamp) z meals)
+// vs jakość snu TEJ SAMEJ NOCY (sleep_score, sleep_deep). Podział wg mediany WŁASNYCH
+// godzin ostatniego posiłku użytkownika z okresu - nie sztywnego progu (np. "po
+// 20:00"), bo nawyki żywieniowe/dobowe są bardzo indywidualne. Inny kierunek niż
+// istniejący sleep-insight (tam: sen -> odżywianie NASTĘPNEGO dnia).
+router.get('/api/dashboard/meal-timing-sleep-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -MEAL_TIMING_LOOKBACK_DAYS);
+
+    const mealRows = await db.all(
+      `SELECT date, MAX(timestamp) AS last_meal_timestamp FROM meals
+       WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date`,
+      [req.user.id, startDate, today]
+    );
+    const sleepRows = await db.all(
+      `SELECT date, sleep_score, sleep_deep FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ? AND sleep_score IS NOT NULL`,
+      [req.user.id, startDate, today]
+    );
+    const sleepByDate = new Map(sleepRows.map(r => [r.date, r]));
+
+    // Godzina ostatniego posiłku jako liczba dziesiętna (np. 21:30 -> 21.5) - do
+    // liczenia mediany i podziału na grupy.
+    const toHourFraction = (ts) => {
+      const match = /\s(\d{2}):(\d{2})/.exec(ts || '');
+      if (!match) return null;
+      return Number(match[1]) + Number(match[2]) / 60;
+    };
+
+    const entries = [];
+    mealRows.forEach(r => {
+      const hour = toHourFraction(r.last_meal_timestamp);
+      const sleep = sleepByDate.get(r.date);
+      if (hour == null || !sleep) return;
+      // sleep_deep jest w bazie w GODZINACH (services/sync.js: totalDeepSec / 3600) -
+      // konwertujemy na minuty, bo avgSleepDeepLaterEating/sleepDeepDiff w odpowiedzi
+      // są opisane w UI jako "min" (patrz analogiczna poprawka w sedentary-sleep-insight
+      // i fiber-sleep-insight).
+      entries.push({ hour, sleep_score: sleep.sleep_score, sleep_deep: sleep.sleep_deep != null ? sleep.sleep_deep * 60 : sleep.sleep_deep });
+    });
+
+    if (entries.length < MIN_DAYS_PER_MEAL_TIMING_GROUP * 2) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        totalDays: entries.length,
+        minDaysRequired: MIN_DAYS_PER_MEAL_TIMING_GROUP * 2
+      });
+    }
+
+    const medianHour = median(entries.map(e => e.hour));
+    const laterEaters = entries.filter(e => e.hour >= medianHour);
+    const earlierEaters = entries.filter(e => e.hour < medianHour);
+
+    if (laterEaters.length < MIN_DAYS_PER_MEAL_TIMING_GROUP || earlierEaters.length < MIN_DAYS_PER_MEAL_TIMING_GROUP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days_per_group',
+        laterDays: laterEaters.length,
+        earlierDays: earlierEaters.length,
+        minDaysRequired: MIN_DAYS_PER_MEAL_TIMING_GROUP
+      });
+    }
+
+    const avgOf = (arr, key) => {
+      const vals = arr.filter(x => x[key] != null).map(x => x[key]);
+      return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
+    };
+    const avgScoreLater = avgOf(laterEaters, 'sleep_score');
+    const avgScoreEarlier = avgOf(earlierEaters, 'sleep_score');
+    const avgDeepLater = avgOf(laterEaters, 'sleep_deep');
+    const avgDeepEarlier = avgOf(earlierEaters, 'sleep_deep');
+
+    const formatHour = (h) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+
+    res.json({
+      hasEnoughData: true,
+      medianLastMealHour: formatHour(medianHour),
+      laterEatingDays: laterEaters.length,
+      earlierEatingDays: earlierEaters.length,
+      avgSleepScoreLaterEating: avgScoreLater,
+      avgSleepScoreEarlierEating: avgScoreEarlier,
+      sleepScoreDiff: avgScoreLater != null && avgScoreEarlier != null ? Math.round((avgScoreLater - avgScoreEarlier) * 10) / 10 : null,
+      avgSleepDeepLaterEating: avgDeepLater,
+      avgSleepDeepEarlierEating: avgDeepEarlier,
+      sleepDeepDiff: avgDeepLater != null && avgDeepEarlier != null ? Math.round((avgDeepLater - avgDeepEarlier) * 10) / 10 : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu godzina posiłku-sen.' });
   }
 });
 

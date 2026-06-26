@@ -34,10 +34,53 @@ router.get('/api/body-measurements', requireAuth, async (req, res) => {
   }
 });
 
+// Górny/dolny limit fizycznie sensownego obwodu ciała w cm - bez tego literówka
+// (np. wpisanie wagi 95 w pole obwodu, albo brakujący przecinek dziesiętny - "950"
+// zamiast "95,0") cicho zapisywałaby się do bazy i zatruwała insight body-recomposition
+// oraz wykresy w Trends fałszywym skokiem.
+const MIN_MEASUREMENT_CM = 1;
+const MAX_MEASUREMENT_CM = 300;
+
+// Konwertuje wartość z body na liczbę z walidacją zakresu. Zwraca `undefined`
+// jeśli pole nie zostało przesłane (pole ma zostać nietknięte - patrz COALESCE
+// w zapytaniu poniżej), `null` jeśli przesłano puste pole (czyszczenie wartości),
+// albo zgłasza błąd zakresu (rzucany wyjątek z komunikatem dla użytkownika).
+function parseMeasurement(value, label) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) {
+    throw new Error(`Nieprawidłowa wartość pomiaru: ${label}.`);
+  }
+  if (num < MIN_MEASUREMENT_CM || num > MAX_MEASUREMENT_CM) {
+    throw new Error(`Obwód (${label}) musi być w zakresie ${MIN_MEASUREMENT_CM}-${MAX_MEASUREMENT_CM} cm.`);
+  }
+  return num;
+}
+
 // Zapisz/aktualizuj obwody ciała
 router.post('/api/body-measurements', requireAuth, async (req, res) => {
   const { date, chest, waist, hips, biceps, thigh, biceps_left, biceps_right, shoulders, waist_above, waist_below } = req.body;
   if (!date) return res.status(400).json({ error: 'Data jest wymagana.' });
+
+  let parsed;
+  try {
+    parsed = {
+      chest: parseMeasurement(chest, 'klatka piersiowa'),
+      waist: parseMeasurement(waist, 'pas'),
+      hips: parseMeasurement(hips, 'biodra'),
+      biceps: parseMeasurement(biceps, 'biceps'),
+      thigh: parseMeasurement(thigh, 'udo'),
+      biceps_left: parseMeasurement(biceps_left, 'biceps lewy'),
+      biceps_right: parseMeasurement(biceps_right, 'biceps prawy'),
+      shoulders: parseMeasurement(shoulders, 'ramiona'),
+      waist_above: parseMeasurement(waist_above, 'pas powyżej pępka'),
+      waist_below: parseMeasurement(waist_below, 'pas poniżej pępka')
+    };
+  } catch (validationErr) {
+    return res.status(400).json({ error: validationErr.message });
+  }
+
   try {
     await db.run(`
       INSERT INTO body_measurements (
@@ -59,16 +102,16 @@ router.post('/api/body-measurements', requireAuth, async (req, res) => {
     `, [
       req.user.id,
       date,
-      chest !== undefined && chest !== null && chest !== '' ? Number(chest) : null,
-      waist !== undefined && waist !== null && waist !== '' ? Number(waist) : null,
-      hips !== undefined && hips !== null && hips !== '' ? Number(hips) : null,
-      biceps !== undefined && biceps !== null && biceps !== '' ? Number(biceps) : null,
-      thigh !== undefined && thigh !== null && thigh !== '' ? Number(thigh) : null,
-      biceps_left !== undefined && biceps_left !== null && biceps_left !== '' ? Number(biceps_left) : null,
-      biceps_right !== undefined && biceps_right !== null && biceps_right !== '' ? Number(biceps_right) : null,
-      shoulders !== undefined && shoulders !== null && shoulders !== '' ? Number(shoulders) : null,
-      waist_above !== undefined && waist_above !== null && waist_above !== '' ? Number(waist_above) : null,
-      waist_below !== undefined && waist_below !== null && waist_below !== '' ? Number(waist_below) : null
+      parsed.chest ?? null,
+      parsed.waist ?? null,
+      parsed.hips ?? null,
+      parsed.biceps ?? null,
+      parsed.thigh ?? null,
+      parsed.biceps_left ?? null,
+      parsed.biceps_right ?? null,
+      parsed.shoulders ?? null,
+      parsed.waist_above ?? null,
+      parsed.waist_below ?? null
     ]);
     res.json({ success: true, message: 'Pomiary obwodów ciała zostały zapisane.' });
   } catch (err) {
@@ -133,17 +176,26 @@ router.post('/api/water/reset', requireAuth, async (req, res) => {
   }
 });
 
+// Limit długości pola suplementów - bez tego dowolnie duży string (np. wklejony
+// przez pomyłkę cały dokument) trafiałby bez ograniczeń do bazy i do każdego
+// miejsca, które to pole odczytuje (Dashboard, PDF, insight supplements-sleep).
+const MAX_SUPPLEMENTS_LENGTH = 2000;
+
 // Zapisz/aktualizuj suplementy dla danego dnia
 router.post('/api/supplements', requireAuth, async (req, res) => {
   const { date, supplements } = req.body;
   if (!date) return res.status(400).json({ error: 'Data jest wymagana.' });
+  const trimmed = supplements ? supplements.trim() : null;
+  if (trimmed && trimmed.length > MAX_SUPPLEMENTS_LENGTH) {
+    return res.status(400).json({ error: `Lista suplementów jest za długa (maks. ${MAX_SUPPLEMENTS_LENGTH} znaków).` });
+  }
   try {
     await db.run(`
       INSERT INTO health_metrics (user_id, date, supplements)
       VALUES (?, ?, ?)
       ON CONFLICT(user_id, date) DO UPDATE SET supplements = excluded.supplements
-    `, [req.user.id, date, supplements ? supplements.trim() : null]);
-    res.json({ success: true, supplements: supplements ? supplements.trim() : null });
+    `, [req.user.id, date, trimmed]);
+    res.json({ success: true, supplements: trimmed });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd zapisu suplementów.' });

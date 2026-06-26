@@ -604,6 +604,159 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     );
   };
 
+  // Wykres (Runda 8) historii faz snu - słupek skumulowany (głęboki/REM/lekki) na dzień,
+  // z ostatnich 7 dni. Dane sleep_deep/sleep_rem/sleep_duration są już dostępne w
+  // historyData (patrz /api/health/history), tylko nigdzie wcześniej nie były pokazane
+  // razem jako historia - tylko jako wartość "dziś" na Dashboardzie (SleepStageBar).
+  // sleep_deep/sleep_rem są w bazie w GODZINACH (services/sync.js), więc liczymy
+  // wszystko w godzinach i formatujemy przez formatDuration na końcu.
+  const renderSleepStagesChart = () => {
+    const chartKey = 'sleep_stages';
+    const durVals = getMetricData(currentWeekDays, 'sleep_duration');
+    const deepVals = getMetricData(currentWeekDays, 'sleep_deep');
+    const remVals = getMetricData(currentWeekDays, 'sleep_rem');
+
+    const dayBreakdowns = currentWeekDays.map((day, idx) => {
+      const duration = durVals[idx];
+      if (duration === null || duration === undefined || duration <= 0) return null;
+      const deep = deepVals[idx] || 0;
+      const rem = remVals[idx] || 0;
+      const light = Math.max(duration - deep - rem, 0);
+      return { day, duration, deep, rem, light };
+    });
+
+    const hasData = dayBreakdowns.some(d => d !== null);
+    const maxVal = Math.max(...dayBreakdowns.filter(d => d !== null).map(d => d.duration), 8, 1);
+
+    const svgWidth = 240;
+    const svgHeight = 90;
+    const barWidth = 14;
+    const gap = 16;
+    const leftMargin = 15;
+    const topMargin = 10;
+    const plotHeight = svgHeight - topMargin - 15;
+
+    const colors = { deep: '#7c3aed', rem: '#38bdf8', light: 'rgba(255,255,255,0.18)' };
+
+    return (
+      <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '600' }}>Fazy snu (7 dni)</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.68rem' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'rgba(255,255,255,0.5)' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.deep, display: 'inline-block' }}></span>
+              Głęboki
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'rgba(255,255,255,0.5)' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.rem, display: 'inline-block' }}></span>
+              REM
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'rgba(255,255,255,0.5)' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.light, display: 'inline-block' }}></span>
+              Lekki
+            </span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px' }}>
+          <svg width="100%" height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={{ overflow: 'visible' }}>
+            {[0, 4, 8].map((t, idx) => {
+              const y = svgHeight - topMargin - ((t / maxVal) * plotHeight);
+              return (
+                <g key={idx}>
+                  <line x1="0" y1={y} x2={svgWidth - 30} y2={y} stroke="rgba(255,255,255,0.04)" strokeDasharray="3,3" />
+                  <text x={svgWidth - 25} y={y + 3} fill="rgba(255,255,255,0.25)" fontSize="7px" textAnchor="start">{t}h</text>
+                </g>
+              );
+            })}
+
+            {currentWeekDays.map((day, idx) => {
+              const b = dayBreakdowns[idx];
+              const x = leftMargin + idx * (barWidth + gap);
+              const isActive = hoverInfo && hoverInfo.chartKey === chartKey && hoverInfo.idx === idx;
+              const toggleHover = () => {
+                setHoverInfo(prev => (prev && prev.chartKey === chartKey && prev.idx === idx)
+                  ? null
+                  : { chartKey, idx });
+              };
+
+              if (!b) {
+                return (
+                  <g key={idx} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoverInfo({ chartKey, idx })} onMouseLeave={() => setHoverInfo(prev => (prev && prev.chartKey === chartKey && prev.idx === idx) ? null : prev)} onClick={toggleHover}>
+                    <rect x={x - gap / 2} y={0} width={barWidth + gap} height={svgHeight} fill="transparent" />
+                    <rect x={x} y={svgHeight - topMargin - 2} width={barWidth} height={2} rx="1" fill="rgba(255,255,255,0.08)" />
+                    <text x={x + barWidth / 2} y={svgHeight - 1} fill={day === selectedDate ? '#ffffff' : 'rgba(255,255,255,0.35)'} fontSize="9px" fontWeight={day === selectedDate ? 'bold' : 'normal'} textAnchor="middle">
+                      {getDayLabel(day)}
+                    </text>
+                  </g>
+                );
+              }
+
+              const deepH = (b.deep / maxVal) * plotHeight;
+              const remH = (b.rem / maxVal) * plotHeight;
+              const lightH = (b.light / maxVal) * plotHeight;
+              const yBottom = svgHeight - topMargin;
+              const yDeepTop = yBottom - deepH;
+              const yRemTop = yDeepTop - remH;
+              const yLightTop = yRemTop - lightH;
+
+              return (
+                <g
+                  key={idx}
+                  style={{ cursor: 'pointer' }}
+                  onMouseEnter={() => setHoverInfo({ chartKey, idx })}
+                  onMouseLeave={() => setHoverInfo(prev => (prev && prev.chartKey === chartKey && prev.idx === idx) ? null : prev)}
+                  onClick={toggleHover}
+                >
+                  <rect x={x - gap / 2} y={0} width={barWidth + gap} height={svgHeight} fill="transparent" />
+                  <rect x={x} y={yLightTop} width={barWidth} height={Math.max(lightH, 0)} fill={isActive ? 'rgba(255,255,255,0.3)' : colors.light} />
+                  <rect x={x} y={yRemTop} width={barWidth} height={Math.max(remH, 0)} fill={colors.rem} opacity={isActive ? 1 : 0.85} />
+                  <rect x={x} y={yDeepTop} width={barWidth} height={Math.max(deepH, 0)} rx="2" ry="2" fill={colors.deep} opacity={isActive ? 1 : 0.85} />
+                  <text
+                    x={x + barWidth / 2}
+                    y={svgHeight - 1}
+                    fill={day === selectedDate ? '#ffffff' : 'rgba(255,255,255,0.35)'}
+                    fontSize="9px"
+                    fontWeight={day === selectedDate ? 'bold' : 'normal'}
+                    textAnchor="middle"
+                  >
+                    {getDayLabel(day)}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Podpowiedź (tooltip) - rozbicie godzin głęboki/REM/lekki dla aktywnego dnia */}
+            {hoverInfo && hoverInfo.chartKey === chartKey && dayBreakdowns[hoverInfo.idx] && (() => {
+              const idx = hoverInfo.idx;
+              const b = dayBreakdowns[idx];
+              const x = leftMargin + idx * (barWidth + gap) + barWidth / 2;
+              const boxWidth = 76;
+              const boxHeight = 40;
+              const boxX = Math.min(Math.max(x - boxWidth / 2, 1), svgWidth - boxWidth - 1);
+              const boxY = 1;
+              const dateLabel = getFullDayLabel(b.day);
+              return (
+                <g pointerEvents="none">
+                  <rect x={boxX} y={boxY} width={boxWidth} height={boxHeight} rx="5" fill="rgba(25,25,28,0.97)" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
+                  <text x={boxX + boxWidth / 2} y={boxY + 10} fill="rgba(255,255,255,0.55)" fontSize="7px" textAnchor="middle">{dateLabel}</text>
+                  <text x={boxX + boxWidth / 2} y={boxY + 20} fill="#ffffff" fontSize="7px" textAnchor="middle">Głęb. {formatDuration(b.deep)}</text>
+                  <text x={boxX + boxWidth / 2} y={boxY + 29} fill="#ffffff" fontSize="7px" textAnchor="middle">REM {formatDuration(b.rem)}</text>
+                  <text x={boxX + boxWidth / 2} y={boxY + 38} fill="#ffffff" fontSize="7px" textAnchor="middle">Lekki {formatDuration(b.light)}</text>
+                </g>
+              );
+            })()}
+          </svg>
+        </div>
+        {!hasData && (
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+            Brak danych o fazach snu w tym tygodniu
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderComparisonPill = (pctChange, isNewActivity = false) => {
     if (isNewActivity) {
       return (
@@ -652,6 +805,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
         <span className="premium-title" style={{ fontSize: '1.05rem', padding: '0 4px' }}>Sen i regeneracja</span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
           {renderBarChart("Czas snu", "sleep_duration", "h", [0, 4, 8], (v) => formatDuration(v))}
+          {renderSleepStagesChart()}
           {renderLineChart("Wynik snu", "sleep_score", "%", [0, 50, 100], false, (v) => Math.round(v))}
           {renderLineChart("Wskaźnik regeneracji", "readiness_score", "%", [0, 50, 100], false, (v) => Math.round(v))}
           {renderLineChart("Spoczynkowe tętno", "rhr", "bpm", [40, 60, 80], false, (v) => Math.round(v))}
@@ -664,6 +818,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
           className="premium-title-row"
           role="button"
           tabIndex={0}
+          aria-expanded={isActivityGroupOpen}
           onClick={() => setIsActivityGroupOpen(o => !o)}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsActivityGroupOpen(o => !o); } }}
           style={{ padding: '0 4px', cursor: 'pointer' }}

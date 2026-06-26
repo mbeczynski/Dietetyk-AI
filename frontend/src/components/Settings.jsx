@@ -1973,6 +1973,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
             <div
               role="button"
               tabIndex={0}
+              aria-expanded={isOuraAdvancedOpen}
               onClick={() => setIsOuraAdvancedOpen(o => !o)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsOuraAdvancedOpen(o => !o); } }}
               style={{ fontSize: '0.8rem', color: '#60a5fa', cursor: 'pointer', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '12px' }}
@@ -2065,6 +2066,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
             <div
               role="button"
               tabIndex={0}
+              aria-expanded={isWithingsAdvancedOpen}
               onClick={() => setIsWithingsAdvancedOpen(o => !o)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsWithingsAdvancedOpen(o => !o); } }}
               style={{ fontSize: '0.8rem', color: '#60a5fa', cursor: 'pointer', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '12px' }}
@@ -2169,6 +2171,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
               <div
                 role="button"
                 tabIndex={0}
+                aria-expanded={isAppleHealthInstructionsOpen}
                 onClick={() => setIsAppleHealthInstructionsOpen(o => !o)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsAppleHealthInstructionsOpen(o => !o); } }}
                 style={{ fontSize: '0.8rem', color: '#60a5fa', cursor: 'pointer' }}

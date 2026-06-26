@@ -42,7 +42,13 @@ app.use(express.json({ limit: '20mb' }));
 // innych/przyszłych parametrów tego typu w query stringu.
 morgan.token('safe-url', (req) => {
   const url = req.originalUrl || req.url || '';
-  return url.replace(/([?&])(token|code|state|access_token|refresh_token|client_secret|secret|key)=[^&]+/gi, '$1$2=%5Bredacted%5D');
+  return url
+    .replace(/([?&])(token|code|state|access_token|refresh_token|client_secret|secret|key)=[^&]+/gi, '$1$2=%5Bredacted%5D')
+    // Webhook Apple Health (routes/appleHealth.js) przyjmuje sync_token jako SEGMENT
+    // ŚCIEŻKI (/api/integrations/apple-health/:syncToken), nie jako parametr query -
+    // powyższy replace na query stringu go nie obejmuje, więc token lądował w logach
+    // w czystym tekście. Redagujemy go tu osobno, niezależnie od długości/formatu tokenu.
+    .replace(/(\/api\/integrations\/apple-health\/)[^/?]+/i, '$1%5Bredacted%5D');
 });
 app.use(morgan(':method :safe-url :status :response-time ms - :res[content-length]'));
 

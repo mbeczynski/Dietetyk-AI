@@ -5,6 +5,7 @@ const { requireAuth } = require('../middleware/auth');
 const { getLocalDateString } = require('../utils/dates');
 const { getDefaultHealthMetrics } = require('../utils/defaultHealthMetrics');
 const { generateContentWithFallback } = require('../config');
+const { getTargetCalories, getBmr, getTargetWaterMl } = require('../utils/defaultSettings');
 
 // Limit znaków pojedynczej wiadomości czatu - bez tego nic nie ograniczało długości
 // `message` trafiającego prosto do promptu Gemini (limit body to 20MB, ustawiony w
@@ -128,7 +129,7 @@ router.post('/api/chat', requireAuth, async (req, res) => {
       settings[r.key] = Number(r.value);
     });
 
-    const bmr = settings.bmr || 1800;
+    const bmr = getBmr(settings);
 
     // Pobierz dzisiejsze dane zdrowotne
     const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, queryDate]) || getDefaultHealthMetrics();
@@ -268,7 +269,7 @@ Jesteś profesjonalnym, empatycznym i zorientowanym na cele dietetykiem sportowy
 Pomagasz użytkownikowi ${displayName} w optymalizacji jego diety, regeneracji, snu i treningów.
 
 Informacje o profilu i celach użytkownika:
-- Cel kaloryczny spożycia: ${settings.target_calories || 2000} kcal
+- Cel kaloryczny spożycia: ${getTargetCalories(settings)} kcal
 - Cel makroskładników: Białko: ${settings.target_protein || 150}g, Węglowodany: ${settings.target_carbs || 250}g, Tłuszcz: ${settings.target_fat || 80}g
 - BMR (Podstawowa Przemiana Materii): ${bmr} kcal
 - Cel sylwetki opisany przez użytkownika: ${bodyGoalText || 'nie opisany w Ustawieniach'}
@@ -295,7 +296,7 @@ Aktualne statystyki użytkownika na dzień ${queryDate}:
 - Wynik Snu: ${health.sleep_score !== null ? health.sleep_score : 'brak danych'} (Czas: ${health.sleep_duration || 0}h, Głęboki: ${health.sleep_deep || 0}h, REM: ${health.sleep_rem || 0}h)
 - Wynik Gotowości (Readiness): ${health.readiness_score !== null ? health.readiness_score : 'brak danych'}
 - Tętno spoczynkowe: ${health.rhr || '-'} bpm, HRV: ${health.hrv || '-'} ms
-- Wypita woda: ${health.water_ml || 0}ml (cel: ${settings.target_water_ml || 2500}ml)
+- Wypita woda: ${health.water_ml || 0}ml (cel: ${getTargetWaterMl(settings)}ml)
 ${weeklyTrendSummary}
 ${historyContext}
 Pytanie użytkownika: "${message}"

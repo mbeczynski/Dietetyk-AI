@@ -496,6 +496,40 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     fetchStreakDriftInsight();
   }, [sessionToken, selectedDate]);
 
+  const [rhrDriftInsight, setRhrDriftInsight] = useState(null);
+  useEffect(() => {
+    const fetchRhrDriftInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/rhr-drift-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setRhrDriftInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu trendu tętna spoczynkowego:', err);
+      }
+    };
+    fetchRhrDriftInsight();
+  }, [sessionToken, selectedDate]);
+
+  const [mealTimingSleepInsight, setMealTimingSleepInsight] = useState(null);
+  useEffect(() => {
+    const fetchMealTimingSleepInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/meal-timing-sleep-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setMealTimingSleepInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu godzina posiłku-sen:', err);
+      }
+    };
+    fetchMealTimingSleepInsight();
+  }, [sessionToken, selectedDate]);
+
   // Zwijalna sekcja "Analizy" (UX: rundy 7 - 12 kart insightów w jednym miejscu,
   // domyślnie zwinięta, żeby nie zalewać dashboardu od razu po wejściu).
   const [isAnalizyOpen, setIsAnalizyOpen] = useState(false);
@@ -941,11 +975,14 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     }
   }, [chatMessages, isChatOpen]);
 
-  const handleSendChat = async (e) => {
-    e.preventDefault();
-    if (!chatInput.trim() || isSendingChat) return;
-    
-    const userMsg = chatInput.trim();
+  // `overrideText` pozwala wysłać wiadomość bez przepisywania jej do pola input -
+  // używane przez chipy szybkich pytań (Runda 8), które wysyłają gotowy tekst od razu
+  // po kliknięciu, zamiast najpierw wstawiać go do <input> i czekać na osobny submit.
+  const handleSendChat = async (e, overrideText) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const userMsg = (overrideText !== undefined ? overrideText : chatInput).trim();
+    if (!userMsg || isSendingChat) return;
+
     setChatInput('');
     // Budujemy nową historię jawnie (a nie przez closure na `chatMessages`) - setChatMessages
     // poniżej jest asynchroniczny, więc zmienna `chatMessages` w tym wywołaniu funkcji
@@ -1306,6 +1343,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           className="premium-card"
           role="button"
           tabIndex={0}
+          aria-expanded={isAnalizyOpen}
           onClick={() => setIsAnalizyOpen(o => !o)}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsAnalizyOpen(o => !o); } }}
           style={{ cursor: 'pointer' }}
@@ -1788,6 +1826,73 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </p>
           </div>
         )}
+
+        {/* INSIGHT (Runda 8): TREND SPOCZYNKOWEGO TĘTNA */}
+        {rhrDriftInsight && rhrDriftInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">❤️ Trend tętna spoczynkowego</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Średnie RHR z ostatnich {rhrDriftInsight.recentDays} dni vs Twoja własna baseline z poprzedzających {rhrDriftInsight.baselineDays} dni.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  RHR: {rhrDriftInsight.avgRecentRhr} vs {rhrDriftInsight.avgBaselineRhr} bpm
+                </span>
+                <span style={{ fontWeight: '700', color: rhrDriftInsight.rhrDiff > 0 ? 'var(--danger-light)' : rhrDriftInsight.rhrDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                  {rhrDriftInsight.rhrDiff > 0 ? '+' : ''}{rhrDriftInsight.rhrDiff} bpm
+                </span>
+              </div>
+            </div>
+            {rhrDriftInsight.isElevated && (
+              <p style={{ fontSize: '0.74rem', color: 'var(--danger-light)', marginTop: '10px', marginBottom: 0 }}>
+                ⚠️ Tętno spoczynkowe ostatnio podniesione względem Twojej baseline - może to być sygnał przemęczenia, stresu albo zaczynającej się infekcji.
+              </p>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 8): GODZINA OSTATNIEGO POSIŁKU -> SEN */}
+        {mealTimingSleepInsight && mealTimingSleepInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🍽️ Godzina posiłku → sen</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Twoja mediana godziny ostatniego posiłku to {mealTimingSleepInsight.medianLastMealHour}. Porównanie snu w dniach z późniejszym ({mealTimingSleepInsight.laterEatingDays} dni) vs wcześniejszym ({mealTimingSleepInsight.earlierEatingDays} dni) ostatnim posiłkiem.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {mealTimingSleepInsight.sleepScoreDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Wynik snu: {mealTimingSleepInsight.avgSleepScoreLaterEating} vs {mealTimingSleepInsight.avgSleepScoreEarlierEating}
+                  </span>
+                  <span style={{ fontWeight: '700', color: mealTimingSleepInsight.sleepScoreDiff < 0 ? 'var(--danger-light)' : mealTimingSleepInsight.sleepScoreDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {mealTimingSleepInsight.sleepScoreDiff > 0 ? '+' : ''}{mealTimingSleepInsight.sleepScoreDiff}
+                  </span>
+                </div>
+              )}
+              {mealTimingSleepInsight.sleepDeepDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Sen głęboki: {mealTimingSleepInsight.avgSleepDeepLaterEating} vs {mealTimingSleepInsight.avgSleepDeepEarlierEating} min
+                  </span>
+                  <span style={{ fontWeight: '700', color: mealTimingSleepInsight.sleepDeepDiff < 0 ? 'var(--danger-light)' : mealTimingSleepInsight.sleepDeepDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {mealTimingSleepInsight.sleepDeepDiff > 0 ? '+' : ''}{mealTimingSleepInsight.sleepDeepDiff} min
+                  </span>
+                </div>
+              )}
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
+            </p>
+          </div>
+        )}
           </>
         )}
 
@@ -2010,6 +2115,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                   <div
                     role="button"
                     tabIndex={0}
+                    aria-expanded={isSupplementsHistoryOpen}
                     onClick={() => setIsSupplementsHistoryOpen(o => !o)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsSupplementsHistoryOpen(o => !o); } }}
                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', cursor: 'pointer' }}
@@ -2651,6 +2757,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             className="premium-title-row"
             role="button"
             tabIndex={0}
+            aria-expanded={isHrZonesOpen}
             onClick={() => setIsHrZonesOpen(o => !o)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsHrZonesOpen(o => !o); } }}
             style={{ cursor: 'pointer' }}
@@ -2850,6 +2957,43 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               )}
               <div ref={messagesEndRef} />
             </div>
+
+            {/* Chipy szybkich pytań (Runda 8) - pokazujemy tylko na starcie konwersacji
+                (sama wiadomość powitalna AI), żeby nie zaśmiecać widoku po tym, jak
+                użytkownik już zaczął rozmowę. Kliknięcie wysyła pytanie od razu,
+                bez kopiowania go do pola input. */}
+            {chatMessages.length === 1 && !isSendingChat && (
+              <div style={{
+                padding: '0 20px 14px',
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '8px'
+              }}>
+                {[
+                  'Jak wygląda mój sen w tym tygodniu?',
+                  'Czy jestem blisko celu kalorycznego?',
+                  'Jak moja regeneracja po ostatnim treningu?',
+                  'Coś niepokojącego w moich danych?'
+                ].map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => handleSendChat(null, suggestion)}
+                    style={{
+                      background: 'rgba(124,58,237,0.12)',
+                      border: '1px solid rgba(124,58,237,0.3)',
+                      color: '#c4b5fd',
+                      borderRadius: '999px',
+                      padding: '6px 14px',
+                      fontSize: '0.76rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Input wiadomości */}
             <form 

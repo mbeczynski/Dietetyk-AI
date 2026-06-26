@@ -24,8 +24,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
 // sprawia, że krótkie kolizje zapisów (np. godzinowa synchronizacja Oura/Withings/
 // Google Fit nakładająca się na zapis użytkownika) czekają chwilę i się ponawiają,
 // zamiast od razu zwracać błąd "SQLITE_BUSY: database is locked".
-db.run('PRAGMA journal_mode = WAL;', (err) => {
-  if (err) console.error('Błąd ustawiania PRAGMA journal_mode=WAL:', err.message);
+db.run('PRAGMA journal_mode = TRUNCATE;', (err) => {
+  if (err) console.error('Błąd ustawiania PRAGMA journal_mode=TRUNCATE:', err.message);
 });
 db.run('PRAGMA busy_timeout = 5000;', (err) => {
   if (err) console.error('Błąd ustawiania PRAGMA busy_timeout:', err.message);

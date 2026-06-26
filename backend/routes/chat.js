@@ -95,7 +95,7 @@ function buildWeeklyTrendSummary(historyMetrics, historyMeals, startDateStr, end
       continue;
     }
 
-    const avg = (arr) => arr.reduce((s, v) => s + v, 0) / arr.length;
+    const avg = (arr) => (arr.length === 0 ? 0 : arr.reduce((s, v) => s + v, 0) / arr.length);
     const parts = [];
     if (daysWithMeals > 0) {
       parts.push(`śr. spożycie ${Math.round(calSum / daysWithMeals)} kcal/dzień (B:${Math.round(pSum / daysWithMeals)}g W:${Math.round(cSum / daysWithMeals)}g T:${Math.round(fSum / daysWithMeals)}g), zalogowano ${daysWithMeals}/${bucketLen} dni`);

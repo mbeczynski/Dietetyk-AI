@@ -8,6 +8,10 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
   // wykresu. Identyfikowany przez klucz metryki (chartKey) + indeks dnia, żeby tylko
   // właściwy wykres i właściwy słupek/punkt pokazywał swoją podpowiedź.
   const [hoverInfo, setHoverInfo] = useState(null);
+  // Podział wykresów na dwie grupy (UX: runda 7 - 8 wykresów w jednej płaskiej
+  // siatce było za dużo na raz). "Aktywność i ciało" startuje zwinięta, sen i
+  // regeneracja (główny temat aplikacji) widoczne od razu.
+  const [isActivityGroupOpen, setIsActivityGroupOpen] = useState(false);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -642,27 +646,41 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
       
       <div className="premium-title-row" style={{ padding: '0 4px' }}>
         <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#fff' }}>Twoje wykresy</h2>
-        {/* "Edytuj" nie ma tu żadnego onClick (sprawdzone w całym pliku) - to martwy
-            element, nie tylko brak aria/role. Dodanie role="button"/tabIndex bez
-            faktycznej akcji byłoby gorsze niż brak interaktywności (czytnik ekranu
-            ogłosiłby przycisk, który nic nie robi po aktywacji) - usuwamy więc tylko
-            mylący wizualny afordans (cursor: pointer), zamiast udawać interaktywność. */}
-        <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)' }}>Edytuj</span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
-        {/* Wykresy słupkowe */}
-        {renderBarChart("Kroki", "steps", "steps", [0, 10000, 20000], (v) => Math.round(v).toLocaleString('pl-PL'))}
-        {renderBarChart("Całkowita liczba kalorii", "total_calories_burned", "cals", [0, 3500, 7000], (v) => Math.round(v).toLocaleString('pl-PL'))}
-        {renderBarChart("Czas snu", "sleep_duration", "h", [0, 4, 8], (v) => formatDuration(v))}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <span className="premium-title" style={{ fontSize: '1.05rem', padding: '0 4px' }}>Sen i regeneracja</span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+          {renderBarChart("Czas snu", "sleep_duration", "h", [0, 4, 8], (v) => formatDuration(v))}
+          {renderLineChart("Wynik snu", "sleep_score", "%", [0, 50, 100], false, (v) => Math.round(v))}
+          {renderLineChart("Wskaźnik regeneracji", "readiness_score", "%", [0, 50, 100], false, (v) => Math.round(v))}
+          {renderLineChart("Spoczynkowe tętno", "rhr", "bpm", [40, 60, 80], false, (v) => Math.round(v))}
+          {renderLineChart("Zmienność rytmu zatokowego", "hrv", "ms", [20, 50, 80], false, (v) => Math.round(v))}
+        </div>
+      </div>
 
-        {/* Wykresy liniowe */}
-        {renderLineChart("Wynik snu", "sleep_score", "%", [0, 50, 100], false, (v) => Math.round(v))}
-        {renderLineChart("Wskaźnik regeneracji", "readiness_score", "%", [0, 50, 100], false, (v) => Math.round(v))}
-        {renderLineChart("Spoczynkowe tętno", "rhr", "bpm", [40, 60, 80], false, (v) => Math.round(v))}
-        {renderLineChart("Zmienność rytmu zatokowego", "hrv", "ms", [20, 50, 80], false, (v) => Math.round(v))}
-        {renderLineChart("Masa ciała", "weight", "kg", [80, 95, 110], true, (v) => (Math.round(v * 10) / 10).toLocaleString('pl-PL'))}
-        {renderBloodPressureChart()}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div
+          className="premium-title-row"
+          role="button"
+          tabIndex={0}
+          onClick={() => setIsActivityGroupOpen(o => !o)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsActivityGroupOpen(o => !o); } }}
+          style={{ padding: '0 4px', cursor: 'pointer' }}
+        >
+          <span className="premium-title" style={{ fontSize: '1.05rem' }}>Aktywność i ciało</span>
+          <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)' }}>
+            {isActivityGroupOpen ? 'Zwiń ▲' : 'Pokaż ▼'}
+          </span>
+        </div>
+        {isActivityGroupOpen && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+          {renderBarChart("Kroki", "steps", "steps", [0, 10000, 20000], (v) => Math.round(v).toLocaleString('pl-PL'))}
+          {renderBarChart("Całkowita liczba kalorii", "total_calories_burned", "cals", [0, 3500, 7000], (v) => Math.round(v).toLocaleString('pl-PL'))}
+          {renderLineChart("Masa ciała", "weight", "kg", [80, 95, 110], true, (v) => (Math.round(v * 10) / 10).toLocaleString('pl-PL'))}
+          {renderBloodPressureChart()}
+        </div>
+        )}
       </div>
 
     </div>

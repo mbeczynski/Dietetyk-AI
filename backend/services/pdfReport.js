@@ -58,8 +58,11 @@ async function buildHealthReportPdf(userId, requestedDays) {
   const lastMeasurement = bodyMeasurements.length > 0 ? bodyMeasurements[bodyMeasurements.length - 1] : null;
 
   return new Promise((resolve, reject) => {
+    // Zadeklarowane przed try, żeby catch mógł posprzątać (doc.destroy()),
+    // jeśli błąd wystąpi już PO utworzeniu dokumentu (np. w trakcie .text()).
+    let doc;
     try {
-      const doc = new PDFDocument({ margin: 50, size: 'A4' });
+      doc = new PDFDocument({ margin: 50, size: 'A4' });
       const chunks = [];
       doc.on('data', (chunk) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -164,6 +167,10 @@ async function buildHealthReportPdf(userId, requestedDays) {
 
       doc.end();
     } catch (err) {
+      // Strumień pisze do bufora w pamięci (nie do pliku), więc nic tu realnie
+      // nie "wycieka" bez destroy() - to tylko porządkowe domknięcie strumienia,
+      // żeby nie został w niezdefiniowanym stanie po błędzie w trakcie budowania PDF.
+      if (doc) doc.destroy();
       reject(err);
     }
   });

@@ -727,5 +727,9 @@ module.exports = {
   // services/pdfReport.js (eksport PDF dla lekarza/dietetyka), żeby nie
   // duplikować tej samej logiki agregacji statystyk/ustawień.
   getUserSettings,
-  aggregateNutritionAndHealth
+  aggregateNutritionAndHealth,
+  // Wykorzystywane też przez routes/dashboard.js (/api/dashboard/weight-goal-forecast)
+  // - ta sama logika statusu/tempa celu wagi co w mailu tygodniowym, tu jako stała
+  // karta na dashboardzie, nie tylko w okresowych mailach.
+  buildGoalPaceAnalysis
 };

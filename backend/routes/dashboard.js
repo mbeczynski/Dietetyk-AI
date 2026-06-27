@@ -6,6 +6,7 @@ const { getDefaultHealthMetrics } = require('../utils/defaultHealthMetrics');
 const { getCalorieBaseline, detectMealAnomalies } = require('../utils/mealAnomaly');
 const { DEFAULT_TARGET_WATER_ML, getTargetCalories, getBmr, getTargetWaterMl } = require('../utils/defaultSettings');
 const { genAI, generateContentWithFallback } = require('../config');
+const { buildGoalPaceAnalysis } = require('../services/summaries');
 
 // Blokada równoległego generowania porady AI dla tej samej (user, data) - bez tego
 // kilka odświeżeń dashboardu w krótkim czasie (np. otwarcie kilku zakładek albo
@@ -929,6 +930,11 @@ router.get('/api/dashboard/sodium-bp-insight', async (req, res) => {
 const SIGNIFICANT_WORKOUT_MIN_MINUTES = 20;
 const MIN_DAYS_PER_RECOVERY_GROUP = 5;
 const RECOVERY_LOOKBACK_DAYS = 90;
+// Próg minimalnej liczby dni PO KAŻDEJ stronie podziału "trening intensywny vs
+// spokojny" (wg udziału stref Z4+Z5 w sumie minut strefowych danego dnia) - osobny
+// od MIN_DAYS_PER_RECOVERY_GROUP, bo to dodatkowy, bardziej wymagający podział
+// (wymaga realnych danych tętna z treningu, nie tylko jego czasu trwania).
+const MIN_DAYS_PER_INTENSITY_GROUP = 4;
 
 // Wskaźnik regeneracji: jak HRV/RHR dnia NASTĘPNEGO po znaczącym treningu
 // wypadają na tle "normalnych" dni użytkownika (bez treningu dzień wcześniej).
@@ -942,7 +948,9 @@ router.get('/api/dashboard/recovery-insight', async (req, res) => {
     const startDate = shiftDate(today, -RECOVERY_LOOKBACK_DAYS);
 
     const workoutRows = await db.all(
-      `SELECT date, SUM(duration_minutes) AS total_minutes
+      `SELECT date, SUM(duration_minutes) AS total_minutes,
+              SUM(zone1_minutes) AS z1, SUM(zone2_minutes) AS z2, SUM(zone3_minutes) AS z3,
+              SUM(zone4_minutes) AS z4, SUM(zone5_minutes) AS z5
        FROM apple_health_workouts WHERE user_id = ? AND date >= ? AND date <= ?
        GROUP BY date HAVING total_minutes >= ?`,
       [req.user.id, startDate, today, SIGNIFICANT_WORKOUT_MIN_MINUTES]
@@ -951,6 +959,20 @@ router.get('/api/dashboard/recovery-insight', async (req, res) => {
     if (workoutRows.length === 0) {
       return res.json({ hasEnoughData: false, reason: 'no_significant_workouts' });
     }
+
+    // Udział stref Z4+Z5 (wysoka intensywność) w sumie zmierzonych minut strefowych
+    // danego dnia treningowego - dostępne tylko dla treningów z włączonym "Include
+    // Workout Metrics" w Health Auto Export (patrz hr-zones-insight); dni bez tych
+    // danych (totalZoneMinutes === 0) są pomijane z podziału wg intensywności, nie
+    // trafiają sztucznie do żadnej z grup.
+    const zoneShareByWorkoutDate = new Map();
+    workoutRows.forEach(r => {
+      const z1 = r.z1 || 0, z2 = r.z2 || 0, z3 = r.z3 || 0, z4 = r.z4 || 0, z5 = r.z5 || 0;
+      const totalZoneMinutes = z1 + z2 + z3 + z4 + z5;
+      if (totalZoneMinutes > 0) {
+        zoneShareByWorkoutDate.set(r.date, (z4 + z5) / totalZoneMinutes);
+      }
+    });
 
     const hrvRhrRows = await db.all(
       `SELECT date, hrv, rhr FROM health_metrics
@@ -961,12 +983,21 @@ router.get('/api/dashboard/recovery-insight', async (req, res) => {
     const metricsByDate = new Map(hrvRhrRows.map(r => [r.date, { hrv: r.hrv, rhr: r.rhr }]));
 
     const postWorkoutDates = new Set(workoutRows.map(r => shiftDate(r.date, 1)));
+    // shiftDate(+1) jest injektywne (różne daty treningu -> różne daty regeneracji),
+    // więc mapowanie 1:1 jest bezpieczne.
+    const workoutDateByRecoveryDate = new Map(workoutRows.map(r => [shiftDate(r.date, 1), r.date]));
     const postWorkout = [];
     const otherDays = [];
+    const intensityCandidates = [];
 
     hrvRhrRows.forEach(r => {
       if (postWorkoutDates.has(r.date)) {
         postWorkout.push(metricsByDate.get(r.date));
+        const workoutDate = workoutDateByRecoveryDate.get(r.date);
+        const zoneShare = zoneShareByWorkoutDate.get(workoutDate);
+        if (zoneShare !== undefined) {
+          intensityCandidates.push({ hrv: r.hrv, rhr: r.rhr, zoneShare });
+        }
       } else {
         otherDays.push(metricsByDate.get(r.date));
       }
@@ -999,6 +1030,33 @@ router.get('/api/dashboard/recovery-insight', async (req, res) => {
       latest = { workoutDate: latestWorkout.date, recoveryDate: nextDate, hrv: m.hrv, rhr: m.rhr };
     }
 
+    // Dodatkowy podział: czy regeneracja zależy nie tylko od TEGO, że był trening,
+    // ale od TEGO, JAK INTENSYWNY był (udział stref Z4+Z5). Mediana własnych dni
+    // treningowych użytkownika - jak w innych insightach z tej rundy, nie sztywny próg.
+    let intensitySplit = null;
+    if (intensityCandidates.length >= MIN_DAYS_PER_INTENSITY_GROUP * 2) {
+      const medianShare = median(intensityCandidates.map(c => c.zoneShare));
+      const highIntensity = intensityCandidates.filter(c => c.zoneShare > medianShare);
+      const lowIntensity = intensityCandidates.filter(c => c.zoneShare <= medianShare);
+      if (highIntensity.length >= MIN_DAYS_PER_INTENSITY_GROUP && lowIntensity.length >= MIN_DAYS_PER_INTENSITY_GROUP) {
+        const avgHrvHighIntensity = avg(highIntensity, 'hrv');
+        const avgHrvLowIntensity = avg(lowIntensity, 'hrv');
+        const avgRhrHighIntensity = avg(highIntensity, 'rhr');
+        const avgRhrLowIntensity = avg(lowIntensity, 'rhr');
+        intensitySplit = {
+          hasEnoughData: true,
+          highIntensityDays: highIntensity.length,
+          lowIntensityDays: lowIntensity.length,
+          avgHrvHighIntensity,
+          avgHrvLowIntensity,
+          hrvDiff: Math.round((avgHrvHighIntensity - avgHrvLowIntensity) * 10) / 10,
+          avgRhrHighIntensity,
+          avgRhrLowIntensity,
+          rhrDiff: Math.round((avgRhrHighIntensity - avgRhrLowIntensity) * 10) / 10
+        };
+      }
+    }
+
     res.json({
       hasEnoughData: true,
       postWorkoutDays: postWorkout.length,
@@ -1009,7 +1067,8 @@ router.get('/api/dashboard/recovery-insight', async (req, res) => {
       avgRhrPostWorkout,
       avgRhrOtherDays: avgRhrOther,
       rhrDiff: Math.round((avgRhrPostWorkout - avgRhrOther) * 10) / 10,
-      latest
+      latest,
+      intensitySplit
     });
   } catch (err) {
     console.error(err);
@@ -2226,6 +2285,375 @@ router.get('/api/dashboard/hr-zones-insight', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd pobierania insightu stref kardio.' });
+  }
+});
+
+// ============================================================================
+// Runda 10: kolejne insighty bazujące WYŁĄCZNIE na danych już zbieranych przez
+// aplikację (health_rating posiłków z analysis_json, dzień tygodnia, strefy kardio
+// treningów, target_weight_kg z ustawień, powtarzające się posiłki) - zero nowych
+// integracji, zero kopiowania funkcji z konkurencyjnych aplikacji dietetycznych.
+// ============================================================================
+
+const MEAL_QUALITY_RECENT_WINDOW_DAYS = 14;
+const MEAL_QUALITY_BASELINE_WINDOW_DAYS = 30;
+const MIN_RECENT_RATED_MEALS = 3;
+const MIN_BASELINE_RATED_MEALS = 5;
+
+// Insight: trend jakości posiłków na bazie health_rating (1-10) - oceny zdrowotności
+// KAŻDEGO posiłku, którą Gemini już zwraca przy analizie (routes/meals.js), ale która
+// dotąd nigdy nie była agregowana w czasie (widoczna tylko per-posiłek w widoku dnia).
+// health_rating nie ma własnej kolumny w tabeli meals - żyje wewnątrz analysis_json,
+// więc parsujemy go tu tym samym wzorcem try/catch co GET /api/meals. Porównanie:
+// ostatnie 14 dni vs poprzedzające 30 dni.
+router.get('/api/dashboard/meal-quality-trend-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const recentStart = shiftDate(today, -(MEAL_QUALITY_RECENT_WINDOW_DAYS - 1));
+    const baselineEnd = shiftDate(recentStart, -1);
+    const baselineStart = shiftDate(baselineEnd, -(MEAL_QUALITY_BASELINE_WINDOW_DAYS - 1));
+
+    const rows = await db.all(
+      `SELECT date, analysis_json FROM meals WHERE user_id = ? AND date >= ? AND date <= ?`,
+      [req.user.id, baselineStart, today]
+    );
+
+    const ratedMeals = [];
+    rows.forEach(r => {
+      try {
+        const analysis = JSON.parse(r.analysis_json);
+        const rating = Number(analysis.health_rating);
+        if (Number.isFinite(rating) && rating >= 1 && rating <= 10) {
+          ratedMeals.push({ date: r.date, rating });
+        }
+      } catch (e) {
+        // Starszy posiłek / brak albo uszkodzony analysis_json - brak health_rating, pomijamy.
+      }
+    });
+
+    const recent = ratedMeals.filter(m => m.date >= recentStart && m.date <= today);
+    const baseline = ratedMeals.filter(m => m.date >= baselineStart && m.date <= baselineEnd);
+
+    if (recent.length < MIN_RECENT_RATED_MEALS || baseline.length < MIN_BASELINE_RATED_MEALS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_rated_meals',
+        recentRatedMeals: recent.length,
+        baselineRatedMeals: baseline.length,
+        minRecentRequired: MIN_RECENT_RATED_MEALS,
+        minBaselineRequired: MIN_BASELINE_RATED_MEALS
+      });
+    }
+
+    const avgRating = arr => Math.round((arr.reduce((s, m) => s + m.rating, 0) / arr.length) * 10) / 10;
+    const avgRecentRating = avgRating(recent);
+    const avgBaselineRating = avgRating(baseline);
+
+    res.json({
+      hasEnoughData: true,
+      recentRatedMeals: recent.length,
+      baselineRatedMeals: baseline.length,
+      avgRecentRating,
+      avgBaselineRating,
+      ratingDiff: Math.round((avgRecentRating - avgBaselineRating) * 10) / 10
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania trendu jakości posiłków.' });
+  }
+});
+
+const WEEKEND_EFFECT_LOOKBACK_DAYS = 28;
+const MIN_WEEKDAY_DAYS_WITH_DATA = 8;
+const MIN_WEEKEND_DAYS_WITH_DATA = 4;
+
+// Dzień tygodnia z daty 'YYYY-MM-DD' - przez Date.UTC (jak shiftDate powyżej), żeby
+// uniknąć zależności od strefy czasowej procesu Node (zob. utils/dates.js).
+function isWeekendDateStr(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = niedziela, 6 = sobota
+  return dow === 0 || dow === 6;
+}
+
+// Insight: "efekt weekendu" - porównanie kalorii/aktywności/snu w dni robocze vs
+// weekend z ostatnich 4 tygodni. Pierwszy insight grupujący dane wg dnia tygodnia
+// (wszystkie pozostałe porównują dwa okresy czasu albo dwie grupy wg wartości
+// metryki) - sprawdza, czy typowy "rozjazd weekendowy" faktycznie istnieje u TEGO
+// użytkownika, nie zakłada go z góry.
+router.get('/api/dashboard/weekend-effect-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -(WEEKEND_EFFECT_LOOKBACK_DAYS - 1));
+
+    const mealRows = await db.all(
+      `SELECT date, SUM(calories) AS calories FROM meals WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date`,
+      [req.user.id, startDate, today]
+    );
+    const healthRows = await db.all(
+      `SELECT date, active_calories, steps, sleep_score FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ?`,
+      [req.user.id, startDate, today]
+    );
+
+    const weekdayCalories = [], weekendCalories = [];
+    mealRows.forEach(r => {
+      if (r.calories == null) return;
+      (isWeekendDateStr(r.date) ? weekendCalories : weekdayCalories).push(r.calories);
+    });
+
+    if (weekdayCalories.length < MIN_WEEKDAY_DAYS_WITH_DATA || weekendCalories.length < MIN_WEEKEND_DAYS_WITH_DATA) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        weekdayDaysLogged: weekdayCalories.length,
+        weekendDaysLogged: weekendCalories.length,
+        minWeekdayDaysRequired: MIN_WEEKDAY_DAYS_WITH_DATA,
+        minWeekendDaysRequired: MIN_WEEKEND_DAYS_WITH_DATA
+      });
+    }
+
+    const weekdaySteps = [], weekendSteps = [];
+    const weekdayActiveCal = [], weekendActiveCal = [];
+    const weekdaySleep = [], weekendSleep = [];
+    healthRows.forEach(r => {
+      const weekend = isWeekendDateStr(r.date);
+      if (r.steps != null && r.steps > 0) (weekend ? weekendSteps : weekdaySteps).push(r.steps);
+      if (r.active_calories != null && r.active_calories > 0) (weekend ? weekendActiveCal : weekdayActiveCal).push(r.active_calories);
+      if (r.sleep_score != null) (weekend ? weekendSleep : weekdaySleep).push(r.sleep_score);
+    });
+
+    const avg = arr => (arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : null);
+    const avgWeekdayCalories = avg(weekdayCalories);
+    const avgWeekendCalories = avg(weekendCalories);
+
+    res.json({
+      hasEnoughData: true,
+      weekdayDaysLogged: weekdayCalories.length,
+      weekendDaysLogged: weekendCalories.length,
+      avgWeekdayCalories,
+      avgWeekendCalories,
+      caloriesDiff: avgWeekendCalories - avgWeekdayCalories,
+      avgWeekdaySteps: avg(weekdaySteps),
+      avgWeekendSteps: avg(weekendSteps),
+      avgWeekdayActiveCalories: avg(weekdayActiveCal),
+      avgWeekendActiveCalories: avg(weekendActiveCal),
+      avgWeekdaySleepScore: avg(weekdaySleep),
+      avgWeekendSleepScore: avg(weekendSleep)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd analizy efektu weekendu.' });
+  }
+});
+
+const WORKOUT_EFFICIENCY_LOOKBACK_DAYS = 90;
+const MIN_WORKOUTS_PER_TYPE = 3;
+
+// Insight: efektywność kalorii per typ treningu (kcal/min) na bazie
+// apple_health_workouts.active_calories i duration_minutes z ostatnich 90 dni -
+// ranking typów treningu wg realnie spalanych kalorii na minutę, pokazujący który
+// rodzaj aktywności TEGO użytkownika daje najlepszy efekt kaloryczny na jednostkę
+// czasu (a nie ogólny stereotyp "bieganie pali więcej niż joga").
+router.get('/api/dashboard/workout-efficiency-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -WORKOUT_EFFICIENCY_LOOKBACK_DAYS);
+
+    const rows = await db.all(
+      `SELECT workout_type, duration_minutes, active_calories
+       FROM apple_health_workouts
+       WHERE user_id = ? AND date >= ? AND date <= ?
+       AND duration_minutes >= 5 AND active_calories IS NOT NULL AND active_calories > 0`,
+      [req.user.id, startDate, today]
+    );
+
+    const byType = new Map();
+    rows.forEach(r => {
+      const type = r.workout_type || 'Inny';
+      if (!byType.has(type)) byType.set(type, []);
+      byType.get(type).push(r);
+    });
+
+    const types = [];
+    byType.forEach((workouts, type) => {
+      if (workouts.length < MIN_WORKOUTS_PER_TYPE) return;
+      const avgKcalPerMin = workouts.reduce((s, w) => s + w.active_calories / w.duration_minutes, 0) / workouts.length;
+      const avgDurationMin = workouts.reduce((s, w) => s + w.duration_minutes, 0) / workouts.length;
+      const totalCalories = workouts.reduce((s, w) => s + w.active_calories, 0);
+      types.push({
+        type,
+        count: workouts.length,
+        avgKcalPerMin: Math.round(avgKcalPerMin * 10) / 10,
+        avgDurationMin: Math.round(avgDurationMin),
+        totalCalories: Math.round(totalCalories)
+      });
+    });
+
+    if (types.length === 0) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_workouts_per_type',
+        minWorkoutsPerTypeRequired: MIN_WORKOUTS_PER_TYPE
+      });
+    }
+
+    types.sort((a, b) => b.avgKcalPerMin - a.avgKcalPerMin);
+
+    res.json({
+      hasEnoughData: true,
+      windowDays: WORKOUT_EFFICIENCY_LOOKBACK_DAYS,
+      types
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd analizy efektywności treningów.' });
+  }
+});
+
+const WEIGHT_FORECAST_LOOKBACK_DAYS = 60;
+const MIN_WEIGHT_FORECAST_MEASUREMENTS = 4;
+const MIN_WEIGHT_FORECAST_SPAN_DAYS = 14;
+
+// Insight: prognoza daty osiągnięcia liczbowego celu wagi (target_weight_kg) na bazie
+// regresji liniowej wagi z ostatnich 60 dni. Ta sama logika statusu/tempa co w mailu
+// tygodniowym (buildGoalPaceAnalysis w services/summaries.js, reużyte tu, żeby nie
+// duplikować) - dotąd ta prognoza była widoczna WYŁĄCZNIE w okresowych mailach, tu
+// wystawiona jako stała karta na dashboardzie. weeklyWeightChange liczone tu z
+// regresji z dłuższego okna (60 dni), nie z prostej różnicy pierwszy-ostatni pomiar
+// w tygodniu jak w mailu - stabilniejsze przy nieregularnych pomiarach.
+router.get('/api/dashboard/weight-goal-forecast', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -WEIGHT_FORECAST_LOOKBACK_DAYS);
+
+    const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
+    const settings = {};
+    settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
+    const targetWeightKg = settings.target_weight_kg || 0;
+    if (!targetWeightKg) {
+      return res.json({ hasEnoughData: false, reason: 'no_target_weight_set' });
+    }
+
+    const weightRows = await db.all(
+      `SELECT date, weight FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ? AND weight IS NOT NULL ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+    if (weightRows.length < MIN_WEIGHT_FORECAST_MEASUREMENTS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_weight_data',
+        weightMeasurements: weightRows.length,
+        minWeightMeasurementsRequired: MIN_WEIGHT_FORECAST_MEASUREMENTS
+      });
+    }
+
+    const points = toRegressionPoints(weightRows, 'weight');
+    const spanDays = points[points.length - 1].x;
+    if (spanDays < MIN_WEIGHT_FORECAST_SPAN_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'span_too_short',
+        spanDays: Math.round(spanDays),
+        minSpanDaysRequired: MIN_WEIGHT_FORECAST_SPAN_DAYS
+      });
+    }
+
+    const slopePerDay = linearRegressionSlope(points);
+    if (slopePerDay === null) {
+      return res.json({ hasEnoughData: false, reason: 'flat_weight_data' });
+    }
+    const currentWeight = weightRows[weightRows.length - 1].weight;
+    const weeklyWeightChange = Math.round(slopePerDay * 7 * 100) / 100;
+
+    const pace = buildGoalPaceAnalysis(targetWeightKg, currentWeight, weeklyWeightChange);
+    if (!pace) {
+      return res.json({ hasEnoughData: false, reason: 'cannot_evaluate_pace' });
+    }
+
+    const projectedDate = pace.weeksToGoal != null ? shiftDate(today, Math.round(pace.weeksToGoal * 7)) : null;
+
+    res.json({
+      hasEnoughData: true,
+      weightMeasurements: weightRows.length,
+      spanDays: Math.round(spanDays),
+      ...pace,
+      projectedDate
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd prognozy celu wagi.' });
+  }
+});
+
+const FAVORITE_MEAL_DRIFT_LOOKBACK_DAYS = 180;
+const MIN_OCCURRENCES_FOR_DRIFT = 4;
+const DRIFT_THRESHOLD_PERCENT = 20;
+const MAX_DRIFT_FINDINGS = 5;
+
+// Insight: stabilność ulubionych (powtarzających się) posiłków w czasie. Rozszerza
+// wzorzec grupowania z /api/meals/frequent (LOWER(TRIM(raw_text)), powtórzenia) o
+// porównanie STARSZEJ vs NOWSZEJ połowy wystąpień danego posiłku - wykrywa "dryf
+// porcji" (ten sam zapisany posiłek z czasem rośnie/maleje kalorycznie, np. przez
+// powolne zwiększanie porcji bez zmiany opisu) - dotąd niewidoczny, bo
+// /api/meals/frequent liczy tylko jedną uśrednioną wartość z całego okresu.
+router.get('/api/dashboard/favorite-meal-drift-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -FAVORITE_MEAL_DRIFT_LOOKBACK_DAYS);
+
+    const rows = await db.all(
+      `SELECT LOWER(TRIM(raw_text)) AS meal_key, raw_text, date, calories
+       FROM meals
+       WHERE user_id = ? AND date >= ? AND date <= ? AND raw_text IS NOT NULL AND TRIM(raw_text) != '' AND calories IS NOT NULL
+       ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+
+    const grouped = new Map();
+    rows.forEach(r => {
+      if (!grouped.has(r.meal_key)) grouped.set(r.meal_key, []);
+      grouped.get(r.meal_key).push(r);
+    });
+
+    const eligibleGroups = [...grouped.values()].filter(occ => occ.length >= MIN_OCCURRENCES_FOR_DRIFT);
+    if (eligibleGroups.length === 0) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_repeated_meals',
+        minOccurrencesRequired: MIN_OCCURRENCES_FOR_DRIFT
+      });
+    }
+
+    const avgCal = arr => arr.reduce((s, x) => s + x.calories, 0) / arr.length;
+    const findings = [];
+    eligibleGroups.forEach(occurrences => {
+      const mid = Math.floor(occurrences.length / 2);
+      const olderAvg = avgCal(occurrences.slice(0, mid));
+      const newerAvg = avgCal(occurrences.slice(mid));
+      if (olderAvg <= 0) return;
+      const diffPercent = Math.round(((newerAvg - olderAvg) / olderAvg) * 100);
+      if (Math.abs(diffPercent) >= DRIFT_THRESHOLD_PERCENT) {
+        findings.push({
+          rawText: occurrences[occurrences.length - 1].raw_text,
+          occurrences: occurrences.length,
+          olderAvgCalories: Math.round(olderAvg),
+          newerAvgCalories: Math.round(newerAvg),
+          diffPercent,
+          firstDate: occurrences[0].date,
+          lastDate: occurrences[occurrences.length - 1].date
+        });
+      }
+    });
+
+    findings.sort((a, b) => Math.abs(b.diffPercent) - Math.abs(a.diffPercent));
+
+    res.json({
+      hasEnoughData: true,
+      mealsAnalyzed: eligibleGroups.length,
+      findings: findings.slice(0, MAX_DRIFT_FINDINGS)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd analizy dryfu ulubionych posiłków.' });
   }
 });
 

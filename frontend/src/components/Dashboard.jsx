@@ -568,6 +568,102 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     fetchHrZonesInsight();
   }, [sessionToken, selectedDate]);
 
+  // Trend jakości posiłków (health_rating 1-10 z analysis_json) - ostatnie 14 dni
+  // vs poprzedzające 30 dni. Patrz /api/dashboard/meal-quality-trend-insight.
+  const [mealQualityTrendInsight, setMealQualityTrendInsight] = useState(null);
+  useEffect(() => {
+    const fetchMealQualityTrendInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/meal-quality-trend-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setMealQualityTrendInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania trendu jakości posiłków:', err);
+      }
+    };
+    fetchMealQualityTrendInsight();
+  }, [sessionToken, selectedDate]);
+
+  // "Efekt weekendu" - kalorie/aktywność/sen w dni robocze vs weekend, ostatnie
+  // 4 tygodnie. Patrz /api/dashboard/weekend-effect-insight.
+  const [weekendEffectInsight, setWeekendEffectInsight] = useState(null);
+  useEffect(() => {
+    const fetchWeekendEffectInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/weekend-effect-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setWeekendEffectInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania efektu weekendu:', err);
+      }
+    };
+    fetchWeekendEffectInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Efektywność kalorii per typ treningu (kcal/min) z ostatnich 90 dni.
+  // Patrz /api/dashboard/workout-efficiency-insight.
+  const [workoutEfficiencyInsight, setWorkoutEfficiencyInsight] = useState(null);
+  useEffect(() => {
+    const fetchWorkoutEfficiencyInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/workout-efficiency-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setWorkoutEfficiencyInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania efektywności treningów:', err);
+      }
+    };
+    fetchWorkoutEfficiencyInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Prognoza daty osiągnięcia celu wagi (regresja 60 dni + target_weight_kg) - stała
+  // karta na dashboardzie (wcześniej widoczna tylko w okresowych mailach).
+  // Patrz /api/dashboard/weight-goal-forecast.
+  const [weightGoalForecast, setWeightGoalForecast] = useState(null);
+  useEffect(() => {
+    const fetchWeightGoalForecast = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/weight-goal-forecast${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setWeightGoalForecast(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania prognozy celu wagi:', err);
+      }
+    };
+    fetchWeightGoalForecast();
+  }, [sessionToken, selectedDate]);
+
+  // Stabilność ulubionych (powtarzających się) posiłków - dryf kalorii między
+  // starszą a nowszą połową wystąpień. Patrz /api/dashboard/favorite-meal-drift-insight.
+  const [favoriteMealDriftInsight, setFavoriteMealDriftInsight] = useState(null);
+  useEffect(() => {
+    const fetchFavoriteMealDriftInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/favorite-meal-drift-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setFavoriteMealDriftInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania dryfu ulubionych posiłków:', err);
+      }
+    };
+    fetchFavoriteMealDriftInsight();
+  }, [sessionToken, selectedDate]);
+
   // Zwijalna sekcja "Analizy" (UX: rundy 7 - 12 kart insightów w jednym miejscu,
   // domyślnie zwinięta, żeby nie zalewać dashboardu od razu po wejściu).
   const [isAnalizyOpen, setIsAnalizyOpen] = useState(false);
@@ -1523,6 +1619,32 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 HRV {recoveryInsight.latest.hrv} ms, RHR {recoveryInsight.latest.rhr} bpm.
               </p>
             )}
+            {recoveryInsight.intensitySplit && recoveryInsight.intensitySplit.hasEnoughData && (
+              <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', marginBottom: '6px' }}>
+                  Treningi wysokointensywne (więcej stref Z4-Z5) vs spokojniejsze
+                  ({recoveryInsight.intensitySplit.highIntensityDays} vs {recoveryInsight.intensitySplit.lowIntensityDays} dni):
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                      HRV: {recoveryInsight.intensitySplit.avgHrvHighIntensity} vs {recoveryInsight.intensitySplit.avgHrvLowIntensity} ms
+                    </span>
+                    <span style={{ fontWeight: '700', color: recoveryInsight.intensitySplit.hrvDiff < 0 ? 'var(--danger-light)' : recoveryInsight.intensitySplit.hrvDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                      {recoveryInsight.intensitySplit.hrvDiff > 0 ? '+' : ''}{recoveryInsight.intensitySplit.hrvDiff} ms
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                      RHR: {recoveryInsight.intensitySplit.avgRhrHighIntensity} vs {recoveryInsight.intensitySplit.avgRhrLowIntensity} bpm
+                    </span>
+                    <span style={{ fontWeight: '700', color: recoveryInsight.intensitySplit.rhrDiff > 0 ? 'var(--danger-light)' : recoveryInsight.intensitySplit.rhrDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                      {recoveryInsight.intensitySplit.rhrDiff > 0 ? '+' : ''}{recoveryInsight.intensitySplit.rhrDiff} bpm
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
             <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
               Porównanie dwóch średnich z Twoich danych, nie diagnoza medyczna.
             </p>
@@ -2005,7 +2127,154 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </p>
           </div>
         )}
+
+        {/* INSIGHT: TREND JAKOŚCI POSIŁKÓW (health_rating) */}
+        {mealQualityTrendInsight && mealQualityTrendInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🥗 Trend jakości posiłków</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Średnia ocena zdrowotności posiłków (AI, skala 1-10) - ostatnie 14 dni vs poprzedzające 30 dni
+              ({mealQualityTrendInsight.recentRatedMeals} vs {mealQualityTrendInsight.baselineRatedMeals} ocenionych posiłków).
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                {mealQualityTrendInsight.avgRecentRating} vs {mealQualityTrendInsight.avgBaselineRating} / 10
+              </span>
+              <span style={{ fontWeight: '700', color: mealQualityTrendInsight.ratingDiff > 0 ? 'var(--success-light)' : mealQualityTrendInsight.ratingDiff < 0 ? 'var(--danger-light)' : '#fff' }}>
+                {mealQualityTrendInsight.ratingDiff > 0 ? '+' : ''}{mealQualityTrendInsight.ratingDiff}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* INSIGHT: EFEKT WEEKENDU */}
+        {weekendEffectInsight && weekendEffectInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">📅 Efekt weekendu</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Dni robocze vs weekend - ostatnie 4 tygodnie ({weekendEffectInsight.weekdayDaysLogged} vs {weekendEffectInsight.weekendDaysLogged} dni z danymi).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  Kalorie: {weekendEffectInsight.avgWeekdayCalories} vs {weekendEffectInsight.avgWeekendCalories} kcal
+                </span>
+                <span style={{ fontWeight: '700', color: weekendEffectInsight.caloriesDiff > 0 ? 'var(--danger-light)' : weekendEffectInsight.caloriesDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                  {weekendEffectInsight.caloriesDiff > 0 ? '+' : ''}{weekendEffectInsight.caloriesDiff} kcal
+                </span>
+              </div>
+              {weekendEffectInsight.avgWeekdaySteps != null && weekendEffectInsight.avgWeekendSteps != null && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>Kroki: {weekendEffectInsight.avgWeekdaySteps} vs {weekendEffectInsight.avgWeekendSteps}</span>
+                </div>
+              )}
+              {weekendEffectInsight.avgWeekdayActiveCalories != null && weekendEffectInsight.avgWeekendActiveCalories != null && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>Kalorie aktywne: {weekendEffectInsight.avgWeekdayActiveCalories} vs {weekendEffectInsight.avgWeekendActiveCalories} kcal</span>
+                </div>
+              )}
+              {weekendEffectInsight.avgWeekdaySleepScore != null && weekendEffectInsight.avgWeekendSleepScore != null && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>Wynik snu: {weekendEffectInsight.avgWeekdaySleepScore} vs {weekendEffectInsight.avgWeekendSleepScore}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* INSIGHT: EFEKTYWNOŚĆ KALORII PER TYP TRENINGU */}
+        {workoutEfficiencyInsight && workoutEfficiencyInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">⚡ Efektywność kalorii per trening</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Średnie spalanie kcal/min wg typu treningu - ostatnie {workoutEfficiencyInsight.windowDays} dni.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {workoutEfficiencyInsight.types.map(t => (
+                <div key={t.type} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>{t.type} ({t.count}x, śr. {t.avgDurationMin} min)</span>
+                  <span style={{ fontWeight: '700', color: '#fff' }}>{t.avgKcalPerMin} kcal/min</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* INSIGHT: STABILNOŚĆ ULUBIONYCH POSIŁKÓW (DRYF) */}
+        {favoriteMealDriftInsight && favoriteMealDriftInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔁 Stabilność ulubionych posiłków</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Posiłki zapisywane pod tym samym opisem - porównanie starszych i nowszych wystąpień (ostatnie 180 dni,
+              {' '}{favoriteMealDriftInsight.mealsAnalyzed} powtarzających się posiłków).
+            </p>
+            {favoriteMealDriftInsight.findings.length === 0 ? (
+              <p style={{ fontSize: '0.78rem', color: 'var(--success-light)', marginBottom: 0 }}>
+                Brak istotnego dryfu kalorycznego - Twoje ulubione posiłki są stabilne.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {favoriteMealDriftInsight.findings.map((f, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', gap: '8px' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {f.rawText} ({f.olderAvgCalories} → {f.newerAvgCalories} kcal)
+                    </span>
+                    <span style={{ fontWeight: '700', color: f.diffPercent > 0 ? 'var(--danger-light)' : 'var(--success-light)', flexShrink: 0 }}>
+                      {f.diffPercent > 0 ? '+' : ''}{f.diffPercent}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
           </>
+        )}
+
+        {/* PROGNOZA DATY CELU WAGI - stała karta (wcześniej widoczna tylko w mailach okresowych) */}
+        {weightGoalForecast && weightGoalForecast.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">📈 Prognoza celu wagi</span>
+            </div>
+            {weightGoalForecast.status === 'reached' ? (
+              <p style={{ fontSize: '0.85rem', color: 'var(--success-light)', marginBottom: 0 }}>
+                Cel wagi ({weightGoalForecast.targetWeightKg} kg) już osiągnięty - aktualna waga {weightGoalForecast.currentWeight} kg.
+              </p>
+            ) : weightGoalForecast.status === 'wrong_direction' ? (
+              <p style={{ fontSize: '0.85rem', color: 'var(--danger-light)', marginBottom: 0 }}>
+                Waga zmienia się w przeciwnym kierunku niż wymaga cel ({weightGoalForecast.targetWeightKg} kg) -
+                tempo: {weightGoalForecast.weeklyWeightChange > 0 ? '+' : ''}{weightGoalForecast.weeklyWeightChange} kg/tydz.
+              </p>
+            ) : weightGoalForecast.status === 'stalled' ? (
+              <p style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)', marginBottom: 0 }}>
+                Waga jest stabilna (brak wyraźnego trendu) - pozostało {Math.abs(weightGoalForecast.remainingKg)} kg do celu {weightGoalForecast.targetWeightKg} kg.
+              </p>
+            ) : (
+              <>
+                <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+                  Tempo z ostatnich {weightGoalForecast.spanDays} dni: {weightGoalForecast.weeklyWeightChange > 0 ? '+' : ''}{weightGoalForecast.weeklyWeightChange} kg/tydz.
+                  Pozostało {Math.abs(weightGoalForecast.remainingKg)} kg do celu {weightGoalForecast.targetWeightKg} kg.
+                </p>
+                {weightGoalForecast.projectedDate && (
+                  <p style={{ fontSize: '0.85rem', fontWeight: '700', color: '#fff', marginBottom: 0 }}>
+                    Prognozowana data osiągnięcia celu: {weightGoalForecast.projectedDate}
+                  </p>
+                )}
+              </>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
+              Prognoza z regresji liniowej Twojej wagi z ostatnich {weightGoalForecast.spanDays} dni, nie gwarancja.
+            </p>
+          </div>
         )}
 
         {/* ADAPTACYJNA KOREKTA CELU KALORYCZNEGO */}

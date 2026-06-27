@@ -215,6 +215,10 @@ export default function App() {
       let msg = 'Nie udało się zalogować przez Google.';
       if (googleError === 'account_inactive') {
         msg = 'To konto jest nieaktywne. Skontaktuj się z administratorem.';
+      } else if (googleError === 'email_exists') {
+        msg = 'Konto z tym adresem e-mail już istnieje. Zaloguj się hasłem i połącz konto Google w Ustawieniach.';
+      } else if (googleError === 'csrf_failed') {
+        msg = 'Błąd weryfikacji żądania (CSRF). Spróbuj ponownie.';
       }
       setLoginError(msg);
       window.history.replaceState({}, document.title, '/');

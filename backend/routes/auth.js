@@ -23,6 +23,16 @@ const { fetchWithTimeout } = require('../utils/fetchWithTimeout');
 const TEMP_SESSION_TTL_DAYS = 5 / (24 * 60); // 5 minut wyrażone w dniach
 const PERMANENT_SESSION_TTL_DAYS = 7;
 
+const validatePassword = (password) => {
+  if (!password || password.length < 8) {
+    return 'Hasło musi mieć co najmniej 8 znaków.';
+  }
+  if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+    return 'Hasło musi zawierać co najmniej jedną literę i jedną cyfrę.';
+  }
+  return null;
+};
+
 async function createSession(userId, isVerified2fa, ttlDays = PERMANENT_SESSION_TTL_DAYS) {
   const tokenPrefix = ttlDays >= 1 ? 'sess_' : 'temp_';
   const token = tokenPrefix + crypto.randomBytes(24).toString('hex');
@@ -49,7 +59,8 @@ router.get('/api/auth/google', async (req, res) => {
     const base = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
     const redirectUri = `${base}/api/auth/google/callback`;
 
-    const state = crypto.randomBytes(16).toString('hex');
+    const clientFingerprint = crypto.createHash('sha256').update(req.ip + (req.headers['user-agent'] || '')).digest('hex');
+    const state = generateOAuthState(0, `google_login:${clientFingerprint}`);
 
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent('openid email profile')}&state=${state}&prompt=select_account`;
     res.redirect(authUrl);
@@ -100,14 +111,18 @@ router.get('/api/auth/google/link', async (req, res) => {
 // przypisanie google_id do już zalogowanego użytkownika).
 router.get('/api/auth/google/callback', async (req, res) => {
   const { code, error, state } = req.query;
-  const linkVerified = verifyOAuthState(state);
-  const isLinkFlow = linkVerified && linkVerified.service === 'google_link';
+  const verified = verifyOAuthState(state);
+
+  const clientFingerprint = crypto.createHash('sha256').update(req.ip + (req.headers['user-agent'] || '')).digest('hex');
+  const isLoginFlow = verified && verified.userId === 0 && verified.service === `google_login:${clientFingerprint}`;
+  const isLinkFlow = verified && verified.userId > 0 && verified.service === 'google_link';
+
   if (error) {
     console.error('[GOOGLE LOGIN CALLBACK ERROR]', error);
     return res.redirect(isLinkFlow ? '/?tab=settings&google_link_error=auth_failed' : '/?google_error=auth_failed');
   }
-  if (!code) {
-    return res.redirect(isLinkFlow ? '/?tab=settings&google_link_error=auth_failed' : '/?google_error=auth_failed');
+  if (!code || !verified || (!isLoginFlow && !isLinkFlow)) {
+    return res.redirect(isLinkFlow ? '/?tab=settings&google_link_error=csrf_failed' : '/?google_error=csrf_failed');
   }
 
   try {
@@ -153,11 +168,11 @@ router.get('/api/auth/google/callback', async (req, res) => {
     // nowej sesji. Blokujemy "podebranie" konta, jeśli ten sam google_id jest już
     // przypisany do innego użytkownika.
     if (isLinkFlow) {
-      const conflictingUser = await db.get(`SELECT id FROM users WHERE google_id = ? AND id != ?`, [profile.sub, linkVerified.userId]);
+      const conflictingUser = await db.get(`SELECT id FROM users WHERE google_id = ? AND id != ?`, [profile.sub, verified.userId]);
       if (conflictingUser) {
         return res.redirect('/?tab=settings&google_link_error=already_linked');
       }
-      await db.run(`UPDATE users SET google_id = ? WHERE id = ?`, [profile.sub, linkVerified.userId]);
+      await db.run(`UPDATE users SET google_id = ? WHERE id = ?`, [profile.sub, verified.userId]);
       return res.redirect('/?tab=settings&google_link=success');
     }
 
@@ -165,11 +180,12 @@ router.get('/api/auth/google/callback', async (req, res) => {
     let user = await db.get(`SELECT * FROM users WHERE google_id = ?`, [profile.sub]);
 
     if (!user && profile.email) {
-      // 2. Jeśli nie znaleziono, ale e-mail się zgadza z istniejącym kontem (logowanie hasłem) - łączymy konta
+      // 2. Jeśli nie znaleziono, ale e-mail się zgadza z istniejącym kontem (logowanie hasłem) -
+      // NIE łączymy automatycznie ze względów bezpieczeństwa (zapobiega przejęciu konta przez rejestrację
+      // z fałszywym adresem e-mail). Odsyłamy użytkownika do zalogowania się hasłem i połączenia w Ustawieniach.
       const existingByEmail = await db.get(`SELECT * FROM users WHERE email = ?`, [profile.email]);
       if (existingByEmail) {
-        await db.run(`UPDATE users SET google_id = ? WHERE id = ?`, [profile.sub, existingByEmail.id]);
-        user = existingByEmail;
+        return res.redirect('/?google_error=email_exists');
       }
     }
 
@@ -539,8 +555,9 @@ router.post('/api/register-invitation', async (req, res) => {
   if (!token || !username || !password) {
     return res.status(400).json({ error: 'Wszystkie pola są wymagane.' });
   }
-  if (password.length < 8) {
-    return res.status(400).json({ error: 'Hasło musi mieć co najmniej 8 znaków.' });
+  const passError = validatePassword(password);
+  if (passError) {
+    return res.status(400).json({ error: passError });
   }
 
   // Endpointy rejestracji (w przeciwieństwie do /api/login, /api/login-2fa,
@@ -593,8 +610,9 @@ router.post('/api/register-public', async (req, res) => {
   if (!username || !password) {
     return res.status(400).json({ error: 'Nazwa użytkownika i hasło są wymagane.' });
   }
-  if (password.length < 8) {
-    return res.status(400).json({ error: 'Hasło musi mieć co najmniej 8 znaków.' });
+  const passError = validatePassword(password);
+  if (passError) {
+    return res.status(400).json({ error: passError });
   }
 
   // Patrz komentarz w /api/register-invitation - ten sam mechanizm anty-spam per-IP.

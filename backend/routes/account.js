@@ -439,6 +439,12 @@ router.post('/api/user/change-password', async (req, res) => {
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Obecne i nowe hasło są wymagane.' });
   }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'Hasło musi mieć co najmniej 8 znaków.' });
+  }
+  if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+    return res.status(400).json({ error: 'Hasło musi zawierać co najmniej jedną literę i jedną cyfrę.' });
+  }
 
   try {
     const user = await db.get(`SELECT password_hash FROM users WHERE id = ?`, [req.user.id]);

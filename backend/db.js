@@ -207,11 +207,6 @@ const initDb = async () => {
     await run(`UPDATE users SET username = 'admin', email = 'mbeczynski@gmail.com', role = 'admin' WHERE id = 1`);
   } catch (e) {}
 
-  // Usunięcie konta Paulina z domyślnych użytkowników (zgodnie z wymaganiem wdrożenia systemu zaproszeń)
-  try {
-    await run(`DELETE FROM users WHERE username = 'Paulina'`);
-    console.log('[DB MIGRATE] Usunięto domyślnego użytkownika Paulina (będzie zaproszona przez system zaproszeń).');
-  } catch (e) {}
 
   // 2. Tabela Posiłków (meals) z kolumną user_id
   await run(`

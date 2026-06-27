@@ -82,24 +82,27 @@ router.post('/api/body-measurements', requireAuth, async (req, res) => {
   }
 
   try {
-    await db.run(`
+    const fields = [
+      'chest', 'waist', 'hips', 'biceps', 'thigh',
+      'biceps_left', 'biceps_right', 'shoulders', 'waist_above', 'waist_below'
+    ];
+    const updateClauses = fields.map(field => {
+      return req.body[field] !== undefined
+        ? `${field} = excluded.${field}`
+        : `${field} = ${field}`;
+    });
+
+    const sql = `
       INSERT INTO body_measurements (
         user_id, date, chest, waist, hips, biceps, thigh, 
         biceps_left, biceps_right, shoulders, waist_above, waist_below
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, date) DO UPDATE SET
-        chest = COALESCE(excluded.chest, chest),
-        waist = COALESCE(excluded.waist, waist),
-        hips = COALESCE(excluded.hips, hips),
-        biceps = COALESCE(excluded.biceps, biceps),
-        thigh = COALESCE(excluded.thigh, thigh),
-        biceps_left = COALESCE(excluded.biceps_left, biceps_left),
-        biceps_right = COALESCE(excluded.biceps_right, biceps_right),
-        shoulders = COALESCE(excluded.shoulders, shoulders),
-        waist_above = COALESCE(excluded.waist_above, waist_above),
-        waist_below = COALESCE(excluded.waist_below, waist_below)
-    `, [
+        ${updateClauses.join(',\n        ')}
+    `;
+
+    await db.run(sql, [
       req.user.id,
       date,
       parsed.chest ?? null,

@@ -36,8 +36,12 @@ const { parseHealthAutoExportDate, dateObjToLocalDateString } = require('../util
 // payloadów z dokumentacji/community (m.in. ladvien.com, irvinlim/apple-health-ingester).
 //
 // Obsługujemy tylko metryki potrzebne do bilansu kalorycznego (kroki, kalorie, minuty
-// aktywności) - inne metryki w payloadzie (np. tętno, sen) są po prostu ignorowane,
-// nie traktujemy ich jako błąd.
+// aktywności) z data.metrics[] - inne metryki w tym payloadzie (np. sen) są po prostu
+// ignorowane, nie traktujemy ich jako błąd. WYJĄTEK: tętno per trening z data.workouts[]
+// (avgHeartRate/maxHeartRate/heartRateData) - patrz sekcja "STREFY KARDIO" niżej, JEST
+// obsługiwane, o ile użytkownik włączył przełącznik "Include Workout Metrics" w
+// automatyzacji Health Auto Export na telefonie (domyślnie wyłączony - bez niego
+// payload treningu nie zawiera w ogóle pól tętna).
 
 const KJ_TO_KCAL = 1 / 4.184;
 
@@ -75,6 +79,110 @@ function toMeters(qty, units) {
   return qty;
 }
 
+// STREFY KARDIO (Karvonen) per trening - patrz migracja w db.js (apple_health_workouts.
+// avg_heart_rate/max_heart_rate/zone1_minutes..zone5_minutes). Te same progi procentowe
+// rezerwy tętna (50/60/70/80/90%), co statyczna tabela referencyjna "Strefy Tętna" na
+// Dashboardzie (frontend/src/components/Dashboard.jsx) i ten sam wzór HRmax = 220 - wiek
+// na bazie roku urodzenia (routes/dashboard.js) - żeby obie karty pokazywały zgodne ze
+// sobą granice stref.
+const KARVONEN_ZONE_UPPER_BOUNDS = [0.6, 0.7, 0.8, 0.9]; // <0.6 -> Z1, <0.7 -> Z2, <0.8 -> Z3, <0.9 -> Z4, >=0.9 -> Z5
+
+function numOrNull(v) {
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Klasyfikuje pojedynczy odczyt tętna do strefy 1-5 (Karvonen). Zwraca null, gdy nie da
+// się tego policzyć (brak HRmax - użytkownik nie podał roku urodzenia w profilu - albo
+// rezerwa tętna wychodzi <= 0, np. błędnie wpisany rok urodzenia dający HRmax <= RHR).
+function classifyKarvonenZone(hr, userMaxHr, rhr) {
+  if (!Number.isFinite(hr) || userMaxHr == null) return null;
+  const hrReserve = userMaxHr - rhr;
+  if (hrReserve <= 0) return null;
+  const pct = (hr - rhr) / hrReserve;
+  for (let i = 0; i < KARVONEN_ZONE_UPPER_BOUNDS.length; i++) {
+    if (pct < KARVONEN_ZONE_UPPER_BOUNDS[i]) return i + 1;
+  }
+  return 5;
+}
+
+// Wyciąga reprezentatywną wartość tętna z jednej próbki heartRateData - Health Auto
+// Export używa RÓŻNYCH kształtów w zależności od wersji eksportu ("Workouts v1": pole
+// `qty`; "Workouts v2": pola `Min`/`Avg`/`Max`) - bierzemy średnią, jeśli jest, inaczej
+// pierwszą dostępną liczbę.
+function extractSampleHr(entry) {
+  if (!entry) return null;
+  const candidates = [entry.Avg, entry.avg, entry.qty, entry.Max, entry.max, entry.Min, entry.min];
+  for (const c of candidates) {
+    const n = numOrNull(c);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+const MAX_SAMPLE_GAP_MINUTES = 5; // Health Auto Export zwykle próbkuje tętno podczas
+// treningu ~co minutę - większy odstęp między kolejnymi próbkami (np. utracone próbki,
+// duplikat znacznika czasu) ucinamy do tego limitu, żeby jedna "dziura" w danych nie
+// zaliczyła kilkudziesięciu minut do przypadkowej strefy.
+const DEFAULT_LAST_SAMPLE_MINUTES = 1; // czas przypisany ostatniej próbce w serii (nie
+// ma kolejnej próbki, więc nie da się policzyć realnego odstępu).
+
+// Liczy realny rozkład minut treningu w 5 strefach Karvonena na bazie szeregu próbek
+// tętna z payloadu (workout.heartRateData). Gdy payload nie zawiera szeregu próbek, ale
+// zawiera samo uśrednione tętno treningu (workout.avgHeartRate) i znamy czas trwania
+// treningu, jako rozsądny fallback przypisujemy CAŁY czas trwania do jednej strefy
+// odpowiadającej temu uśrednionemu tętru - to wciąż realne zmierzone tętno, tylko bez
+// rozkładu w czasie, więc lepsze niż brak jakichkolwiek danych o strefach.
+function computeWorkoutHrZones(workout, userMaxHr, rhr, durationMinutes) {
+  const avgHrQty = numOrNull(workout.avgHeartRate && workout.avgHeartRate.qty)
+    ?? numOrNull(workout.heartRate && workout.heartRate.avg && workout.heartRate.avg.qty);
+  const maxHrQty = numOrNull(workout.maxHeartRate && workout.maxHeartRate.qty)
+    ?? numOrNull(workout.heartRate && workout.heartRate.max && workout.heartRate.max.qty);
+
+  if (userMaxHr == null) {
+    // Bez roku urodzenia użytkownika nie da się policzyć stref Karvonena - zwracamy
+    // przynajmniej surowe avg/max tętno (jeśli payload je zawiera), strefy zostają NULL.
+    return { avgHr: avgHrQty, maxHr: maxHrQty, zones: [null, null, null, null, null] };
+  }
+
+  const rawSamples = Array.isArray(workout.heartRateData) ? workout.heartRateData : [];
+  const samples = rawSamples
+    .map((entry) => ({ date: parseHealthAutoExportDate(entry && entry.date), hr: extractSampleHr(entry) }))
+    .filter((s) => s.date && s.hr != null)
+    .sort((a, b) => a.date - b.date);
+
+  const zones = [0, 0, 0, 0, 0];
+  let hasZoneData = false;
+
+  if (samples.length > 0) {
+    for (let i = 0; i < samples.length; i++) {
+      let dtMinutes = i < samples.length - 1
+        ? (samples[i + 1].date - samples[i].date) / 60000
+        : DEFAULT_LAST_SAMPLE_MINUTES;
+      if (!Number.isFinite(dtMinutes) || dtMinutes <= 0) dtMinutes = DEFAULT_LAST_SAMPLE_MINUTES;
+      dtMinutes = Math.min(dtMinutes, MAX_SAMPLE_GAP_MINUTES);
+
+      const zone = classifyKarvonenZone(samples[i].hr, userMaxHr, rhr);
+      if (zone) {
+        zones[zone - 1] += dtMinutes;
+        hasZoneData = true;
+      }
+    }
+  } else if (avgHrQty != null && Number.isFinite(durationMinutes) && durationMinutes > 0) {
+    const zone = classifyKarvonenZone(avgHrQty, userMaxHr, rhr);
+    if (zone) {
+      zones[zone - 1] = durationMinutes;
+      hasZoneData = true;
+    }
+  }
+
+  return {
+    avgHr: avgHrQty,
+    maxHr: maxHrQty,
+    zones: hasZoneData ? zones.map((z) => Math.round(z * 10) / 10) : [null, null, null, null, null]
+  };
+}
+
 // Mapowanie nazw metryk Health Auto Export -> nasze pola w health_metrics.
 // `field` to nasz wewnętrzny bucket (patrz `byDate` poniżej), nie nazwa kolumny SQL 1:1 -
 // total_calories_burned liczymy jako suma active_calories + basal_calories.
@@ -106,11 +214,43 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       return res.status(401).json({ error: 'Brak tokenu synchronizacji w adresie webhooka.' });
     }
 
-    const user = await db.get(`SELECT id FROM users WHERE sync_token = ?`, [syncToken.trim()]);
+    const user = await db.get(`SELECT id, birth_year FROM users WHERE sync_token = ?`, [syncToken.trim()]);
     if (!user) {
       // Celowo ten sam, generyczny komunikat jak przy braku tokenu - nie chcemy ujawniać,
       // czy podany token kiedykolwiek istniał.
       return res.status(404).json({ error: 'Nieznany token synchronizacji.' });
+    }
+
+    // HRmax (220 - wiek) na bazie roku urodzenia - ten sam wzór co w routes/dashboard.js,
+    // potrzebny tutaj do policzenia stref Karvonena per trening (patrz computeWorkoutHrZones).
+    const userMaxHr = user.birth_year ? (220 - (new Date().getFullYear() - user.birth_year)) : null;
+
+    // RHR (tętno spoczynkowe) per dzień treningu - cache w ramach jednego żądania
+    // webhooka, żeby nie odpytywać bazy wielokrotnie dla treningów z tego samego dnia.
+    // Fallback: jeśli dany dzień nie ma jeszcze zapisanego RHR (np. Oura zsynchronizuje
+    // się później), bierzemy najnowszy wcześniejszy znany RHR użytkownika; jeśli
+    // zupełnie nieznany, używamy orientacyjnej wartości 60 bpm (przeciętne RHR dorosłej
+    // osoby) - lepsze niż RHR=0, które fałszywie zawyżałoby rezerwę tętna.
+    const DEFAULT_RHR_FALLBACK = 60;
+    const rhrCache = new Map();
+    async function getRestingHrForDate(dateStr) {
+      if (rhrCache.has(dateStr)) return rhrCache.get(dateStr);
+      let rhr = null;
+      const exact = await db.get(
+        'SELECT rhr FROM health_metrics WHERE user_id = ? AND date = ? AND rhr IS NOT NULL',
+        [user.id, dateStr]
+      );
+      if (exact && exact.rhr != null) rhr = exact.rhr;
+      if (rhr == null) {
+        const prior = await db.get(
+          'SELECT rhr FROM health_metrics WHERE user_id = ? AND date < ? AND rhr IS NOT NULL ORDER BY date DESC LIMIT 1',
+          [user.id, dateStr]
+        );
+        if (prior && prior.rhr != null) rhr = prior.rhr;
+      }
+      if (rhr == null) rhr = DEFAULT_RHR_FALLBACK;
+      rhrCache.set(dateStr, rhr);
+      return rhr;
     }
 
     // Automatyzacja z "Typ danych: Treningi" (Workouts) wysyła payload w INNYM formacie
@@ -211,16 +351,36 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           ? workout.name.trim()
           : null;
 
+        // Strefy kardio (Karvonen) per trening - patrz computeWorkoutHrZones wyżej.
+        // Wymaga RHR z dnia treningu (nie dnia "dziś") - trening może dotyczyć dowolnej
+        // wcześniejszej daty z payloadu.
+        const rhrForWorkoutDate = await getRestingHrForDate(dateStr);
+        const hrZones = computeWorkoutHrZones(workout, userMaxHr, rhrForWorkoutDate, durationMinutes);
+
         await db.run(`
-          INSERT INTO apple_health_workouts (user_id, workout_id, date, active_calories, duration_minutes, workout_type, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+          INSERT INTO apple_health_workouts (
+            user_id, workout_id, date, active_calories, duration_minutes, workout_type,
+            avg_heart_rate, max_heart_rate, zone1_minutes, zone2_minutes, zone3_minutes, zone4_minutes, zone5_minutes,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
           ON CONFLICT(user_id, workout_id) DO UPDATE SET
             date = excluded.date,
             active_calories = excluded.active_calories,
             duration_minutes = excluded.duration_minutes,
             workout_type = excluded.workout_type,
+            avg_heart_rate = excluded.avg_heart_rate,
+            max_heart_rate = excluded.max_heart_rate,
+            zone1_minutes = excluded.zone1_minutes,
+            zone2_minutes = excluded.zone2_minutes,
+            zone3_minutes = excluded.zone3_minutes,
+            zone4_minutes = excluded.zone4_minutes,
+            zone5_minutes = excluded.zone5_minutes,
             updated_at = excluded.updated_at
-        `, [user.id, String(workout.id), dateStr, activeCaloriesKcal, durationMinutes, workoutType]);
+        `, [
+          user.id, String(workout.id), dateStr, activeCaloriesKcal, durationMinutes, workoutType,
+          hrZones.avgHr, hrZones.maxHr, hrZones.zones[0], hrZones.zones[1], hrZones.zones[2], hrZones.zones[3], hrZones.zones[4]
+        ]);
 
         workoutAffectedDates.add(dateStr);
         matchedWorkouts++;

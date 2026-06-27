@@ -547,6 +547,27 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     fetchBpTrendInsight();
   }, [sessionToken, selectedDate]);
 
+  // Realne strefy kardio (Karvonen) zsumowane z treningów Apple Health z ostatnich 14 dni
+  // - w przeciwieństwie do statycznej tabeli referencyjnej "Strefy Tętna" (wzór, nie pomiar),
+  // to są minuty faktycznie zmierzone tętnem podczas treningu (wymaga włączonego "Include
+  // Workout Metrics" w Health Auto Export). Patrz /api/dashboard/hr-zones-insight.
+  const [hrZonesInsight, setHrZonesInsight] = useState(null);
+  useEffect(() => {
+    const fetchHrZonesInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/hr-zones-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setHrZonesInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu stref kardio:', err);
+      }
+    };
+    fetchHrZonesInsight();
+  }, [sessionToken, selectedDate]);
+
   // Zwijalna sekcja "Analizy" (UX: rundy 7 - 12 kart insightów w jednym miejscu,
   // domyślnie zwinięta, żeby nie zalewać dashboardu od razu po wejściu).
   const [isAnalizyOpen, setIsAnalizyOpen] = useState(false);
@@ -1945,6 +1966,42 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             )}
             <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
               Porównanie dwóch średnich z Twoich danych, nie diagnoza medyczna. Skonsultuj się z lekarzem przy niepokojących odczytach.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT: REALNE STREFY KARDIO Z TRENINGÓW (zmierzone tętnem, nie wzór) */}
+        {hrZonesInsight && hrZonesInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔥 Realne strefy kardio z treningów</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Suma minut w strefach tętna zmierzonych podczas {hrZonesInsight.workoutsWithZoneData} treningów z ostatnich {hrZonesInsight.windowDays} dni (zegarek, nie szacowanie).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {[
+                { key: 'zone1', label: 'Strefa 1', color: '#60a5fa' },
+                { key: 'zone2', label: 'Strefa 2', color: '#34d399' },
+                { key: 'zone3', label: 'Strefa 3', color: '#fbbf24' },
+                { key: 'zone4', label: 'Strefa 4', color: '#f87171' },
+                { key: 'zone5', label: 'Strefa 5', color: '#ef4444' }
+              ].map(z => {
+                const mins = hrZonesInsight.zoneMinutes[z.key] || 0;
+                const pct = hrZonesInsight.totalMinutes > 0 ? Math.round((mins / hrZonesInsight.totalMinutes) * 100) : 0;
+                return (
+                  <div key={z.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: '58px' }}>{z.label}</span>
+                    <div style={{ flex: 1, height: '8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: z.color, borderRadius: '4px' }} />
+                    </div>
+                    <span style={{ fontWeight: '700', color: '#fff', minWidth: '54px', textAlign: 'right' }}>{mins} min</span>
+                  </div>
+                );
+              })}
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Personalizowaną rekomendację, w jakiej strefie trenować względem Twojego celu sylwetki, znajdziesz w porównaniu z poradą AI powyżej.
             </p>
           </div>
         )}

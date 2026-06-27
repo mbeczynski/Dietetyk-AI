@@ -519,6 +519,26 @@ const initDb = async () => {
     await run("ALTER TABLE apple_health_workouts ADD COLUMN workout_type TEXT DEFAULT NULL");
   } catch (e) {}
 
+  // Migracja: tętno per trening (Health Auto Export, przełącznik "Include Workout
+  // Metrics" w automatyzacji na telefonie). Gdy włączony, payload treningu zawiera
+  // avgHeartRate/maxHeartRate oraz heartRateData (szereg próbek tętna ZAREJESTROWANYCH
+  // W TRAKCIE konkretnego treningu) - wcześniej całkowicie ignorowane, patrz
+  // routes/appleHealth.js. zone1_minutes..zone5_minutes to liczba minut TEGO treningu
+  // spędzona w każdej z 5 stref Karvonena (ten sam wzór 50/60/70/80/90% rezerwy tętna,
+  // co statyczna tabela referencyjna "Strefy Tętna" na Dashboardzie) - liczone RAZ, przy
+  // zapisie treningu w appleHealth.js, nie przeliczane na żywo przy każdym odczycie.
+  // Wszystkie te kolumny zostają NULL, gdy payload nie zawiera danych tętna albo
+  // użytkownik nie podał roku urodzenia w profilu (HRmax nieznany, nie da się policzyć
+  // stref) - karty/insighty bazujące na tych danych muszą to NULL traktować jako
+  // "brak danych", nie jako zero.
+  try { await run("ALTER TABLE apple_health_workouts ADD COLUMN avg_heart_rate REAL DEFAULT NULL"); } catch (e) {}
+  try { await run("ALTER TABLE apple_health_workouts ADD COLUMN max_heart_rate REAL DEFAULT NULL"); } catch (e) {}
+  try { await run("ALTER TABLE apple_health_workouts ADD COLUMN zone1_minutes REAL DEFAULT NULL"); } catch (e) {}
+  try { await run("ALTER TABLE apple_health_workouts ADD COLUMN zone2_minutes REAL DEFAULT NULL"); } catch (e) {}
+  try { await run("ALTER TABLE apple_health_workouts ADD COLUMN zone3_minutes REAL DEFAULT NULL"); } catch (e) {}
+  try { await run("ALTER TABLE apple_health_workouts ADD COLUMN zone4_minutes REAL DEFAULT NULL"); } catch (e) {}
+  try { await run("ALTER TABLE apple_health_workouts ADD COLUMN zone5_minutes REAL DEFAULT NULL"); } catch (e) {}
+
   // 8. Tabela Pomiarów Obwodów Ciała (body_measurements)
   await run(`
     CREATE TABLE IF NOT EXISTS body_measurements (

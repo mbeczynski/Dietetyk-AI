@@ -284,14 +284,22 @@ router.get('/api/dashboard', async (req, res) => {
     // patrz routes/appleHealth.js). Liczone tutaj (przed promptem AI), żeby dało się
     // przekazać dzisiejsze treningi do advicePrompt, nie tylko do odpowiedzi JSON.
     const workoutRows = await db.all(
-      `SELECT workout_type, duration_minutes, active_calories
+      `SELECT workout_type, duration_minutes, active_calories,
+              avg_heart_rate, max_heart_rate, zone1_minutes, zone2_minutes, zone3_minutes, zone4_minutes, zone5_minutes
        FROM apple_health_workouts WHERE user_id = ? AND date = ? ORDER BY updated_at DESC`,
       [req.user.id, date]
     );
     const workouts = workoutRows.map(w => ({
       type: w.workout_type || 'Trening',
       duration_mins: Math.round(w.duration_minutes || 0),
-      calories: Math.round(w.active_calories || 0)
+      calories: Math.round(w.active_calories || 0),
+      // Realne strefy kardio (Karvonen) zmierzone na zegarku w trakcie TEGO treningu -
+      // patrz routes/appleHealth.js (computeWorkoutHrZones). null, gdy payload Health Auto
+      // Export nie zawierał tętna (przełącznik "Include Workout Metrics" wyłączony) albo
+      // użytkownik nie podał roku urodzenia (HRmax nieznany).
+      avg_hr: w.avg_heart_rate != null ? Math.round(w.avg_heart_rate) : null,
+      max_hr: w.max_heart_rate != null ? Math.round(w.max_heart_rate) : null,
+      zone_minutes: [w.zone1_minutes, w.zone2_minutes, w.zone3_minutes, w.zone4_minutes, w.zone5_minutes]
     }));
 
     const activeCalories = displayActiveCalories || 0;
@@ -472,7 +480,18 @@ Aktualny bilans dzisiejszy:
 - Aktywność dzisiaj: ${displayActiveMinutes || 0} min aktywności, Dystans: ${displayDistanceMeters ? (Math.round(displayDistanceMeters / 100) / 10) + ' km' : '0 km'}, Czas siedzący: ${displaySedentaryMinutes || 0} min, Niska intensywność: ${displayLowActivityMinutes || 0} min
 - Wypita woda dzisiaj: ${health.water_ml || 0}ml (cel: ${getTargetWaterMl(settings)}ml)
 - Przyjęte suplementy dzisiaj: ${health.supplements || 'brak (użytkownik nie zapisał dzisiaj żadnych suplementów)'}
-- Treningi zarejestrowane dzisiaj (Apple Health): ${workouts.length > 0 ? workouts.map(w => `${w.type} (${w.duration_mins} min, ${w.calories} kcal)`).join(', ') : 'brak zarejestrowanych treningów'}
+- Treningi zarejestrowane dzisiaj (Apple Health): ${workouts.length > 0 ? workouts.map(w => {
+    const base = `${w.type} (${w.duration_mins} min, ${w.calories} kcal)`;
+    // Realne strefy kardio (Karvonen) zmierzone tętnem w trakcie treningu, gdy Health Auto
+    // Export wysłał heartRateData (przełącznik "Include Workout Metrics" włączony) - patrz
+    // routes/appleHealth.js. Jeśli niedostępne, AI ocenia intensywność tylko na bazie
+    // kalorii/RHR/HRV (patrz instrukcja niżej).
+    if (w.avg_hr != null && w.zone_minutes.some(z => z != null)) {
+      const zonesStr = w.zone_minutes.map((z, i) => `Z${i + 1}: ${Math.round(z || 0)}min`).join(', ');
+      return `${base}, śr. tętno ${w.avg_hr} bpm (max ${w.max_hr} bpm) - realny rozkład stref kardio: ${zonesStr}`;
+    }
+    return base;
+  }).join(', ') : 'brak zarejestrowanych treningów'}
 - Passa (streak) trafiania w cel kaloryczny: ${calorieStreakDays} dni, Passa snu wg celu: ${sleepStreakDays} dni
 
 Dane gotowości, snu (Oura) i składu ciała (Withings):
@@ -520,7 +539,7 @@ ${sleepHistory.map(s => `- ${s.date}: Sen ${s.sleep_score || '-'}, Gotowość ${
 ${bpHistory.map(b => `- ${b.date}: ${b.blood_pressure_systolic}/${b.blood_pressure_diastolic} mmHg`).join('\n') || 'brak danych w bazie'}
 
 Twoja analiza MUSI uwzględniać WSZYSTKIE dane podane powyżej (dzisiejsze posiłki i mikroelementy, aktywność, treningi, suplementy, porównanie z wczoraj, trendy 7/30-dniowe, historię wagi/składu ciała/obwodów, ciśnienia tętniczego, snu, gotowości, stresu i parametrów oddechowych) - to jest kluczowa funkcja tej aplikacji, użytkownik oczekuje analizy na bazie CAŁEJ historii i wszystkich dostępnych metryk, nie tylko jednego dnia czy wybranych wskaźników. Weź pod uwagę przy analizie i rekomendacjach:
-1. Intensywność wysiłku i strefy kardio po treningu na bazie aktywnych kalorii, zarejestrowanych treningów (typ, czas trwania, spalone kalorie) oraz parametrów serca (RHR, HRV) - oceń, czy trening sprzyjał tlenowemu spalaniu tłuszczu (strefa spalania tłuszczu, niska intensywność) czy wszedł w wyższe strefy beztlenowe/kardio.
+1. Intensywność wysiłku i strefy kardio: jeśli przy treningu podano "realny rozkład stref kardio" (zmierzony tętnem podczas treningu, strefy Z1-Z5 metodą Karvonena: Z1 regeneracja, Z2 spalanie tłuszczu/baza tlenowa, Z3 tempo, Z4-Z5 wysoka intensywność beztlenowa), PRIORYTETOWO oprzyj ocenę na tych realnych minutach w strefach, nie na szacowaniu - i odnieś ten rozkład wprost do celu sylwetki użytkownika (np. przy celu redukcji/spalania tłuszczu doceń czas w Z2, przy celu budowy wydolności/masy zwróć uwagę na czas w Z3-Z4, a nadmiar minut w Z1 przy intensywnym typie treningu skomentuj jako niewykorzystany potencjał). Jeśli realnych stref nie podano (brak danych z zegarka), oceń intensywność orientacyjnie na bazie aktywnych kalorii, typu/czasu trwania treningu oraz RHR/HRV, zaznaczając że to oszacowanie.
 2. Precyzyjne zmiany w diecie na bazie dzisiejszych posiłków i treningu, w tym jakość diety pod kątem błonnika, cukrów prostych i sodu (np. zbyt mało błonnika w stosunku do kalorii, zbyt dużo cukrów prostych lub sodu w ostatnich dniach) - nie tylko makra, ale pełny obraz odżywiania.
 3. Porównanie dzisiejszego odżywiania i aktywności z wczorajszymi oraz z trendem 7/30-dniowym - jeśli dieta z ostatnich dni nie była optymalna (np. za mało białka w stosunku do celu, zbyt mało kcal po dużym treningu lub nadmiar kalorii przy braku ruchu), wskaż to konstruktywnie i doradź konkretną korektę.
 4. Wnioski z trendu wagi, składu ciała i obwodów ciała z ostatnich pomiarów Withings oraz jakości snu, regeneracji i poziomu stresu z Oura (zwróć uwagę, czy obecny trend przybliża użytkownika do celu w dłuższej perspektywie 7/30 dni).
@@ -2146,6 +2165,67 @@ router.get('/api/dashboard/bp-trend-insight', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd pobierania insightu trendu ciśnienia krwi.' });
+  }
+});
+
+// Insight: realne strefy kardio (Karvonen) zsumowane z treningów Apple Health z ostatnich
+// 14 dni. W przeciwieństwie do statycznej tabeli referencyjnej "Strefy Tętna" (na bazie
+// wzoru, nie pomiaru), tu liczą się REALNE minuty zmierzone tętnem w trakcie treningów -
+// patrz computeWorkoutHrZones w routes/appleHealth.js. Wymaga włączonego przełącznika
+// "Include Workout Metrics" w Health Auto Export; bez niego workouty mają same NULL-e
+// w kolumnach zoneN_minutes i nie wchodzą do sumy (warunek zone1_minutes IS NOT NULL).
+const HR_ZONES_INSIGHT_WINDOW_DAYS = 14;
+const MIN_WORKOUTS_WITH_ZONES = 2;
+
+router.get('/api/dashboard/hr-zones-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const windowStart = shiftDate(today, -(HR_ZONES_INSIGHT_WINDOW_DAYS - 1));
+
+    const rows = await db.all(
+      `SELECT zone1_minutes, zone2_minutes, zone3_minutes, zone4_minutes, zone5_minutes
+       FROM apple_health_workouts
+       WHERE user_id = ? AND date >= ? AND date <= ? AND zone1_minutes IS NOT NULL`,
+      [req.user.id, windowStart, today]
+    );
+
+    if (rows.length < MIN_WORKOUTS_WITH_ZONES) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_workouts_with_zones',
+        workoutsWithZoneData: rows.length,
+        minWorkoutsRequired: MIN_WORKOUTS_WITH_ZONES
+      });
+    }
+
+    const zoneMinutes = { zone1: 0, zone2: 0, zone3: 0, zone4: 0, zone5: 0 };
+    for (const r of rows) {
+      zoneMinutes.zone1 += r.zone1_minutes || 0;
+      zoneMinutes.zone2 += r.zone2_minutes || 0;
+      zoneMinutes.zone3 += r.zone3_minutes || 0;
+      zoneMinutes.zone4 += r.zone4_minutes || 0;
+      zoneMinutes.zone5 += r.zone5_minutes || 0;
+    }
+    Object.keys(zoneMinutes).forEach(k => { zoneMinutes[k] = Math.round(zoneMinutes[k]); });
+
+    const totalMinutes = Object.values(zoneMinutes).reduce((s, v) => s + v, 0);
+    let dominantZone = null;
+    let dominantMax = -1;
+    Object.entries(zoneMinutes).forEach(([zone, mins], idx) => {
+      if (mins > dominantMax) { dominantMax = mins; dominantZone = idx + 1; }
+    });
+
+    res.json({
+      hasEnoughData: true,
+      windowDays: HR_ZONES_INSIGHT_WINDOW_DAYS,
+      workoutsWithZoneData: rows.length,
+      zoneMinutes,
+      totalMinutes,
+      dominantZone
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu stref kardio.' });
   }
 });
 

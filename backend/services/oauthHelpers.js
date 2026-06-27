@@ -102,11 +102,16 @@ async function getOrRefreshToken(userId, service) {
   }
 
   console.log(`[OAUTH] Odświeżanie tokenu dla użytkownika ${userId}, serwis: ${service}...`);
+  let isPermanentFailure = false;
+
   try {
     if (service === 'oura') {
       const clientId = await getUserSetting(userId, 'oura_client_id');
       const clientSecret = await getUserSetting(userId, 'oura_client_secret');
-      if (!clientId || !clientSecret) throw new Error('Brak Client ID lub Secret dla Oura.');
+      if (!clientId || !clientSecret) {
+        isPermanentFailure = true;
+        throw new Error('Brak Client ID lub Secret dla Oura.');
+      }
 
       const response = await fetchWithTimeout('https://api.ouraring.com/oauth/token', {
         method: 'POST',
@@ -121,7 +126,10 @@ async function getOrRefreshToken(userId, service) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Błąd odświeżania Oura: ${errorText}`);
+        if (response.status >= 400 && response.status < 500) {
+          isPermanentFailure = true;
+        }
+        throw new Error(`Błąd odświeżania Oura (Status ${response.status}): ${errorText}`);
       }
 
       const data = await response.json();
@@ -136,7 +144,10 @@ async function getOrRefreshToken(userId, service) {
     } else if (service === 'withings') {
       const clientId = await getUserSetting(userId, 'withings_client_id');
       const clientSecret = await getUserSetting(userId, 'withings_client_secret');
-      if (!clientId || !clientSecret) throw new Error('Brak Client ID lub Secret dla Withings.');
+      if (!clientId || !clientSecret) {
+        isPermanentFailure = true;
+        throw new Error('Brak Client ID lub Secret dla Withings.');
+      }
 
       const response = await fetchWithTimeout('https://wbsapi.withings.net/v2/oauth2', {
         method: 'POST',
@@ -152,11 +163,19 @@ async function getOrRefreshToken(userId, service) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Błąd odświeżania Withings: ${errorText}`);
+        if (response.status >= 400 && response.status < 500) {
+          isPermanentFailure = true;
+        }
+        throw new Error(`Błąd odświeżania Withings (Status ${response.status}): ${errorText}`);
       }
 
       const resJson = await response.json();
       if (resJson.status !== 0) {
+        // Statusy błędów Withings: np. 100 (invalid token), 200 (invalid client), itp.
+        // Wykluczamy tymczasowe błędy (np. 503 lub 601) - w ich przypadku nie usuwamy tokenu.
+        if (resJson.status === 100 || resJson.status === 200 || resJson.status === 501) {
+          isPermanentFailure = true;
+        }
         throw new Error(`Błąd Withings API: ${resJson.error || 'Status ' + resJson.status}`);
       }
 
@@ -170,11 +189,12 @@ async function getOrRefreshToken(userId, service) {
 
       return data.access_token;
     } else if (service === 'google_fit') {
-      // W przeciwieństwie do Oura/Withings, Google Fit korzysta z GLOBALNEJ konfiguracji
-      // Google (Panel Admina), tej samej co logowanie Google - nie z poświadczeń per-użytkownik.
       const clientId = await getAppConfig('google_client_id');
       const clientSecret = await getAppConfig('google_client_secret');
-      if (!clientId || !clientSecret) throw new Error('Brak Client ID lub Secret dla Google (konfiguracja globalna).');
+      if (!clientId || !clientSecret) {
+        isPermanentFailure = true;
+        throw new Error('Brak Client ID lub Secret dla Google (konfiguracja globalna).');
+      }
 
       const response = await fetchWithTimeout('https://oauth2.googleapis.com/token', {
         method: 'POST',
@@ -189,12 +209,14 @@ async function getOrRefreshToken(userId, service) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Błąd odświeżania Google Fit: ${errorText}`);
+        if (response.status >= 400 && response.status < 500) {
+          isPermanentFailure = true;
+        }
+        throw new Error(`Błąd odświeżania Google Fit (Status ${response.status}): ${errorText}`);
       }
 
       const data = await response.json();
       const newExpiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
-      // Google przy odświeżaniu zwykle NIE zwraca nowego refresh_token - zachowujemy stary.
       await db.run(`
         UPDATE oauth_tokens
         SET access_token = ?, refresh_token = ?, expires_at = ?
@@ -205,7 +227,12 @@ async function getOrRefreshToken(userId, service) {
     }
   } catch (err) {
     console.error(`[OAUTH ERROR] Błąd odświeżania tokenu dla ${service} (użytkownik ${userId}):`, err.message);
-    await db.run(`DELETE FROM oauth_tokens WHERE user_id = ? AND service = ?`, [userId, service]);
+    if (isPermanentFailure) {
+      console.warn(`[OAUTH] Usuwanie niepoprawnego tokenu z bazy dla ${service} (użytkownik ${userId}) ze względu na trwale niepoprawną autoryzację.`);
+      await db.run(`DELETE FROM oauth_tokens WHERE user_id = ? AND service = ?`, [userId, service]);
+    } else {
+      console.log(`[OAUTH] Zachowywanie tokenu dla ${service} (użytkownik ${userId}) w bazie - błąd ma charakter przejściowy.`);
+    }
     return null;
   }
   return null;

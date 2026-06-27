@@ -38,7 +38,6 @@ async function generateContentWithFallback(promptText, isJson = false, imagePart
 
   const modelsToTry = [
     process.env.GEMINI_MODEL,
-    'gemini-2.5-flash',
     'gemini-2.0-flash',
     'gemini-1.5-flash'
   ].filter(Boolean);

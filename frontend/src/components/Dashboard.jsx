@@ -279,6 +279,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const [isLoadingSleepInsight, setIsLoadingSleepInsight] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchSleepInsight = async () => {
       if (!sessionToken) return;
       setIsLoadingSleepInsight(true);
@@ -287,20 +288,22 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/sleep-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setSleepInsight(await res.json());
+        if (res.ok && !cancelled) setSleepInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu sen-odżywianie:', err);
       } finally {
-        setIsLoadingSleepInsight(false);
+        if (!cancelled) setIsLoadingSleepInsight(false);
       }
     };
     fetchSleepInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Alert/insight: sód -> ciśnienie (patrz endpoint /api/dashboard/sodium-bp-insight).
   const [sodiumBpInsight, setSodiumBpInsight] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchSodiumBpInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -308,12 +311,13 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/sodium-bp-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setSodiumBpInsight(await res.json());
+        if (res.ok && !cancelled) setSodiumBpInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu sód-ciśnienie:', err);
       }
     };
     fetchSodiumBpInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Wskaźnik regeneracji: HRV/RHR następnego dnia po znaczącym treningu
@@ -321,6 +325,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const [recoveryInsight, setRecoveryInsight] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchRecoveryInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -328,12 +333,13 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/recovery-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setRecoveryInsight(await res.json());
+        if (res.ok && !cancelled) setRecoveryInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania wskaźnika regeneracji:', err);
       }
     };
     fetchRecoveryInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Insight: suplementy (wolny tekst) vs sen/regeneracja TEGO SAMEGO dnia
@@ -343,6 +349,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const [supplementsSleepInsight, setSupplementsSleepInsight] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchSupplementsSleepInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -350,18 +357,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/supplements-sleep-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setSupplementsSleepInsight(await res.json());
+        if (res.ok && !cancelled) setSupplementsSleepInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu suplementy-sen:', err);
       }
     };
     fetchSupplementsSleepInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Runda 7: 8 nowych insightów na bazie danych już zbieranych przez aplikację -
   // ten sam wzorzec fetch/state co powyżej (sleepInsight, sodiumBpInsight, itd.).
   const [hydrationInsight, setHydrationInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchHydrationInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -369,16 +378,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/hydration-readiness-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setHydrationInsight(await res.json());
+        if (res.ok && !cancelled) setHydrationInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu nawodnienie-regeneracja:', err);
       }
     };
     fetchHydrationInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   const [sedentaryInsight, setSedentaryInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchSedentaryInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -386,16 +397,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/sedentary-sleep-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setSedentaryInsight(await res.json());
+        if (res.ok && !cancelled) setSedentaryInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu siedzenie-sen:', err);
       }
     };
     fetchSedentaryInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   const [fiberSleepInsight, setFiberSleepInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchFiberSleepInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -403,16 +416,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/fiber-sleep-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setFiberSleepInsight(await res.json());
+        if (res.ok && !cancelled) setFiberSleepInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu błonnik-sen:', err);
       }
     };
     fetchFiberSleepInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   const [bodyRecompInsight, setBodyRecompInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchBodyRecompInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -420,16 +435,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/body-recomposition-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setBodyRecompInsight(await res.json());
+        if (res.ok && !cancelled) setBodyRecompInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu rekompozycji ciała:', err);
       }
     };
     fetchBodyRecompInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   const [strainAlert, setStrainAlert] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchStrainAlert = async () => {
       if (!sessionToken) return;
       try {
@@ -437,16 +454,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/early-strain-alert${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setStrainAlert(await res.json());
+        if (res.ok && !cancelled) setStrainAlert(await res.json());
       } catch (err) {
         console.error('Błąd pobierania alertu przeciążenia:', err);
       }
     };
     fetchStrainAlert();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   const [stressNutritionInsight, setStressNutritionInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchStressNutritionInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -454,16 +473,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/stress-nutrition-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setStressNutritionInsight(await res.json());
+        if (res.ok && !cancelled) setStressNutritionInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu stres-odżywianie:', err);
       }
     };
     fetchStressNutritionInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   const [mealFreqInsight, setMealFreqInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchMealFreqInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -471,16 +492,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/meal-frequency-adherence-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setMealFreqInsight(await res.json());
+        if (res.ok && !cancelled) setMealFreqInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu częstość posiłków:', err);
       }
     };
     fetchMealFreqInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   const [streakDriftInsight, setStreakDriftInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchStreakDriftInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -488,16 +511,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/streak-drift-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setStreakDriftInsight(await res.json());
+        if (res.ok && !cancelled) setStreakDriftInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu passa-regeneracja:', err);
       }
     };
     fetchStreakDriftInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   const [rhrDriftInsight, setRhrDriftInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchRhrDriftInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -505,16 +530,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/rhr-drift-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setRhrDriftInsight(await res.json());
+        if (res.ok && !cancelled) setRhrDriftInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu trendu tętna spoczynkowego:', err);
       }
     };
     fetchRhrDriftInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   const [mealTimingSleepInsight, setMealTimingSleepInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchMealTimingSleepInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -522,16 +549,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/meal-timing-sleep-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setMealTimingSleepInsight(await res.json());
+        if (res.ok && !cancelled) setMealTimingSleepInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu godzina posiłku-sen:', err);
       }
     };
     fetchMealTimingSleepInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   const [bpTrendInsight, setBpTrendInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchBpTrendInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -539,12 +568,13 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/bp-trend-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setBpTrendInsight(await res.json());
+        if (res.ok && !cancelled) setBpTrendInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu trendu ciśnienia krwi:', err);
       }
     };
     fetchBpTrendInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Realne strefy kardio (Karvonen) zsumowane z treningów Apple Health z ostatnich 14 dni
@@ -553,6 +583,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   // Workout Metrics" w Health Auto Export). Patrz /api/dashboard/hr-zones-insight.
   const [hrZonesInsight, setHrZonesInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchHrZonesInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -560,18 +591,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/hr-zones-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setHrZonesInsight(await res.json());
+        if (res.ok && !cancelled) setHrZonesInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu stref kardio:', err);
       }
     };
     fetchHrZonesInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Trend jakości posiłków (health_rating 1-10 z analysis_json) - ostatnie 14 dni
   // vs poprzedzające 30 dni. Patrz /api/dashboard/meal-quality-trend-insight.
   const [mealQualityTrendInsight, setMealQualityTrendInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchMealQualityTrendInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -579,18 +612,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/meal-quality-trend-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setMealQualityTrendInsight(await res.json());
+        if (res.ok && !cancelled) setMealQualityTrendInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania trendu jakości posiłków:', err);
       }
     };
     fetchMealQualityTrendInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // "Efekt weekendu" - kalorie/aktywność/sen w dni robocze vs weekend, ostatnie
   // 4 tygodnie. Patrz /api/dashboard/weekend-effect-insight.
   const [weekendEffectInsight, setWeekendEffectInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchWeekendEffectInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -598,18 +633,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/weekend-effect-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setWeekendEffectInsight(await res.json());
+        if (res.ok && !cancelled) setWeekendEffectInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania efektu weekendu:', err);
       }
     };
     fetchWeekendEffectInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Efektywność kalorii per typ treningu (kcal/min) z ostatnich 90 dni.
   // Patrz /api/dashboard/workout-efficiency-insight.
   const [workoutEfficiencyInsight, setWorkoutEfficiencyInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchWorkoutEfficiencyInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -617,12 +654,13 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/workout-efficiency-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setWorkoutEfficiencyInsight(await res.json());
+        if (res.ok && !cancelled) setWorkoutEfficiencyInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania efektywności treningów:', err);
       }
     };
     fetchWorkoutEfficiencyInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Prognoza daty osiągnięcia celu wagi (regresja 60 dni + target_weight_kg) - stała
@@ -630,6 +668,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   // Patrz /api/dashboard/weight-goal-forecast.
   const [weightGoalForecast, setWeightGoalForecast] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchWeightGoalForecast = async () => {
       if (!sessionToken) return;
       try {
@@ -637,18 +676,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/weight-goal-forecast${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setWeightGoalForecast(await res.json());
+        if (res.ok && !cancelled) setWeightGoalForecast(await res.json());
       } catch (err) {
         console.error('Błąd pobierania prognozy celu wagi:', err);
       }
     };
     fetchWeightGoalForecast();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Stabilność ulubionych (powtarzających się) posiłków - dryf kalorii między
   // starszą a nowszą połową wystąpień. Patrz /api/dashboard/favorite-meal-drift-insight.
   const [favoriteMealDriftInsight, setFavoriteMealDriftInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchFavoriteMealDriftInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -656,18 +697,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/favorite-meal-drift-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setFavoriteMealDriftInsight(await res.json());
+        if (res.ok && !cancelled) setFavoriteMealDriftInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania dryfu ulubionych posiłków:', err);
       }
     };
     fetchFavoriteMealDriftInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Trend SpO2 (saturacja krwi) - ostatnie 7 dni vs poprzedzający baseline 28 dni.
   // Patrz /api/dashboard/spo2-trend-insight.
   const [spo2TrendInsight, setSpo2TrendInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchSpo2TrendInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -675,18 +718,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/spo2-trend-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setSpo2TrendInsight(await res.json());
+        if (res.ok && !cancelled) setSpo2TrendInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania trendu SpO2:', err);
       }
     };
     fetchSpo2TrendInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Wskaźnik WHR (obwód pasa / obwód bioder) - uznany wskaźnik ryzyka
   // sercowo-naczyniowego. Patrz /api/dashboard/whr-insight.
   const [whrInsight, setWhrInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchWhrInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -694,18 +739,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/whr-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setWhrInsight(await res.json());
+        if (res.ok && !cancelled) setWhrInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu WHR:', err);
       }
     };
     fetchWhrInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Symetria bicepsów (lewy vs prawy) z pomiarów obwodów ciała.
   // Patrz /api/dashboard/body-symmetry-insight.
   const [bodySymmetryInsight, setBodySymmetryInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchBodySymmetryInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -713,18 +760,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/body-symmetry-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setBodySymmetryInsight(await res.json());
+        if (res.ok && !cancelled) setBodySymmetryInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu symetrii bicepsów:', err);
       }
     };
     fetchBodySymmetryInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Trend tempa biegu/marszu (min/km, przybliżony) - dni z jednym treningiem
   // run/walk/hike. Patrz /api/dashboard/pace-trend-insight.
   const [paceTrendInsight, setPaceTrendInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchPaceTrendInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -732,18 +781,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/pace-trend-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setPaceTrendInsight(await res.json());
+        if (res.ok && !cancelled) setPaceTrendInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania trendu tempa:', err);
       }
     };
     fetchPaceTrendInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Różnorodność treningów (rozkład workout_type, ostatnie 60 dni).
   // Patrz /api/dashboard/workout-variety-insight.
   const [workoutVarietyInsight, setWorkoutVarietyInsight] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchWorkoutVarietyInsight = async () => {
       if (!sessionToken) return;
       try {
@@ -751,18 +802,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/workout-variety-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setWorkoutVarietyInsight(await res.json());
+        if (res.ok && !cancelled) setWorkoutVarietyInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania różnorodności treningów:', err);
       }
     };
     fetchWorkoutVarietyInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Composite Wellness Score (0-100) - syntetyzuje sen/gotowość/RHR/dietę/nawodnienie
   // w jeden nagłówkowy wskaźnik dnia. Patrz /api/dashboard/wellness-score.
   const [wellnessScore, setWellnessScore] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     const fetchWellnessScore = async () => {
       if (!sessionToken) return;
       try {
@@ -770,12 +823,13 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/wellness-score${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setWellnessScore(await res.json());
+        if (res.ok && !cancelled) setWellnessScore(await res.json());
       } catch (err) {
         console.error('Błąd pobierania Wellness Score:', err);
       }
     };
     fetchWellnessScore();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // AI tłumaczące przyczyny (Runda 11, styl Oura Advisor/Whoop Coach) - wykrywa

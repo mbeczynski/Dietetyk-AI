@@ -167,7 +167,12 @@ let isSyncRunning = false;
 
 async function runHourlySyncIfDue() {
   const now = new Date();
-  const hourKey = `${getLocalDateString()}T${now.getHours()}`;
+  // Runda 15 (naprawa z audytu): now.getHours() liczy godzinę ze strefy procesu,
+  // nie z czasu warszawskiego - niekonsekwencja z isWithinSyncWindow() powyżej,
+  // która świadomie używa getWarsawWallClock(). Na hostingu działającym w UTC
+  // hourKey mógł się przesunąć względem rzeczywistej godziny w Warszawie.
+  const warsawHour = getWarsawWallClock(now).getUTCHours();
+  const hourKey = `${getLocalDateString()}T${warsawHour}`;
 
   if (!isWithinSyncWindow(now)) {
     return; // Przerwa nocna (22:00 - 5:00) - brak synchronizacji
@@ -184,7 +189,7 @@ async function runHourlySyncIfDue() {
 
   lastSyncedHourKey = hourKey;
   isSyncRunning = true;
-  console.log(`[SCHEDULER] Uruchamianie godzinowej synchronizacji danych (godzina ${now.getHours()}:00)...`);
+  console.log(`[SCHEDULER] Uruchamianie godzinowej synchronizacji danych (godzina ${warsawHour}:00)...`);
   try {
     await syncAllOura();
     await syncAllWithings();

@@ -19,11 +19,17 @@ const db = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
-// WAL (Write-Ahead Logging) pozwala na równoczesne odczyty podczas zapisu
-// (domyślny journal_mode SQLite blokuje cały plik na czas zapisu), a busy_timeout
-// sprawia, że krótkie kolizje zapisów (np. godzinowa synchronizacja Oura/Withings/
-// Google Fit nakładająca się na zapis użytkownika) czekają chwilę i się ponawiają,
-// zamiast od razu zwracać błąd "SQLITE_BUSY: database is locked".
+// UWAGA (Runda 15, korekta komentarza z audytu): faktycznie używany jest journal_mode
+// TRUNCATE, nie WAL. TRUNCATE świadomie wybrany ze względu na kompatybilność z wolumenem
+// Dockera (./data) - WAL wymaga pamięci dzielonej (shared memory) między procesami
+// odwołującymi się do tego samego pliku bazy i bywa zawodny na zamontowanych wolumenach
+// sieciowych/bind-mountach, gdzie blokady plikowe nie zawsze działają poprawnie.
+// TRUNCATE wciąż zapisuje zmiany od razu do głównego pliku .db (bez osobnego pliku -wal
+// do scalania), więc kopiowanie samego pliku .db w backupDatabase() poniżej jest z nim
+// zgodne - w przeciwieństwie do WAL, gdzie kopia bez pliku -wal mogłaby nie zawierać
+// najnowszych zapisów. busy_timeout sprawia, że krótkie kolizje zapisów (np. godzinowa
+// synchronizacja Oura/Withings/Google Fit nakładająca się na zapis użytkownika) czekają
+// chwilę i się ponawiają, zamiast od razu zwracać błąd "SQLITE_BUSY: database is locked".
 db.run('PRAGMA journal_mode = TRUNCATE;', (err) => {
   if (err) console.error('Błąd ustawiania PRAGMA journal_mode=TRUNCATE:', err.message);
 });
@@ -682,11 +688,11 @@ const backupDatabase = async () => {
       fs.mkdirSync(backupDir, { recursive: true });
     }
 
-    // Wymuszenie zapisu zawartości WAL do głównego pliku bazy przed kopiowaniem -
-    // inaczej kopia samego pliku .db (bez pliku -wal) mogłaby nie zawierać
-    // najnowszych, jeszcze nie scalonych zapisów.
-    await run('PRAGMA wal_checkpoint(FULL);');
-
+    // UWAGA (Runda 15, naprawa z audytu): baza działa w journal_mode TRUNCATE, nie WAL
+    // (patrz komentarz przy ustawianiu PRAGMA journal_mode na początku tego pliku) - nie
+    // ma więc osobnego pliku -wal do scalania i `PRAGMA wal_checkpoint(FULL)` był tu
+    // no-opem. Pod TRUNCATE zapisy trafiają od razu do głównego pliku .db, więc
+    // kopiowanie samego pliku poniżej jest z tym journal_mode zgodne.
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupPath = path.join(backupDir, `dietetyk-${timestamp}.db`);
     await fs.promises.copyFile(dbPath, backupPath);

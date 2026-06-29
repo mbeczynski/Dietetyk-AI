@@ -18,6 +18,15 @@ const { USER_SECRET_SETTING_KEYS, maskSecretValue, isMaskedSecretWrite } = requi
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Format godziny HH:MM (00-23 : 00-59), używany przy planowaniu wysyłki podsumowań.
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+// Walidacja sync_token (Runda 15, naprawa z audytu): token jest generowany domyślnie
+// jako 'sync_' + 24 losowe bajty hex (patrz routes/auth.js/admin.js), ale endpoint
+// poniżej pozwala użytkownikowi nadpisać go własną wartością. sync_token służy jako
+// JEDYNY sekret autoryzujący nieuwierzytelniony webhook Apple Health
+// (POST /api/integrations/apple-health/:syncToken, patrz routes/appleHealth.js i
+// server.js - ten endpoint celowo nie przechodzi przez requireAuth) - bez minimalnej
+// długości/formatu użytkownik mógłby ustawić sobie token typu "abc", co w praktyce
+// czyniłoby webhook publicznie zgadywalnym/przejmowalnym.
+const SYNC_TOKEN_REGEX = /^[A-Za-z0-9_-]{16,128}$/;
 // Limit długości opisu celu sylwetki - bez tego nic nie ograniczało rozmiaru
 // tekstu trafiającego później do promptu Gemini (patrz dashboard.js/chat.js),
 // analogicznie do MAX_CHAT_MESSAGE_LENGTH w chat.js.
@@ -161,6 +170,9 @@ router.post('/api/user/profile', async (req, res) => {
       const trimmedToken = syncToken.trim();
       if (!trimmedToken) {
         return res.status(400).json({ error: 'Token synchronizacji nie może być pusty.' });
+      }
+      if (!SYNC_TOKEN_REGEX.test(trimmedToken)) {
+        return res.status(400).json({ error: 'Token synchronizacji musi mieć 16-128 znaków (litery, cyfry, "_" lub "-").' });
       }
       const existing = await db.get(`SELECT id FROM users WHERE sync_token = ? AND id != ?`, [trimmedToken, req.user.id]);
       if (existing) {

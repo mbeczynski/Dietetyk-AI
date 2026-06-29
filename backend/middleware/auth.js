@@ -67,7 +67,7 @@ async function requireAuth(req, res, next) {
     // Przedłuż sesję o 7 dni tylko, jeśli do wygaśnięcia zostało mniej niż 6 dni
     // (zapobiega to ciągłym zapisom w SQLite przy każdym zapytaniu API, co mogło
     // powodować locki bazy SQLITE_BUSY przy równoległych żądaniach z dashboardu).
-    const expiresAtMs = new Date(session.expires_at).getTime();
+    const expiresAtMs = new Date(session.expires_at.replace(' ', 'T') + 'Z').getTime();
     const nowMs = Date.now();
     const remainingTimeMs = expiresAtMs - nowMs;
     const sixDaysInMs = 6 * 24 * 60 * 60 * 1000;

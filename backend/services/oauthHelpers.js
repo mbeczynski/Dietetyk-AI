@@ -53,7 +53,7 @@ async function getVerifiedSessionByToken(token) {
   `, [token]);
 
   if (!session) return null;
-  if (new Date(session.expires_at) < new Date()) return null;
+  if (new Date(session.expires_at.replace(' ', 'T') + 'Z') < new Date()) return null;
   if (session.totp_enabled === 1 && session.is_verified_2fa === 0) return null;
 
   return session;

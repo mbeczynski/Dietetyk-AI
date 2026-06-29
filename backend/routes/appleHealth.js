@@ -36,8 +36,9 @@ const { parseHealthAutoExportDate, dateObjToLocalDateString } = require('../util
 // payloadów z dokumentacji/community (m.in. ladvien.com, irvinlim/apple-health-ingester).
 //
 // Obsługujemy tylko metryki potrzebne do bilansu kalorycznego (kroki, kalorie, minuty
-// aktywności) z data.metrics[] - inne metryki w tym payloadzie (np. sen) są po prostu
-// ignorowane, nie traktujemy ich jako błąd. WYJĄTEK: tętno per trening z data.workouts[]
+// aktywności), temperaturę nadgarstka, dystans i wodę ("Dietary Water" - patrz
+// METRIC_FIELD_MAP niżej) z data.metrics[] - inne metryki w tym payloadzie (np. sen) są
+// po prostu ignorowane, nie traktujemy ich jako błąd. WYJĄTEK: tętno per trening z data.workouts[]
 // (avgHeartRate/maxHeartRate/heartRateData) - patrz sekcja "STREFY KARDIO" niżej, JEST
 // obsługiwane, o ile użytkownik włączył przełącznik "Include Workout Metrics" w
 // automatyzacji Health Auto Export na telefonie (domyślnie wyłączony - bez niego
@@ -76,6 +77,28 @@ function toMeters(qty, units) {
     return qty * 1000;
   }
   // 'm' / 'meter' / nieznane - zakładamy, że już jest w metrach.
+  return qty;
+}
+
+// Health Auto Export wysyła wodę ("Dietary Water" - HKQuantityTypeIdentifier
+// dietaryWater) w "mL", "L" albo "fl_oz_us"/"fl_oz_imp" w zależności od regionalnych
+// jednostek na telefonie - zawsze konwertujemy do mililitrów (tak jak kolumna
+// health_metrics.water_ml zasilana przez /api/water/add w routes/health.js).
+function toMilliliters(qty, units) {
+  const u = (units || '').toLowerCase();
+  if (u === 'l' || u === 'liter' || u === 'liters' || u === 'litre' || u === 'litres') {
+    return qty * 1000;
+  }
+  if (u === 'fl_oz_us' || u === 'fl_oz' || u === 'floz' || u === 'fl oz' || u === 'oz' || u === 'fluid ounce' || u === 'fluid ounces') {
+    return qty * 29.5735;
+  }
+  if (u === 'fl_oz_imp' || u === 'imperial fluid ounce' || u === 'imperial fluid ounces') {
+    return qty * 28.4131;
+  }
+  if (u === 'cup' || u === 'cups') {
+    return qty * 240;
+  }
+  // 'ml' / 'millilitre' / nieznane - zakładamy, że już jest w mililitrach.
   return qty;
 }
 
@@ -204,7 +227,19 @@ const METRIC_FIELD_MAP = {
   // jeśli użytkownik miał tę metrykę włączoną w automatyzacji, ale był po cichu
   // ignorowany, bo nie było dla niego wpisu w tej mapie). Sumujemy jak kroki/kalorie
   // (wartość kumulatywna w ciągu dnia, nie chwilowa).
-  walking_running_distance: { field: 'distance_meters', convert: toMeters }
+  walking_running_distance: { field: 'distance_meters', convert: toMeters },
+  // Woda ("Dietary Water") - źródło: "smart butelka" użytkownika, która loguje wypitą
+  // wodę do Apple Health, skąd Health Auto Export eksportuje ją dalej do tego webhooka.
+  // Wymaga włączenia metryki "Dietary Water" w automatyzacji Health Auto Export na
+  // telefonie (domyślnie wyłączona, tak jak Wrist Temperature). UWAGA: nazwa pola JSON
+  // "dietary_water" jest wyprowadzona z konwencji snake_case widocznej w pozostałych
+  // metrykach tej mapy (np. step_count, active_energy, apple_exercise_time) i z nazwy
+  // identyfikatora HealthKit (HKQuantityTypeIdentifier.dietaryWater) - nie udało się
+  // znaleźć jej w dokumentacji Health Auto Export w formie 1:1 (wiki opisuje strukturę
+  // ogólną, a nie pełną listę nazw pól). Jeśli po włączeniu synchronizacji w logach
+  // serwera "Dietetyk" nie pojawią się wpisy dla wody, sprawdź w logu webhooka, jaka
+  // nazwa faktycznie przychodzi w payloadzie, i popraw klucz w tej mapie.
+  dietary_water: { field: 'water_ml', convert: toMilliliters }
 };
 
 router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
@@ -296,13 +331,21 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           const rawQty = entry && entry.qty;
           const qty = typeof rawQty === 'number' ? rawQty : parseFloat(rawQty);
           if (!Number.isFinite(qty)) continue;
+          // Audyt bezpieczeństwa/logiki: kroki/kalorie/dystans/woda to wartości
+          // kumulatywne (sumujemy je do bucketu dnia, a woda dodatkowo addytywnie do
+          // już zapisanej wartości w bazie - patrz zapis do health_metrics niżej) -
+          // ujemna wartość w payloadzie (błąd po stronie apki/zmanipulowane żądanie)
+          // mogłaby bezpowrotnie ZMNIEJSZYĆ dobowy licznik. Odrzucamy takie wpisy
+          // (nie dotyczy wrist_temperature - mode:'last' - tam ujemne/odjemne wartości
+          // są fizycznie sensowne, np. °C poniżej zera).
+          if (qty < 0 && handler.mode !== 'last') continue;
 
           const parsedDate = parseHealthAutoExportDate(entry.date);
           if (!parsedDate) continue;
 
           const dateStr = dateObjToLocalDateString(parsedDate);
           if (!byDate[dateStr]) {
-            byDate[dateStr] = { steps: null, active_calories: null, basal_calories: null, active_minutes: null, wrist_temperature: null, distance_meters: null };
+            byDate[dateStr] = { steps: null, active_calories: null, basal_calories: null, active_minutes: null, wrist_temperature: null, distance_meters: null, water_ml: null };
           }
           const bucket = byDate[dateStr];
           const converted = handler.convert(qty, metric.units);
@@ -420,15 +463,33 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       const activeMinutes = m.active_minutes !== null ? Math.round(m.active_minutes) : null;
       const wristTemperature = m.wrist_temperature !== null ? Math.round(m.wrist_temperature * 10) / 10 : null;
       const distanceMeters = m.distance_meters !== null ? Math.round(m.distance_meters) : null;
+      // Górny sanity-limit per dzień (10L) - zabezpieczenie przed błędem konwersji
+      // jednostek (np. nierozpoznana jednostka skutkująca przemnożeniem x1000) albo
+      // zniekształconym payloadem; analogiczny cel do limitu 5000 ml/wpis w ręcznym
+      // /api/water/add (routes/health.js), tu liczony per dzień, bo webhook może
+      // przysyłać wiele zsumowanych próbek z całego dnia naraz.
+      const MAX_DAILY_WATER_ML = 10000;
+      const waterMl = m.water_ml !== null ? Math.min(Math.round(m.water_ml), MAX_DAILY_WATER_ML) : null;
 
       // Apple Health jest teraz źródłem autorytatywnym dla aktywności - ZAWSZE
       // nadpisujemy (bez CASE/warunku), w przeciwieństwie do poprzedniej logiki, która
       // chroniła dane Oura. Zachowujemy COALESCE per-kolumna, żeby pole, którego ten
       // konkretny payload nie dotyczy (np. steps z automatyzacji Treningi, która ich
       // nie wysyła), nie zostało wyzerowane, a zachowało dotychczasową wartość.
+      //
+      // WODA (water_ml) jest WYJĄTKIEM od powyższej zasady "nadpisz" - tu DODAJEMY do
+      // istniejącej wartości (COALESCE(water_ml,0) + COALESCE(excluded.water_ml,0)),
+      // tak jak ręczny licznik w /api/water/add (routes/health.js), żeby synchronizacja
+      // ze smart butelki nie zastępowała, a uzupełniała wodę dodaną ręcznie w aplikacji
+      // (i odwrotnie). Konsekwencja: jeśli automatyzacja Health Auto Export wysyłałaby
+      // WIELOKROTNIE te same, nakładające się próbki wody dla tego samego dnia (np.
+      // ręczne ponowienie żądania albo zmiana ustawień automatyzacji na "wszystkie
+      // dane" zamiast "tylko nowe dane"), woda zostałaby policzona podwójnie - domyślny
+      // tryb automatyzacji Health Auto Export wysyła tylko nowe próbki od czasu
+      // ostatniej synchronizacji, więc w normalnym użyciu nie powinno to wystąpić.
       await db.run(`
-        INSERT INTO health_metrics (user_id, date, steps, active_calories, total_calories_burned, active_minutes, wrist_temperature, distance_meters, activity_source, last_sync)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'apple', ?)
+        INSERT INTO health_metrics (user_id, date, steps, active_calories, total_calories_burned, active_minutes, wrist_temperature, distance_meters, water_ml, activity_source, last_sync)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'apple', ?)
         ON CONFLICT(user_id, date) DO UPDATE SET
           steps = COALESCE(excluded.steps, steps),
           active_calories = COALESCE(excluded.active_calories, active_calories),
@@ -436,9 +497,10 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           active_minutes = COALESCE(excluded.active_minutes, active_minutes),
           wrist_temperature = COALESCE(excluded.wrist_temperature, wrist_temperature),
           distance_meters = COALESCE(excluded.distance_meters, distance_meters),
+          water_ml = CASE WHEN excluded.water_ml IS NOT NULL THEN COALESCE(water_ml, 0) + excluded.water_ml ELSE water_ml END,
           activity_source = 'apple',
           last_sync = excluded.last_sync
-      `, [user.id, dateStr, steps, activeCalories, totalCalories, activeMinutes, wristTemperature, distanceMeters, lastSyncTime]);
+      `, [user.id, dateStr, steps, activeCalories, totalCalories, activeMinutes, wristTemperature, distanceMeters, waterMl, lastSyncTime]);
 
       savedDates.push(dateStr);
     }

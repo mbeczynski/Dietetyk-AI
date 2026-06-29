@@ -187,7 +187,15 @@ function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
     avgSteps, avgActiveCalories, avgWaterMl,
     avgSleepScore, avgReadinessScore, avgWeight, avgFatRatio, avgMuscleMass,
     avgBpSystolic, avgBpDiastolic, supplementsLogged,
-    workoutsCount, weightChange, fatRatioChange, muscleMassChange
+    workoutsCount, weightChange, fatRatioChange, muscleMassChange,
+    // Surowe sumy z całego okna (7 lub 30 dni) - potrzebne tam, gdzie raport ma
+    // porównywać sumę z okresu do celu okresowego (np. cel tygodniowy = cel
+    // dobowy x 7), a nie średnią dobową do celu dobowego (patrz statRows w
+    // sendWeeklySummaryForUser - Zadanie: cel powinien być per tydzień, nie dzień).
+    totalEatenCalories: Math.round(totalEatenCal),
+    totalProteinG: Math.round(totalProtein * 10) / 10,
+    totalCarbsG: Math.round(totalCarbs * 10) / 10,
+    totalFatG: Math.round(totalFat * 10) / 10
   };
 }
 
@@ -483,17 +491,24 @@ Sformatuj odpowiedź w strukturze Markdown: krótkie zdanie wstępu, nagłówek 
   const emailHtml = buildSummaryEmailHtml({
     title: 'Dietetyk AI: Podsumowanie Tygodniowe',
     headerSubtitleHtml: `Raport dla użytkownika <strong>${user.username}</strong>`,
-    statsSectionTitle: 'Twoje Statystyki (Średnia Dobowa)',
-    valueColumnLabel: 'Średnia',
+    statsSectionTitle: 'Twoje Statystyki Tygodniowe',
+    valueColumnLabel: 'Tydzień',
     statRows: [
-      { label: 'Kalorie Spożyte', value: `${stats.avgEatenCalories} kcal`, target: `${targetCalories} kcal` },
-      { label: 'Białko', value: `${stats.avgProtein}g`, target: `${targetProtein}g` },
-      { label: 'Węglowodany', value: `${stats.avgCarbs}g`, target: `${targetCarbs}g` },
-      { label: 'Tłuszcz', value: `${stats.avgFat}g`, target: `${targetFat}g` },
-      { label: 'Kroki', value: stats.avgSteps },
-      { label: 'Kalorie Spalone (Aktywne)', value: `${stats.avgActiveCalories} kcal` },
+      // Kalorie/makro: SUMA z całego tygodnia vs cel TYGODNIOWY (dobowy x 7) -
+      // wcześniej porównywano tu średnią dobową (stats.avgX) do celu dobowego,
+      // co przy nieregularnym logowaniu posiłków (mealDaysLogged < 7) potrafiło
+      // wygenerować myląco wysokie "średnie" porównywane z dobowym celem (Zadanie:
+      // cel powinien być per tydzień, a nie dzień). Kroki/Kalorie Spalone/Woda
+      // pozostają jako średnia dobowa, bo te metryki użytkownik faktycznie
+      // synchronizuje/śledzi dzień po dniu, nie tygodniowo.
+      { label: 'Kalorie Spożyte (tydzień)', value: `${stats.totalEatenCalories} kcal`, target: `${targetCalories * 7} kcal` },
+      { label: 'Białko (tydzień)', value: `${stats.totalProteinG}g`, target: `${targetProtein * 7}g` },
+      { label: 'Węglowodany (tydzień)', value: `${stats.totalCarbsG}g`, target: `${targetCarbs * 7}g` },
+      { label: 'Tłuszcz (tydzień)', value: `${stats.totalFatG}g`, target: `${targetFat * 7}g` },
+      { label: 'Kroki (śr. dobowa)', value: stats.avgSteps },
+      { label: 'Kalorie Spalone (śr. dobowa, Aktywne)', value: `${stats.avgActiveCalories} kcal` },
       { label: 'Treningi w tygodniu', value: stats.workoutsCount },
-      { label: 'Woda', value: `${stats.avgWaterMl}ml`, target: `${targetWaterMl}ml` },
+      { label: 'Woda (śr. dobowa)', value: `${stats.avgWaterMl}ml`, target: `${targetWaterMl}ml` },
       // Wiersz celu wagi pokazywany tylko, gdy mamy z czego liczyć tempo (patrz
       // buildGoalPaceAnalysis powyżej) - inaczej tabela sugerowałaby ocenę tempa
       // bez wystarczających danych.

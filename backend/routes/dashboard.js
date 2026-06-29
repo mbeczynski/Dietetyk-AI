@@ -14,6 +14,11 @@ const { buildGoalPaceAnalysis } = require('../services/summaries');
 // do Gemini dla identycznego promptu, mnożąc niepotrzebnie koszt/limity API.
 const pendingAdviceGeneration = new Set();
 
+// Blokada równoległego generowania KRÓTKIEGO wyjaśnienia AI (ai-explanation-insight,
+// Runda 11) - osobny Set od pendingAdviceGeneration, bo to inny cache (kolumny
+// ai_explanation/ai_explanation_generated_at) i inny, znacznie krótszy/tańszy prompt.
+const pendingExplanationGeneration = new Set();
+
 // Przesunięcie daty (string YYYY-MM-DD) o N dni - czysta arytmetyka kalendarzowa
 // przez Date.UTC (jak w istniejącym subtractDay), żeby uniknąć błędów strefy
 // czasowej. deltaDays może być ujemne (w tył) lub dodatnie (w przód).
@@ -3058,6 +3063,284 @@ router.get('/api/dashboard/wellness-score', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd pobierania Wellness Score.' });
+  }
+});
+
+const EXPLANATION_BASELINE_DAYS = 28;
+const MIN_BASELINE_DAYS_FOR_EXPLANATION = 14;
+// Próg "znaczącego" odchylenia liczony we własnych odchyleniach standardowych
+// użytkownika (jak w rhr-drift-insight/spo2-trend-insight) - 1 stdDev to umiarkowany,
+// ale realny sygnał, nie szum dnia do dnia.
+const EXPLANATION_ZSCORE_THRESHOLD = 1.0;
+const EXPLANATION_CACHE_FRESH_MS = 30 * 60 * 1000;
+
+// Metryki analizowane pod kątem największego dobowego odchylenia od własnego baseline.
+// higherIsWorse: true dla rhr (podniesione tętno spoczynkowe = gorzej), false dla
+// pozostałych (niższy sen/gotowość/HRV niż zwykle = gorzej).
+const EXPLANATION_METRICS = [
+  { key: 'sleep_score', label: 'jakość snu', higherIsWorse: false },
+  { key: 'readiness_score', label: 'gotowość/regeneracja', higherIsWorse: false },
+  { key: 'hrv', label: 'HRV', higherIsWorse: false },
+  { key: 'rhr', label: 'tętno spoczynkowe', higherIsWorse: true }
+];
+
+// Zbiera MINIMALNY, już zebrany kontekst (dzisiejsze/wczorajsze odżywianie, nawodnienie,
+// aktywność, treningi, suplementy) potrzebny do wyjaśnienia JEDNEGO konkretnego
+// odchylenia - celowo dużo mniejszy zakres niż pełny prompt ai_advice w /api/dashboard,
+// żeby zapytanie do Gemini było krótkie, szybkie i tanie.
+async function buildExplanationContext(userId, today) {
+  const yesterday = shiftDate(today, -1);
+
+  const [todayNutrition, yesterdayNutrition, todayHealth, todayWorkouts, supplementsRow] = await Promise.all([
+    db.get(
+      `SELECT SUM(calories) AS calories, SUM(sodium) AS sodium, SUM(sugar) AS sugar, SUM(fiber) AS fiber, MAX(timestamp) AS last_meal_timestamp
+       FROM meals WHERE user_id = ? AND date = ?`,
+      [userId, today]
+    ),
+    db.get(
+      `SELECT SUM(calories) AS calories, SUM(sodium) AS sodium, SUM(sugar) AS sugar, SUM(fiber) AS fiber
+       FROM meals WHERE user_id = ? AND date = ?`,
+      [userId, yesterday]
+    ),
+    db.get(
+      `SELECT steps, active_calories, sedentary_minutes, water_ml FROM health_metrics WHERE user_id = ? AND date = ?`,
+      [userId, today]
+    ),
+    db.all(
+      `SELECT workout_type, duration_minutes FROM apple_health_workouts WHERE user_id = ? AND date IN (?, ?)`,
+      [userId, today, yesterday]
+    ),
+    db.get(`SELECT supplements FROM health_metrics WHERE user_id = ? AND date = ?`, [userId, today])
+  ]);
+
+  const lastMealHour = todayNutrition && todayNutrition.last_meal_timestamp
+    ? new Date(todayNutrition.last_meal_timestamp).getHours()
+    : null;
+
+  return {
+    todayNutrition: todayNutrition || null,
+    yesterdayNutrition: yesterdayNutrition || null,
+    lastMealHour,
+    steps: todayHealth ? todayHealth.steps : null,
+    activeCalories: todayHealth ? todayHealth.active_calories : null,
+    sedentaryMinutes: todayHealth ? todayHealth.sedentary_minutes : null,
+    waterMl: todayHealth ? todayHealth.water_ml : null,
+    workouts: todayWorkouts || [],
+    supplements: supplementsRow ? supplementsRow.supplements : null
+  };
+}
+
+// Krótki, ukierunkowany prompt - w stylu Oura Advisor/Whoop Coach ("Twój sen spadł,
+// bo...") - łączy KONKRETNĄ metrykę z KONKRETNYM dniem, nie ogólnikową poradą.
+function buildExplanationPrompt(finding, context) {
+  return `Jesteś analitykiem zdrowia. Dzisiejsza wartość metryki "${finding.label}" jest znacząco gorsza niż własny 28-dniowy wzorzec użytkownika (odchylenie ${finding.z.toFixed(1)} odchylenia standardowego, średnia z ostatnich 28 dni: ${finding.mean}, dziś: ${finding.todayValue}).
+
+Dostępne dane z ostatniej doby (mogą, ale nie muszą wyjaśniać to odchylenie - użyj TYLKO tego, co faktycznie wskazuje na przyczynę, nie zgaduj na siłę):
+- Odżywianie dziś: ${JSON.stringify(context.todayNutrition)}
+- Odżywianie wczoraj: ${JSON.stringify(context.yesterdayNutrition)}
+- Godzina ostatniego posiłku: ${context.lastMealHour !== null ? context.lastMealHour + ':00' : 'brak danych'}
+- Kroki dziś: ${context.steps ?? 'brak danych'}, kalorie aktywne: ${context.activeCalories ?? 'brak danych'}, minuty siedzące: ${context.sedentaryMinutes ?? 'brak danych'}
+- Woda dziś: ${context.waterMl ?? 'brak danych'} ml
+- Treningi (dziś/wczoraj): ${JSON.stringify(context.workouts)}
+- Suplementy dziś: ${context.supplements || 'brak danych'}
+
+Napisz JEDNO do DWÓCH zwięzłych zdań po polsku, bezpośrednio do użytkownika, w stylu "Twoja/Twój [metryka] [spadła/wzrosła], bo [konkretna przyczyna z danych powyżej]". Jeśli dane NIE wskazują jednoznacznie na przyczynę, napisz to otwarcie (np. "Twój [X] jest niższy niż zwykle - dane z dzisiaj nie wskazują jednoznacznej przyczyny, warto zwrócić uwagę na regenerację"). Bez nagłówków, bez list, bez ogólników typu "dbaj o zdrowie".`;
+}
+
+// Insight (Runda 11, na bazie researchu konkurencji - styl Oura Advisor/Whoop Coach):
+// wykrywa NAJWIĘKSZE dzisiejsze odchylenie sen/gotowość/HRV/RHR względem własnego
+// 28-dniowego baseline (z-score, jak w rhr-drift-insight/spo2-trend-insight) i prosi
+// AI o JEDNO konkretne, krótkie wyjaśnienie PRZYCZYNY na bazie już zebranych danych
+// (odżywianie/nawodnienie/aktywność/treningi/suplementy) - rozszerzenie istniejącego
+// mechanizmu AI (ai_advice), ale osobny, znacznie mniejszy prompt/cache (patrz migracja
+// ai_explanation/ai_explanation_generated_at w db.js).
+router.get('/api/dashboard/ai-explanation-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const baselineStart = shiftDate(today, -EXPLANATION_BASELINE_DAYS);
+
+    const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, today]);
+    if (!health) {
+      return res.json({ hasEnoughData: false, reason: 'no_data_for_date' });
+    }
+
+    const baselineRows = await db.all(
+      `SELECT sleep_score, readiness_score, hrv, rhr FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date < ?`,
+      [req.user.id, baselineStart, today]
+    );
+
+    let bestFinding = null;
+    for (const metric of EXPLANATION_METRICS) {
+      const todayValue = health[metric.key];
+      if (todayValue == null || todayValue <= 0) continue;
+      const baselineValues = baselineRows.map(r => r[metric.key]).filter(v => v != null && v > 0);
+      if (baselineValues.length < MIN_BASELINE_DAYS_FOR_EXPLANATION) continue;
+      const { mean, stdDev } = meanAndStdDev(baselineValues);
+      if (stdDev <= 0) continue;
+      const rawZ = (todayValue - mean) / stdDev;
+      // z dodatnie = ZAWSZE "gorzej niż zwykle", niezależnie od kierunku metryki
+      const z = metric.higherIsWorse ? rawZ : -rawZ;
+      if (z >= EXPLANATION_ZSCORE_THRESHOLD && (!bestFinding || z > bestFinding.z)) {
+        bestFinding = {
+          metric: metric.key,
+          label: metric.label,
+          z,
+          todayValue,
+          mean: Math.round(mean * 10) / 10
+        };
+      }
+    }
+
+    if (!bestFinding) {
+      return res.json({ hasEnoughData: true, hasFinding: false });
+    }
+
+    // Cache per (user, data) w health_metrics - dla dni PRZESZŁYCH dane są niezmienne,
+    // więc wygenerowane raz wyjaśnienie jest świeże na zawsze; dla dnia DZISIEJSZEGO
+    // odświeżamy co 30 min (jak ai_advice), bo w trakcie dnia mogą napłynąć nowe dane.
+    const isPastDay = today < getLocalDateString();
+    const generatedAtMs = health.ai_explanation_generated_at ? new Date(health.ai_explanation_generated_at).getTime() : 0;
+    const isFresh = isPastDay
+      ? !!health.ai_explanation
+      : (!!health.ai_explanation && Date.now() - generatedAtMs < EXPLANATION_CACHE_FRESH_MS);
+
+    if (!isFresh) {
+      const apiKeyRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'gemini_api_key'", [req.user.id]);
+      const userApiKey = apiKeyRow ? apiKeyRow.value : null;
+      const forceCustomKeyOnly = req.user.role !== 'admin';
+      const canUseAI = userApiKey || (!forceCustomKeyOnly && (genAI || process.env.GEMINI_API_KEY));
+
+      const explanationLockKey = `${req.user.id}:${today}`;
+      if (canUseAI && !pendingExplanationGeneration.has(explanationLockKey)) {
+        pendingExplanationGeneration.add(explanationLockKey);
+
+        buildExplanationContext(req.user.id, today)
+          .then(context => generateContentWithFallback(buildExplanationPrompt(bestFinding, context), false, null, userApiKey, forceCustomKeyOnly))
+          .then(async (text) => {
+            const trimmed = text.trim();
+            const nowStr = new Date().toISOString();
+            await db.run(`
+              INSERT INTO health_metrics (user_id, date, ai_explanation, ai_explanation_generated_at)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(user_id, date) DO UPDATE SET
+                ai_explanation = excluded.ai_explanation,
+                ai_explanation_generated_at = excluded.ai_explanation_generated_at
+            `, [req.user.id, today, trimmed, nowStr]);
+          })
+          .catch((aiErr) => {
+            console.error('[API ERROR] Błąd generowania wyjaśnienia AI (w tle):', aiErr);
+          })
+          .finally(() => {
+            pendingExplanationGeneration.delete(explanationLockKey);
+          });
+      }
+    }
+
+    res.json({
+      hasEnoughData: true,
+      hasFinding: true,
+      metric: bestFinding.metric,
+      label: bestFinding.label,
+      zScore: Math.round(bestFinding.z * 100) / 100,
+      explanation: health.ai_explanation || null,
+      generating: !isFresh
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania wyjaśnienia AI.' });
+  }
+});
+
+const SELF_BENCHMARK_LOOKBACK_DAYS = 90;
+const MIN_SELF_BENCHMARK_DAYS = 14;
+
+// Metryki porównywane "Ty dziś vs Ty w przeszłości" - WYŁĄCZNIE własna historia
+// użytkownika (90 dni), bez jakiegokolwiek porównania z innymi użytkownikami (w
+// odróżnieniu od Whoop "people like you"). higherIsBetter steruje kierunkiem percentyla.
+const SELF_BENCHMARK_METRICS = [
+  { key: 'sleep_score', label: 'Sen', source: 'health', higherIsBetter: true },
+  { key: 'readiness_score', label: 'Gotowość', source: 'health', higherIsBetter: true },
+  { key: 'hrv', label: 'HRV', source: 'health', higherIsBetter: true },
+  { key: 'rhr', label: 'Tętno spoczynkowe', source: 'health', higherIsBetter: false },
+  { key: 'steps', label: 'Kroki', source: 'health', higherIsBetter: true },
+  { key: 'active_calories', label: 'Kalorie aktywne', source: 'health', higherIsBetter: true }
+];
+
+// Percentyl wartości "value" względem tablicy historycznych wartości (% historycznych
+// dni, które value przewyższa lub im równa) - prosta, czytelna miara "ile dni było
+// gorszych/słabszych", bez zakładania rozkładu normalnego (w przeciwieństwie do z-score
+// używanego w innych insightach) - tu celem jest właśnie intuicyjne "lepszy niż X% dni".
+function percentileRank(value, historicalValues) {
+  if (historicalValues.length === 0) return null;
+  const countAtOrBelow = historicalValues.filter(v => v <= value).length;
+  return Math.round((countAtOrBelow / historicalValues.length) * 100);
+}
+
+// Insight (Runda 11, na bazie researchu konkurencji - prywatna wersja Whoop "people
+// like you", ale BEZ porównań międzyludzkich): dla każdej dostępnej metryki liczy
+// percentyl dzisiejszej wartości względem własnych ostatnich 90 dni użytkownika,
+// a następnie wybiera najbardziej WYRÓŻNIAJĄCY się dzień (najwyższy i najniższy
+// percentyl) jako "najlepszy" i "najsłabszy" sygnał dnia.
+router.get('/api/dashboard/self-benchmark-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -SELF_BENCHMARK_LOOKBACK_DAYS);
+
+    const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, today]);
+    const mealRow = await db.get(`SELECT SUM(calories) AS calories FROM meals WHERE user_id = ? AND date = ?`, [req.user.id, today]);
+
+    const historyRows = await db.all(
+      `SELECT date, sleep_score, readiness_score, hrv, rhr, steps, active_calories FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date < ?`,
+      [req.user.id, startDate, today]
+    );
+
+    const todayValues = { ...(health || {}) };
+    if (mealRow && mealRow.calories != null) todayValues.calories = mealRow.calories;
+
+    const results = [];
+    for (const metric of SELF_BENCHMARK_METRICS) {
+      const todayValue = todayValues[metric.key];
+      if (todayValue == null || todayValue <= 0) continue;
+      const historicalValues = historyRows.map(r => r[metric.key]).filter(v => v != null && v > 0);
+      if (historicalValues.length < MIN_SELF_BENCHMARK_DAYS) continue;
+
+      const rawPercentile = percentileRank(todayValue, historicalValues);
+      // Dla metryk gdzie NIŻEJ jest lepiej (np. RHR), odwracamy percentyl, żeby
+      // "100" zawsze znaczyło "jeden z Twoich najlepszych dni", niezależnie od metryki.
+      const percentile = metric.higherIsBetter ? rawPercentile : 100 - rawPercentile;
+
+      results.push({
+        metric: metric.key,
+        label: metric.label,
+        todayValue,
+        percentile,
+        historyDays: historicalValues.length
+      });
+    }
+
+    if (results.length === 0) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        minDaysRequired: MIN_SELF_BENCHMARK_DAYS
+      });
+    }
+
+    const best = results.reduce((a, b) => (b.percentile > a.percentile ? b : a));
+    const worst = results.reduce((a, b) => (b.percentile < a.percentile ? b : a));
+
+    res.json({
+      hasEnoughData: true,
+      lookbackDays: SELF_BENCHMARK_LOOKBACK_DAYS,
+      metrics: results,
+      best,
+      worst: worst.metric !== best.metric ? worst : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania benchmarku "Ty dziś vs Ty w przeszłości".' });
   }
 });
 

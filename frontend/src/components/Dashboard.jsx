@@ -778,6 +778,46 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     fetchWellnessScore();
   }, [sessionToken, selectedDate]);
 
+  // AI tłumaczące przyczyny (Runda 11, styl Oura Advisor/Whoop Coach) - wykrywa
+  // największe dzisiejsze odchylenie sen/gotowość/HRV/RHR i prosi AI o krótkie
+  // wyjaśnienie przyczyny. Patrz /api/dashboard/ai-explanation-insight.
+  const [aiExplanationInsight, setAiExplanationInsight] = useState(null);
+  useEffect(() => {
+    const fetchAiExplanationInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/ai-explanation-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setAiExplanationInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania wyjaśnienia AI:', err);
+      }
+    };
+    fetchAiExplanationInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Benchmark "Ty dziś vs Ty w przeszłości" (Runda 11, prywatna wersja Whoop
+  // "people like you" - WYŁĄCZNIE własna historia, bez porównań z innymi
+  // użytkownikami). Patrz /api/dashboard/self-benchmark-insight.
+  const [selfBenchmarkInsight, setSelfBenchmarkInsight] = useState(null);
+  useEffect(() => {
+    const fetchSelfBenchmarkInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/self-benchmark-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setSelfBenchmarkInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania benchmarku "Ty dziś vs Ty w przeszłości":', err);
+      }
+    };
+    fetchSelfBenchmarkInsight();
+  }, [sessionToken, selectedDate]);
+
   // Zwijalna sekcja "Analizy" (UX: rundy 7 - 12 kart insightów w jednym miejscu,
   // domyślnie zwinięta, żeby nie zalewać dashboardu od razu po wejściu).
   const [isAnalizyOpen, setIsAnalizyOpen] = useState(false);
@@ -2368,6 +2408,59 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
               Ważona synteza Twoich danych, nie kliniczny pomiar zdrowia.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 11): AI TŁUMACZĄCE PRZYCZYNY (styl Oura Advisor/Whoop Coach) */}
+        {aiExplanationInsight && aiExplanationInsight.hasEnoughData && aiExplanationInsight.hasFinding && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔎 Dlaczego dzisiaj tak jest?</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              {aiExplanationInsight.label} odchyla się dziś o {Math.abs(aiExplanationInsight.zScore)} odch. std. od Twojego 28-dniowego wzorca.
+            </p>
+            {aiExplanationInsight.explanation ? (
+              <p style={{ fontSize: '0.85rem', color: '#fff', marginTop: 0, marginBottom: 0, lineHeight: '1.5' }}>
+                {aiExplanationInsight.explanation}
+              </p>
+            ) : (
+              <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', marginTop: 0, marginBottom: 0 }}>
+                AI analizuje przyczynę - wyjaśnienie pojawi się po odświeżeniu.
+              </p>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Wyjaśnienie generowane przez AI na bazie Twoich danych - nie diagnoza medyczna.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 11): BENCHMARK "TY DZIŚ VS TY W PRZESZŁOŚCI" (bez porównań z innymi użytkownikami) */}
+        {selfBenchmarkInsight && selfBenchmarkInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">📊 Ty dziś vs Ty w przeszłości</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Na bazie Twoich ostatnich {selfBenchmarkInsight.lookbackDays} dni - wyłącznie Twoja historia, bez porównań z innymi użytkownikami.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginBottom: selfBenchmarkInsight.worst ? '8px' : 0 }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>{selfBenchmarkInsight.best.label}</span>
+              <span style={{ fontWeight: '700', color: 'var(--success-light)' }}>
+                lepszy niż {selfBenchmarkInsight.best.percentile}% Twoich dni
+              </span>
+            </div>
+            {selfBenchmarkInsight.worst && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>{selfBenchmarkInsight.worst.label}</span>
+                <span style={{ fontWeight: '700', color: selfBenchmarkInsight.worst.percentile < 30 ? 'var(--danger-light)' : '#fff' }}>
+                  lepszy niż {selfBenchmarkInsight.worst.percentile}% Twoich dni
+                </span>
+              </div>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Percentyl względem Twoich własnych dni z ostatnich {selfBenchmarkInsight.lookbackDays} dni.
             </p>
           </div>
         )}

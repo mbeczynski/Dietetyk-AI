@@ -481,6 +481,19 @@ const initDb = async () => {
     await run("ALTER TABLE health_metrics ADD COLUMN blood_pressure_diastolic REAL DEFAULT NULL");
   } catch (e) {}
 
+  // Migracja: cache krótkiego wyjaśnienia AI "dlaczego" dla największego odchylenia
+  // dobowej metryki (sen/gotowość/RHR/HRV) względem własnego baseline danego dnia
+  // (styl Oura Advisor/Whoop Coach - patrz /api/dashboard/ai-explanation-insight).
+  // Osobna kolumna od ai_advice/ai_advice_generated_at - to inna treść (krótkie,
+  // ukierunkowane wyjaśnienie JEDNEGO odchylenia, nie pełna dzienna porada) i inny
+  // rytm odświeżania (cache per dzień, nie co 30 min).
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN ai_explanation TEXT DEFAULT NULL");
+  } catch (e) {}
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN ai_explanation_generated_at TEXT DEFAULT NULL");
+  } catch (e) {}
+
   // Domyślny cel wody (ml) dla istniejącego konta admina/Marcina, jeśli jeszcze nie ustawiony
   await run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (1, 'target_water_ml', '2500')`);
 

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { invalidateAiExplanationCache } = require('../utils/aiExplanationCache');
 
 router.get('/api/health/history', requireAuth, async (req, res) => {
   try {
@@ -155,6 +156,7 @@ router.post('/api/water/add', requireAuth, async (req, res) => {
     `, [req.user.id, date, Math.round(amount)]);
 
     const row = await db.get(`SELECT water_ml FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, date]);
+    await invalidateAiExplanationCache(req.user.id, date);
     res.json({ success: true, water_ml: row ? row.water_ml : amount });
   } catch (err) {
     console.error(err);
@@ -172,6 +174,7 @@ router.post('/api/water/reset', requireAuth, async (req, res) => {
       VALUES (?, ?, 0)
       ON CONFLICT(user_id, date) DO UPDATE SET water_ml = 0
     `, [req.user.id, date]);
+    await invalidateAiExplanationCache(req.user.id, date);
     res.json({ success: true, water_ml: 0 });
   } catch (err) {
     console.error(err);
@@ -198,6 +201,7 @@ router.post('/api/supplements', requireAuth, async (req, res) => {
       VALUES (?, ?, ?)
       ON CONFLICT(user_id, date) DO UPDATE SET supplements = excluded.supplements
     `, [req.user.id, date, trimmed]);
+    await invalidateAiExplanationCache(req.user.id, date);
     res.json({ success: true, supplements: trimmed });
   } catch (err) {
     console.error(err);

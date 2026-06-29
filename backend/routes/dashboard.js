@@ -29,6 +29,18 @@ const shiftDate = (dateStr, deltaDays) => {
   return dt.toISOString().split('T')[0];
 };
 
+// Walidacja formatu ?date= z query string (Runda 14, naprawa z audytu) - bez tego
+// niepoprawny string (np. "abc", inny format) wywala shiftDate/Date.UTC w
+// Invalid Date -> toISOString() rzuca RangeError -> 500 zamiast czytelnego
+// zachowania. Przy złym formacie po prostu wracamy do dzisiejszej daty, tak jak
+// przy braku parametru, zamiast zwracać błąd - mniej zaskakujące dla wywołań
+// frontendu, które zawsze wysyłają poprawny format.
+const DATE_STRING_RE = /^\d{4}-\d{2}-\d{2}$/;
+const resolveQueryDate = (req) => {
+  const raw = req.query.date;
+  return typeof raw === 'string' && DATE_STRING_RE.test(raw) ? raw : getLocalDateString();
+};
+
 // Agregacja odżywiania (kalorie/makro) dla zakresu dat - używana do porównań
 // tydzień/miesiąc (punkt 10 z analizy dashboardu). Średnie liczone WYŁĄCZNIE
 // po dniach, w których faktycznie zapisano posiłki (days_logged) - dzielenie
@@ -97,7 +109,7 @@ async function aggregateCalorieBalance(userId, startDate, endDate, targetCalorie
 }
 
 router.get('/api/dashboard', async (req, res) => {
-  const date = req.query.date || getLocalDateString();
+  const date = resolveQueryDate(req);
   try {
     // Ustawienia celów
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
@@ -675,7 +687,7 @@ Używaj **pogrubienia** dla kluczowych liczb i fraz w Analizie i Rekomendacjach.
 // licząc do wybranej daty) vs poprzedni okres tej samej długości.
 router.get('/api/dashboard/nutrition-comparison', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
 
     const weekCurrentStart = shiftDate(today, -6);
     const weekPreviousEnd = shiftDate(weekCurrentStart, -1);
@@ -719,7 +731,7 @@ router.get('/api/dashboard/nutrition-comparison', async (req, res) => {
 // Bilans kaloryczny narastająco za ostatnie 7 i 30 dni względem celu.
 router.get('/api/dashboard/calorie-balance', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
     const settings = {};
     settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
@@ -751,7 +763,7 @@ const SLEEP_INSIGHT_LOOKBACK_DAYS = 90;
 
 router.get('/api/dashboard/sleep-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -SLEEP_INSIGHT_LOOKBACK_DAYS);
 
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
@@ -852,7 +864,7 @@ const SODIUM_BP_LOOKBACK_DAYS = 90;
 //    minimalnej liczby dni w każdej grupie.
 router.get('/api/dashboard/sodium-bp-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -SODIUM_BP_LOOKBACK_DAYS);
 
     // Część 1: sód zjedzony dziś (niezależnie od tego, czy mamy już wystarczającą historię).
@@ -949,7 +961,7 @@ const MIN_DAYS_PER_INTENSITY_GROUP = 4;
 // nie diagnoza medyczna.
 router.get('/api/dashboard/recovery-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -RECOVERY_LOOKBACK_DAYS);
 
     const workoutRows = await db.all(
@@ -1106,7 +1118,7 @@ const MAX_SUPPLEMENT_FINDINGS = 5;
 // ustalona w kodzie konwencja separatora, nie wprowadzamy tu nowej.
 router.get('/api/dashboard/supplements-sleep-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -SUPPLEMENTS_SLEEP_LOOKBACK_DAYS);
 
     const rows = await db.all(
@@ -1241,7 +1253,7 @@ const MIN_MEANINGFUL_GAP_KCAL = 100;
 
 router.get('/api/dashboard/calorie-target-suggestion', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -(CALORIE_RECAL_LOOKBACK_DAYS - 1));
 
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
@@ -1364,7 +1376,7 @@ const HYDRATION_LOOKBACK_DAYS = 90;
 // klinicznego, bo potrzeba nawodnienia jest bardzo indywidualna.
 router.get('/api/dashboard/hydration-readiness-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -HYDRATION_LOOKBACK_DAYS);
 
     const settingsRow = await db.get(`SELECT value FROM settings WHERE user_id = ? AND key = 'target_water_ml'`, [req.user.id]);
@@ -1436,7 +1448,7 @@ const SEDENTARY_LOOKBACK_DAYS = 90;
 // użytkownika z okresu.
 router.get('/api/dashboard/sedentary-sleep-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -SEDENTARY_LOOKBACK_DAYS);
 
     const rawRows = await db.all(
@@ -1518,7 +1530,7 @@ const FIBER_SLEEP_LOOKBACK_DAYS = 90;
 // snu. Podział wg mediany WŁASNEGO spożycia błonnika użytkownika.
 router.get('/api/dashboard/fiber-sleep-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -FIBER_SLEEP_LOOKBACK_DAYS);
 
     const fiberRows = await db.all(
@@ -1605,7 +1617,7 @@ const RECOMP_LOOKBACK_DAYS = 180;
 // zwykle nie są robione tego samego dnia, łączenie po dacie odsiałoby dane.
 router.get('/api/dashboard/body-recomposition-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -RECOMP_LOOKBACK_DAYS);
 
     const waistRows = await db.all(
@@ -1683,7 +1695,7 @@ const STRAIN_STD_DEV_THRESHOLD = 1; // odchylenia standardowe od własnej średn
 // użytkownika, NIE diagnoza medyczna.
 router.get('/api/dashboard/early-strain-alert', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const baselineStart = shiftDate(today, -STRAIN_BASELINE_LOOKBACK_DAYS);
     const baselineEnd = shiftDate(today, -1);
 
@@ -1691,14 +1703,21 @@ router.get('/api/dashboard/early-strain-alert', async (req, res) => {
       `SELECT respiratory_rate, temperature_deviation, readiness_score FROM health_metrics WHERE user_id = ? AND date = ?`,
       [req.user.id, today]
     );
-    if (!todayRow || todayRow.respiratory_rate == null || todayRow.temperature_deviation == null || todayRow.readiness_score == null) {
+    // Runda 12 (audyt): dodano "readiness_score <= 0" - ujednolicenie z dominującym
+    // wzorcem w tym pliku (linie ~223, ~239, ~3017), gdzie 0 dla sleep_score/readiness_score
+    // jest traktowane jako wartość-sentinel "brak pomiaru", nie realny wynik Oura (w
+    // odróżnieniu od temperature_deviation, gdzie 0 jest realną, znaczącą wartością -
+    // "brak odchylenia" - tej kolumny NIE dotyczy ta zmiana).
+    if (!todayRow || todayRow.respiratory_rate == null || todayRow.temperature_deviation == null
+      || todayRow.readiness_score == null || todayRow.readiness_score <= 0) {
       return res.json({ hasEnoughData: false, reason: 'no_today_data' });
     }
 
     const baselineRows = await db.all(
       `SELECT respiratory_rate, temperature_deviation, readiness_score FROM health_metrics
        WHERE user_id = ? AND date >= ? AND date <= ?
-       AND respiratory_rate IS NOT NULL AND temperature_deviation IS NOT NULL AND readiness_score IS NOT NULL`,
+       AND respiratory_rate IS NOT NULL AND temperature_deviation IS NOT NULL
+       AND readiness_score IS NOT NULL AND readiness_score > 0`,
       [req.user.id, baselineStart, baselineEnd]
     );
 
@@ -1757,7 +1776,7 @@ const STRESS_NUTRITION_LOOKBACK_DAYS = 90;
 // WŁASNYCH minut stresu z okresu.
 router.get('/api/dashboard/stress-nutrition-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -STRESS_NUTRITION_LOOKBACK_DAYS);
 
     const stressRows = await db.all(
@@ -1838,7 +1857,7 @@ const CALORIE_TARGET_BAND = 0.15;
 // kontrolowane" vs 1-2 duże posiłki).
 router.get('/api/dashboard/meal-frequency-adherence-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -MEAL_FREQ_LOOKBACK_DAYS);
 
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
@@ -1910,7 +1929,7 @@ const STREAK_MIN_LENGTH = 3; // od ilu kolejnych dni w paśmie celu liczymy to j
 // tu potrzebujemy historii wszystkich przeszłych pass i ich końców.
 router.get('/api/dashboard/streak-drift-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -STREAK_DRIFT_LOOKBACK_DAYS);
 
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
@@ -2014,7 +2033,7 @@ const MIN_BASELINE_RHR_DAYS = 14;
 // RHR bardzo różni się między osobami.
 router.get('/api/dashboard/rhr-drift-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const recentStart = shiftDate(today, -(RHR_RECENT_WINDOW_DAYS - 1));
     const baselineEnd = shiftDate(recentStart, -1);
     const baselineStart = shiftDate(baselineEnd, -(RHR_BASELINE_WINDOW_DAYS - 1));
@@ -2072,7 +2091,7 @@ const MEAL_TIMING_LOOKBACK_DAYS = 90;
 // istniejący sleep-insight (tam: sen -> odżywianie NASTĘPNEGO dnia).
 router.get('/api/dashboard/meal-timing-sleep-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -MEAL_TIMING_LOOKBACK_DAYS);
 
     const mealRows = await db.all(
@@ -2180,7 +2199,7 @@ function classifyBloodPressure(systolic, diastolic) {
 
 router.get('/api/dashboard/bp-trend-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const recentStart = shiftDate(today, -(BP_RECENT_WINDOW_DAYS - 1));
     const baselineEnd = shiftDate(recentStart, -1);
     const baselineStart = shiftDate(baselineEnd, -(BP_BASELINE_WINDOW_DAYS - 1));
@@ -2243,7 +2262,7 @@ const MIN_WORKOUTS_WITH_ZONES = 2;
 
 router.get('/api/dashboard/hr-zones-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const windowStart = shiftDate(today, -(HR_ZONES_INSIGHT_WINDOW_DAYS - 1));
 
     const rows = await db.all(
@@ -2313,7 +2332,7 @@ const MIN_BASELINE_RATED_MEALS = 5;
 // ostatnie 14 dni vs poprzedzające 30 dni.
 router.get('/api/dashboard/meal-quality-trend-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const recentStart = shiftDate(today, -(MEAL_QUALITY_RECENT_WINDOW_DAYS - 1));
     const baselineEnd = shiftDate(recentStart, -1);
     const baselineStart = shiftDate(baselineEnd, -(MEAL_QUALITY_BASELINE_WINDOW_DAYS - 1));
@@ -2387,7 +2406,7 @@ function isWeekendDateStr(dateStr) {
 // użytkownika, nie zakłada go z góry.
 router.get('/api/dashboard/weekend-effect-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -(WEEKEND_EFFECT_LOOKBACK_DAYS - 1));
 
     const mealRows = await db.all(
@@ -2460,7 +2479,7 @@ const MIN_WORKOUTS_PER_TYPE = 3;
 // czasu (a nie ogólny stereotyp "bieganie pali więcej niż joga").
 router.get('/api/dashboard/workout-efficiency-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -WORKOUT_EFFICIENCY_LOOKBACK_DAYS);
 
     const rows = await db.all(
@@ -2527,7 +2546,7 @@ const MIN_WEIGHT_FORECAST_SPAN_DAYS = 14;
 // w tygodniu jak w mailu - stabilniejsze przy nieregularnych pomiarach.
 router.get('/api/dashboard/weight-goal-forecast', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -WEIGHT_FORECAST_LOOKBACK_DAYS);
 
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
@@ -2602,7 +2621,7 @@ const MAX_DRIFT_FINDINGS = 5;
 // /api/meals/frequent liczy tylko jedną uśrednioną wartość z całego okresu.
 router.get('/api/dashboard/favorite-meal-drift-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -FAVORITE_MEAL_DRIFT_LOOKBACK_DAYS);
 
     const rows = await db.all(
@@ -2673,7 +2692,7 @@ const MIN_BASELINE_SPO2_DAYS = 14;
 // w czasie snu, infekcję albo przebywanie na wysokości), nie wzrost.
 router.get('/api/dashboard/spo2-trend-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const recentStart = shiftDate(today, -(SPO2_RECENT_WINDOW_DAYS - 1));
     const baselineEnd = shiftDate(recentStart, -1);
     const baselineStart = shiftDate(baselineEnd, -(SPO2_BASELINE_WINDOW_DAYS - 1));
@@ -2728,7 +2747,7 @@ const WHR_LOOKBACK_DAYS = 365;
 // frontowi/użytkownikowi samemu zinterpretować wynik względem własnego progu.
 router.get('/api/dashboard/whr-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -WHR_LOOKBACK_DAYS);
 
     const rows = await db.all(
@@ -2789,7 +2808,7 @@ const SYMMETRY_ASYMMETRY_THRESHOLD_CM = 0.5;
 // osób praworęcznych/leworęcznych trenujących bez świadomej korekty).
 router.get('/api/dashboard/body-symmetry-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -SYMMETRY_LOOKBACK_DAYS);
 
     const rows = await db.all(
@@ -2845,7 +2864,7 @@ const PACE_WORKOUT_TYPE_REGEX = /run|bieg|walk|marsz|spacer|hik|trek/i;
 // czas/km, i dodatkowo wymagamy typu run/walk/hike.
 router.get('/api/dashboard/pace-trend-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -PACE_LOOKBACK_DAYS);
 
     const workoutRows = await db.all(
@@ -2930,7 +2949,7 @@ const VARIETY_DOMINANCE_THRESHOLD_PERCENT = 70;
 // bieganie, brak treningu siłowego/mobilności).
 router.get('/api/dashboard/workout-variety-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -VARIETY_LOOKBACK_DAYS);
 
     const rows = await db.all(
@@ -2987,7 +3006,7 @@ const WELLNESS_WEIGHTS = { sleep: 0.25, readiness: 0.25, rhrRecovery: 0.15, nutr
 // użytkownik nie musiał scrollować całego dashboardu, by ocenić "jak mi idzie dzisiaj".
 router.get('/api/dashboard/wellness-score', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
 
     const health = await db.get(
       `SELECT sleep_score, readiness_score, rhr, water_ml FROM health_metrics WHERE user_id = ? AND date = ?`,
@@ -3156,7 +3175,7 @@ Napisz JEDNO do DWÓCH zwięzłych zdań po polsku, bezpośrednio do użytkownik
 // ai_explanation/ai_explanation_generated_at w db.js).
 router.get('/api/dashboard/ai-explanation-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const baselineStart = shiftDate(today, -EXPLANATION_BASELINE_DAYS);
 
     const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, today]);
@@ -3259,12 +3278,12 @@ const MIN_SELF_BENCHMARK_DAYS = 14;
 // użytkownika (90 dni), bez jakiegokolwiek porównania z innymi użytkownikami (w
 // odróżnieniu od Whoop "people like you"). higherIsBetter steruje kierunkiem percentyla.
 const SELF_BENCHMARK_METRICS = [
-  { key: 'sleep_score', label: 'Sen', source: 'health', higherIsBetter: true },
-  { key: 'readiness_score', label: 'Gotowość', source: 'health', higherIsBetter: true },
-  { key: 'hrv', label: 'HRV', source: 'health', higherIsBetter: true },
-  { key: 'rhr', label: 'Tętno spoczynkowe', source: 'health', higherIsBetter: false },
-  { key: 'steps', label: 'Kroki', source: 'health', higherIsBetter: true },
-  { key: 'active_calories', label: 'Kalorie aktywne', source: 'health', higherIsBetter: true }
+  { key: 'sleep_score', label: 'Sen', source: 'health', higherIsBetter: true, unit: 'pkt' },
+  { key: 'readiness_score', label: 'Gotowość', source: 'health', higherIsBetter: true, unit: 'pkt' },
+  { key: 'hrv', label: 'HRV', source: 'health', higherIsBetter: true, unit: 'ms' },
+  { key: 'rhr', label: 'Tętno spoczynkowe', source: 'health', higherIsBetter: false, unit: 'bpm' },
+  { key: 'steps', label: 'Kroki', source: 'health', higherIsBetter: true, unit: 'kroków' },
+  { key: 'active_calories', label: 'Kalorie aktywne', source: 'health', higherIsBetter: true, unit: 'kcal' }
 ];
 
 // Percentyl wartości "value" względem tablicy historycznych wartości (% historycznych
@@ -3284,11 +3303,19 @@ function percentileRank(value, historicalValues) {
 // percentyl) jako "najlepszy" i "najsłabszy" sygnał dnia.
 router.get('/api/dashboard/self-benchmark-insight', async (req, res) => {
   try {
-    const today = req.query.date || getLocalDateString();
+    const today = resolveQueryDate(req);
     const startDate = shiftDate(today, -SELF_BENCHMARK_LOOKBACK_DAYS);
 
     const health = await db.get(`SELECT * FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, today]);
     const mealRow = await db.get(`SELECT SUM(calories) AS calories FROM meals WHERE user_id = ? AND date = ?`, [req.user.id, today]);
+
+    // Runda 12 (audyt): wcześniej brak wpisu zdrowia/posiłków na DZISIAJ kończył się tym
+    // samym reason: 'not_enough_days' jak realny brak wystarczającej historii - mylące,
+    // bo to dwa różne problemy (jak już rozróżnia ai-explanation-insight przez
+    // no_data_for_date). Rozróżniamy je tutaj analogicznie.
+    if (!health && (!mealRow || mealRow.calories == null)) {
+      return res.json({ hasEnoughData: false, reason: 'no_data_for_date' });
+    }
 
     const historyRows = await db.all(
       `SELECT date, sleep_score, readiness_score, hrv, rhr, steps, active_calories FROM health_metrics
@@ -3314,7 +3341,16 @@ router.get('/api/dashboard/self-benchmark-insight', async (req, res) => {
       results.push({
         metric: metric.key,
         label: metric.label,
+        // Runda 12 (audyt): zwracamy też todayValue/unit/higherIsBetter (nie tylko
+        // znormalizowany percentyl) - frontend dzięki temu może pokazać surową wartość
+        // i jednoznacznie zaznaczyć kierunek "co jest dobre" przy metrykach typu RHR,
+        // gdzie NIŻSZA wartość = lepszy wynik (w przeciwieństwie do np. kroków).
+        // Percentyl sam w sobie jest już znormalizowany (100 = najlepszy dzień,
+        // niezależnie od kierunku metryki), ale bez tego kontekstu surowa wartość
+        // RHR=92 z percentylem 90 mogłaby sugerować użytkownikowi "więcej = lepiej".
         todayValue,
+        unit: metric.unit,
+        higherIsBetter: metric.higherIsBetter,
         percentile,
         historyDays: historicalValues.length
       });
@@ -3341,6 +3377,670 @@ router.get('/api/dashboard/self-benchmark-insight', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd pobierania benchmarku "Ty dziś vs Ty w przeszłości".' });
+  }
+});
+
+const WORKOUT_SLEEP_LOOKBACK_DAYS = 120;
+const MIN_WORKOUTS_PER_TYPE_FOR_SLEEP = 3;
+const MIN_REST_DAYS_FOR_SLEEP = 5;
+
+// Runda 13, nowa funkcja 1: typ treningu (workout_type) wykonanego danego dnia vs
+// jakość snu TEJ SAMEJ NOCY (sleep_score). Łączenie po TEJ SAMEJ dacie - konwencja
+// jak w fiber-sleep-insight ("odżywianie/aktywność dnia -> sen tej doby"), inna niż
+// w sleep-insight (tam: sen -> odżywianie NASTĘPNEGO dnia). Dni bez treningu (ale z
+// sleep_score) tworzą grupę bazową "dni bez treningu" do porównania per typ.
+router.get('/api/dashboard/workout-type-sleep-insight', async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -WORKOUT_SLEEP_LOOKBACK_DAYS);
+
+    const workoutRows = await db.all(
+      `SELECT date, workout_type FROM apple_health_workouts
+       WHERE user_id = ? AND date >= ? AND date <= ? AND workout_type IS NOT NULL`,
+      [req.user.id, startDate, today]
+    );
+    const sleepRows = await db.all(
+      `SELECT date, sleep_score FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ? AND sleep_score IS NOT NULL`,
+      [req.user.id, startDate, today]
+    );
+    const sleepByDate = new Map(sleepRows.map(r => [r.date, r.sleep_score]));
+
+    const workoutDatesByType = new Map();
+    const allWorkoutDates = new Set();
+    workoutRows.forEach(w => {
+      allWorkoutDates.add(w.date);
+      if (!workoutDatesByType.has(w.workout_type)) workoutDatesByType.set(w.workout_type, new Set());
+      workoutDatesByType.get(w.workout_type).add(w.date);
+    });
+
+    const restDaySleepScores = sleepRows
+      .filter(r => !allWorkoutDates.has(r.date))
+      .map(r => r.sleep_score);
+
+    if (restDaySleepScores.length < MIN_REST_DAYS_FOR_SLEEP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_rest_days',
+        restDays: restDaySleepScores.length,
+        minRestDaysRequired: MIN_REST_DAYS_FOR_SLEEP
+      });
+    }
+
+    const avgRestSleepScore = Math.round((restDaySleepScores.reduce((s, v) => s + v, 0) / restDaySleepScores.length) * 10) / 10;
+
+    const types = [];
+    workoutDatesByType.forEach((dates, type) => {
+      const scores = [...dates].filter(d => sleepByDate.has(d)).map(d => sleepByDate.get(d));
+      if (scores.length < MIN_WORKOUTS_PER_TYPE_FOR_SLEEP) return;
+      const avgScore = Math.round((scores.reduce((s, v) => s + v, 0) / scores.length) * 10) / 10;
+      types.push({
+        type,
+        nights: scores.length,
+        avgSleepScore: avgScore,
+        diffVsRestDays: Math.round((avgScore - avgRestSleepScore) * 10) / 10
+      });
+    });
+
+    if (types.length === 0) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_workouts_per_type',
+        minWorkoutsPerTypeRequired: MIN_WORKOUTS_PER_TYPE_FOR_SLEEP,
+        avgRestDaySleepScore: avgRestSleepScore,
+        restDays: restDaySleepScores.length
+      });
+    }
+
+    types.sort((a, b) => b.diffVsRestDays - a.diffVsRestDays);
+
+    res.json({
+      hasEnoughData: true,
+      lookbackDays: WORKOUT_SLEEP_LOOKBACK_DAYS,
+      restDays: restDaySleepScores.length,
+      avgRestDaySleepScore: avgRestSleepScore,
+      types,
+      best: types[0],
+      worst: (types[types.length - 1].type !== types[0].type && types[types.length - 1].diffVsRestDays !== types[0].diffVsRestDays)
+        ? types[types.length - 1] : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu typ treningu-sen.' });
+  }
+});
+
+const MUSCLE_PROTEIN_LOOKBACK_DAYS = 120;
+const MIN_MUSCLE_MEASUREMENTS = 4;
+const MIN_MUSCLE_SPAN_DAYS = 21;
+const MIN_PROTEIN_DAYS_LOGGED = 14;
+const MUSCLE_TREND_THRESHOLD_KG_PER_DAY = 0.005; // ok. 0.035 kg/tydzień
+const ADEQUATE_PROTEIN_G_PER_KG = 1.6; // powszechnie przyjęty próg dla budowy/utrzymania masy mięśniowej
+
+// Runda 13, nowa funkcja 2: trend masy mięśniowej (regresja liniowa, jak w
+// body-recomposition-insight) vs ŚREDNIE dzienne spożycie białka z tego samego okna.
+// Dwie NIEZALEŻNE miary (pomiary składu ciała i logowanie posiłków rzadko zbiegają
+// się dzień w dzień) - porównujemy FAKTY z tego samego okresu, nie liczymy korelacji
+// punkt-w-punkt (jak w body-recomposition-insight).
+router.get('/api/dashboard/muscle-protein-insight', async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -MUSCLE_PROTEIN_LOOKBACK_DAYS);
+
+    const muscleRows = await db.all(
+      `SELECT date, muscle_mass FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ? AND muscle_mass IS NOT NULL ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+    const proteinRows = await db.all(
+      `SELECT date, SUM(protein) AS protein FROM meals WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date HAVING protein > 0`,
+      [req.user.id, startDate, today]
+    );
+    const weightRow = await db.get(
+      `SELECT weight FROM health_metrics WHERE user_id = ? AND date <= ? AND weight IS NOT NULL ORDER BY date DESC LIMIT 1`,
+      [req.user.id, today]
+    );
+
+    if (muscleRows.length < MIN_MUSCLE_MEASUREMENTS || proteinRows.length < MIN_PROTEIN_DAYS_LOGGED) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_data',
+        muscleMeasurements: muscleRows.length,
+        proteinLoggedDays: proteinRows.length,
+        minMuscleMeasurementsRequired: MIN_MUSCLE_MEASUREMENTS,
+        minProteinDaysRequired: MIN_PROTEIN_DAYS_LOGGED
+      });
+    }
+
+    const musclePoints = toRegressionPoints(muscleRows, 'muscle_mass');
+    const muscleSpanDays = musclePoints[musclePoints.length - 1].x;
+    if (muscleSpanDays < MIN_MUSCLE_SPAN_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'span_too_short',
+        muscleSpanDays: Math.round(muscleSpanDays),
+        minSpanDaysRequired: MIN_MUSCLE_SPAN_DAYS
+      });
+    }
+
+    const muscleSlopePerDay = linearRegressionSlope(musclePoints);
+    if (muscleSlopePerDay === null) {
+      return res.json({ hasEnoughData: false, reason: 'flat_data' });
+    }
+
+    const avgProteinGramsPerDay = Math.round((proteinRows.reduce((s, r) => s + r.protein, 0) / proteinRows.length) * 10) / 10;
+    const proteinPerKg = weightRow && weightRow.weight ? Math.round((avgProteinGramsPerDay / weightRow.weight) * 100) / 100 : null;
+
+    const muscleTrend = muscleSlopePerDay > MUSCLE_TREND_THRESHOLD_KG_PER_DAY ? 'up'
+      : muscleSlopePerDay < -MUSCLE_TREND_THRESHOLD_KG_PER_DAY ? 'down' : 'flat';
+    const proteinAdequate = proteinPerKg !== null ? proteinPerKg >= ADEQUATE_PROTEIN_G_PER_KG : null;
+
+    res.json({
+      hasEnoughData: true,
+      muscleMeasurements: muscleRows.length,
+      muscleSpanDays: Math.round(muscleSpanDays),
+      muscleSlopeKgPerWeek: Math.round(muscleSlopePerDay * 7 * 1000) / 1000,
+      muscleTrend,
+      proteinLoggedDays: proteinRows.length,
+      avgProteinGramsPerDay,
+      proteinPerKgBodyweight: proteinPerKg,
+      adequateProteinThresholdGPerKg: ADEQUATE_PROTEIN_G_PER_KG,
+      proteinAdequate
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu masa mięśniowa-białko.' });
+  }
+});
+
+const TEMP_DIVERGENCE_LOOKBACK_DAYS = 90;
+const MIN_TEMP_DIVERGENCE_DAYS = 10;
+const TEMP_DIVERGENCE_NOISE_THRESHOLD_C = 0.15; // poniżej traktujemy odczyt jako szum pomiaru, nie realne wychylenie
+
+// Runda 13, nowa funkcja 3: rozjazd między dwoma NIEPOROWNYWALNYMI BEZPOŚREDNIO
+// źródłami temperatury - Oura `temperature_deviation` (już WZGLĘDNE odchylenie od
+// własnej bazowej Oura) vs Apple Watch `wrist_temperature` (wartość ABSOLUTNA, °C,
+// tylko Series 8+/Ultra). Nie da się ich po prostu odjąć - normalizujemy Apple Watch
+// do własnego odchylenia od WŁASNEJ średniej z okna, a potem sprawdzamy, czy oba
+// źródła ZGADZAJĄ SIĘ co do KIERUNKU wychylenia tego samego dnia, czy się rozjeżdżają.
+router.get('/api/dashboard/temperature-divergence-insight', async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -TEMP_DIVERGENCE_LOOKBACK_DAYS);
+
+    const wristRows = await db.all(
+      `SELECT date, wrist_temperature FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ? AND wrist_temperature IS NOT NULL`,
+      [req.user.id, startDate, today]
+    );
+
+    if (wristRows.length < MIN_TEMP_DIVERGENCE_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'no_wrist_temperature_data',
+        wristTemperatureDays: wristRows.length,
+        minDaysRequired: MIN_TEMP_DIVERGENCE_DAYS
+      });
+    }
+
+    const baselineWrist = wristRows.reduce((s, r) => s + r.wrist_temperature, 0) / wristRows.length;
+
+    const ouraRows = await db.all(
+      `SELECT date, temperature_deviation FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ? AND temperature_deviation IS NOT NULL`,
+      [req.user.id, startDate, today]
+    );
+    const ouraByDate = new Map(ouraRows.map(r => [r.date, r.temperature_deviation]));
+
+    const combined = wristRows
+      .filter(r => ouraByDate.has(r.date))
+      .map(r => ({
+        date: r.date,
+        wristDeviation: Math.round((r.wrist_temperature - baselineWrist) * 100) / 100,
+        ouraDeviation: ouraByDate.get(r.date)
+      }));
+
+    if (combined.length < MIN_TEMP_DIVERGENCE_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_overlapping_days',
+        overlappingDays: combined.length,
+        minDaysRequired: MIN_TEMP_DIVERGENCE_DAYS
+      });
+    }
+
+    const signOf = (v) => (Math.abs(v) < TEMP_DIVERGENCE_NOISE_THRESHOLD_C ? 0 : (v > 0 ? 1 : -1));
+    let agreeDays = 0;
+    let divergeDays = 0;
+    const divergentDates = [];
+    combined.forEach(r => {
+      const wSign = signOf(r.wristDeviation);
+      const oSign = signOf(r.ouraDeviation);
+      if (wSign === 0 || oSign === 0) return; // niejednoznaczne (szum) - nie liczymy do zgodności/rozjazdu
+      if (wSign === oSign) agreeDays++;
+      else { divergeDays++; divergentDates.push(r.date); }
+    });
+
+    const decisiveDays = agreeDays + divergeDays;
+    if (decisiveDays < MIN_TEMP_DIVERGENCE_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_decisive_days',
+        decisiveDays,
+        minDaysRequired: MIN_TEMP_DIVERGENCE_DAYS
+      });
+    }
+
+    res.json({
+      hasEnoughData: true,
+      overlappingDays: combined.length,
+      decisiveDays,
+      agreeDays,
+      divergeDays,
+      agreementRatePercent: Math.round((agreeDays / decisiveDays) * 1000) / 10,
+      baselineWristTemperatureC: Math.round(baselineWrist * 100) / 100,
+      recentDivergentDates: divergentDates.slice(-5)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu rozjazdu temperatur.' });
+  }
+});
+
+const PROPORTIONS_LOOKBACK_DAYS = 365;
+const MIN_PROPORTIONS_MEASUREMENTS = 2;
+
+// Runda 13, nowa funkcja 4: proporcje obwodów ciała - barki/talia i klatka/talia -
+// na bazie body_measurements (shoulders, chest, waist). Porównanie PIERWSZEGO i
+// OSTATNIEGO dostępnego pomiaru każdej z proporcji w oknie (jak w
+// body-symmetry-insight, ale tu interesuje nas zmiana proporcji w czasie, nie
+// symetria L/P). "Złoty wskaźnik" barki-talia (~1.618, Adonis Index) podany
+// WYŁĄCZNIE jako powszechnie znany punkt odniesienia z fizjologii sportu, nie jako
+// cel narzucony użytkownikowi.
+router.get('/api/dashboard/body-proportions-insight', async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -PROPORTIONS_LOOKBACK_DAYS);
+
+    const rows = await db.all(
+      `SELECT date, shoulders, chest, waist FROM body_measurements
+       WHERE user_id = ? AND date >= ? AND date <= ? AND waist > 0 AND (shoulders IS NOT NULL OR chest IS NOT NULL)
+       ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+
+    const shoulderRows = rows.filter(r => r.shoulders != null);
+    const chestRows = rows.filter(r => r.chest != null);
+
+    if (shoulderRows.length < MIN_PROPORTIONS_MEASUREMENTS && chestRows.length < MIN_PROPORTIONS_MEASUREMENTS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_measurements',
+        shoulderMeasurements: shoulderRows.length,
+        chestMeasurements: chestRows.length,
+        minMeasurementsRequired: MIN_PROPORTIONS_MEASUREMENTS
+      });
+    }
+
+    const buildRatio = (arr, key) => {
+      if (arr.length < MIN_PROPORTIONS_MEASUREMENTS) return null;
+      const first = arr[0];
+      const last = arr[arr.length - 1];
+      const firstRatio = Math.round((first[key] / first.waist) * 1000) / 1000;
+      const lastRatio = Math.round((last[key] / last.waist) * 1000) / 1000;
+      return {
+        firstDate: first.date,
+        lastDate: last.date,
+        firstRatio,
+        lastRatio,
+        ratioDiff: Math.round((lastRatio - firstRatio) * 1000) / 1000,
+        measurements: arr.length
+      };
+    };
+
+    const shoulderToWaist = buildRatio(shoulderRows, 'shoulders');
+    const chestToWaist = buildRatio(chestRows, 'chest');
+
+    res.json({
+      hasEnoughData: true,
+      shoulderToWaist,
+      chestToWaist,
+      referenceGoldenRatio: 1.618
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu proporcji obwodów ciała.' });
+  }
+});
+
+const ACTIVITY_APPETITE_LOOKBACK_DAYS = 90;
+const MIN_DAYS_PER_ACTIVITY_GROUP = 7;
+
+// Runda 13, nowa funkcja 5: aktywność dnia (active_calories) vs apetyt TEGO SAMEGO
+// dnia (suma kalorii z posiłków). Podział wg mediany WŁASNEJ aktywności użytkownika -
+// analogicznie do sedentary-sleep-insight/fiber-sleep-insight (median split, nie
+// regresja - interesuje nas prosty kontrast "dni bardziej aktywne" vs "mniej aktywne").
+router.get('/api/dashboard/activity-appetite-insight', async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -ACTIVITY_APPETITE_LOOKBACK_DAYS);
+
+    const activityRows = await db.all(
+      `SELECT date, active_calories FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ? AND active_calories IS NOT NULL AND active_calories > 0`,
+      [req.user.id, startDate, today]
+    );
+    const mealRows = await db.all(
+      `SELECT date, SUM(calories) AS calories FROM meals WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date HAVING calories > 0`,
+      [req.user.id, startDate, today]
+    );
+    const caloriesByDate = new Map(mealRows.map(r => [r.date, r.calories]));
+
+    const combined = activityRows
+      .filter(r => caloriesByDate.has(r.date))
+      .map(r => ({ date: r.date, activeCalories: r.active_calories, calories: caloriesByDate.get(r.date) }));
+
+    if (combined.length < MIN_DAYS_PER_ACTIVITY_GROUP * 2) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        totalDays: combined.length,
+        minDaysRequired: MIN_DAYS_PER_ACTIVITY_GROUP * 2
+      });
+    }
+
+    const medianActive = median(combined.map(r => r.activeCalories));
+    const moreActive = combined.filter(r => r.activeCalories >= medianActive);
+    const lessActive = combined.filter(r => r.activeCalories < medianActive);
+
+    if (moreActive.length < MIN_DAYS_PER_ACTIVITY_GROUP || lessActive.length < MIN_DAYS_PER_ACTIVITY_GROUP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days_per_group',
+        moreActiveDays: moreActive.length,
+        lessActiveDays: lessActive.length,
+        minDaysRequired: MIN_DAYS_PER_ACTIVITY_GROUP
+      });
+    }
+
+    const avgOf = (arr, key) => Math.round((arr.reduce((s, x) => s + x[key], 0) / arr.length) * 10) / 10;
+    const avgCaloriesMoreActive = avgOf(moreActive, 'calories');
+    const avgCaloriesLessActive = avgOf(lessActive, 'calories');
+
+    res.json({
+      hasEnoughData: true,
+      medianActiveCalories: Math.round(medianActive),
+      moreActiveDays: moreActive.length,
+      lessActiveDays: lessActive.length,
+      avgCaloriesMoreActiveDays: avgCaloriesMoreActive,
+      avgCaloriesLessActiveDays: avgCaloriesLessActive,
+      caloriesDiff: Math.round((avgCaloriesMoreActive - avgCaloriesLessActive) * 10) / 10
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu aktywność-apetyt.' });
+  }
+});
+
+const DIET_QUALITY_WEIGHT_LOOKBACK_DAYS = 90;
+const MIN_RATED_MEALS_FOR_DIET_QUALITY = 10;
+const MIN_WEIGHT_MEASUREMENTS_FOR_DIET_QUALITY = 4;
+const MIN_WEIGHT_SPAN_DAYS_FOR_DIET_QUALITY = 21;
+const WEIGHT_TREND_THRESHOLD_KG_PER_DAY = 0.01; // ok. 0.07 kg/tydzień
+const HIGH_DIET_QUALITY_RATING = 7;
+const LOW_DIET_QUALITY_RATING = 5;
+
+// Runda 13, nowa funkcja 6: ŚREDNIA jakość posiłków (health_rating z analysis_json,
+// jak w meal-quality-trend-insight) jako kontekst dla tempa zmiany wagi (regresja
+// liniowa, jak w weight-goal-forecast/body-recomposition-insight) z tego samego
+// okna. To NIE jest korelacja punkt-w-punkt (jakość diety per dzień nie da się
+// sensownie połączyć z jednorazowymi pomiarami wagi) - to JUKSTAPOZYCJA dwóch
+// niezależnych faktów z tego samego okresu, podobnie jak w body-recomposition-insight.
+router.get('/api/dashboard/diet-quality-weight-pace-insight', async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -DIET_QUALITY_WEIGHT_LOOKBACK_DAYS);
+
+    const mealRows = await db.all(
+      `SELECT analysis_json FROM meals WHERE user_id = ? AND date >= ? AND date <= ?`,
+      [req.user.id, startDate, today]
+    );
+    const ratings = [];
+    mealRows.forEach(r => {
+      try {
+        const analysis = JSON.parse(r.analysis_json);
+        const rating = Number(analysis.health_rating);
+        if (Number.isFinite(rating) && rating >= 1 && rating <= 10) ratings.push(rating);
+      } catch (e) {
+        // Brak/uszkodzony analysis_json - pomijamy (jak w meal-quality-trend-insight).
+      }
+    });
+
+    const weightRows = await db.all(
+      `SELECT date, weight FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ? AND weight IS NOT NULL ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+
+    if (ratings.length < MIN_RATED_MEALS_FOR_DIET_QUALITY || weightRows.length < MIN_WEIGHT_MEASUREMENTS_FOR_DIET_QUALITY) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_data',
+        ratedMeals: ratings.length,
+        weightMeasurements: weightRows.length,
+        minRatedMealsRequired: MIN_RATED_MEALS_FOR_DIET_QUALITY,
+        minWeightMeasurementsRequired: MIN_WEIGHT_MEASUREMENTS_FOR_DIET_QUALITY
+      });
+    }
+
+    const weightPoints = toRegressionPoints(weightRows, 'weight');
+    const weightSpanDays = weightPoints[weightPoints.length - 1].x;
+    if (weightSpanDays < MIN_WEIGHT_SPAN_DAYS_FOR_DIET_QUALITY) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'span_too_short',
+        weightSpanDays: Math.round(weightSpanDays),
+        minSpanDaysRequired: MIN_WEIGHT_SPAN_DAYS_FOR_DIET_QUALITY
+      });
+    }
+
+    const weightSlopePerDay = linearRegressionSlope(weightPoints);
+    if (weightSlopePerDay === null) {
+      return res.json({ hasEnoughData: false, reason: 'flat_data' });
+    }
+
+    const avgRating = Math.round((ratings.reduce((s, v) => s + v, 0) / ratings.length) * 10) / 10;
+    const dietQuality = avgRating >= HIGH_DIET_QUALITY_RATING ? 'high' : avgRating <= LOW_DIET_QUALITY_RATING ? 'low' : 'medium';
+    const weightTrend = weightSlopePerDay > WEIGHT_TREND_THRESHOLD_KG_PER_DAY ? 'up'
+      : weightSlopePerDay < -WEIGHT_TREND_THRESHOLD_KG_PER_DAY ? 'down' : 'flat';
+
+    res.json({
+      hasEnoughData: true,
+      ratedMeals: ratings.length,
+      avgMealRating: avgRating,
+      dietQuality,
+      weightMeasurements: weightRows.length,
+      weightSpanDays: Math.round(weightSpanDays),
+      weightSlopeKgPerWeek: Math.round(weightSlopePerDay * 7 * 100) / 100,
+      weightTrend
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu jakość diety-tempo wagi.' });
+  }
+});
+
+const STREAK_WEIGHT_LOOKBACK_DAYS = 180;
+const STREAK_WEIGHT_MIN_LENGTH = 3; // jak STREAK_MIN_LENGTH w streak-drift-insight
+const MIN_WEIGHT_POINTS_PER_STREAK_GROUP = 5;
+const MIN_WEIGHT_SPAN_DAYS_PER_STREAK_GROUP = 14;
+
+// Runda 13, nowa funkcja 7: czy dni będące CZĘŚCIĄ passy trzymania się celu
+// kalorycznego (3+ kolejne dni w paśmie +/-15%, ta sama logika wykrywania passy co w
+// streak-drift-insight) pokazują INNE tempo zmiany wagi niż dni BEZ aktywnej passy.
+// Każdej dacie z pomiarem wagi przypisujemy status "w trakcie passy"/"bez passy" na
+// podstawie historii logowania kalorii DO TEJ DATY, a potem liczymy NIEZALEŻNĄ
+// regresję wagi w czasie dla każdej z dwóch grup (x = dni od początku okna, żeby obie
+// regresje były na tej samej skali czasu).
+router.get('/api/dashboard/streak-weight-effect-insight', async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -STREAK_WEIGHT_LOOKBACK_DAYS);
+
+    const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
+    const settings = {};
+    settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
+    const targetCalories = getTargetCalories(settings);
+
+    const calorieRows = await db.all(
+      `SELECT date, SUM(calories) AS total_calories FROM meals
+       WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY date ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+    const weightRows = await db.all(
+      `SELECT date, weight FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ? AND weight IS NOT NULL ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+
+    let prevDate = null;
+    let currentStreak = 0;
+    const streakStatusByDate = new Map();
+
+    calorieRows.forEach(row => {
+      const inBand = row.total_calories != null &&
+        row.total_calories >= targetCalories * (1 - CALORIE_TARGET_BAND) &&
+        row.total_calories <= targetCalories * (1 + CALORIE_TARGET_BAND);
+      const isConsecutive = prevDate !== null && shiftDate(prevDate, 1) === row.date;
+
+      if (inBand) {
+        currentStreak = isConsecutive ? currentStreak + 1 : 1;
+      } else {
+        currentStreak = 0;
+      }
+      streakStatusByDate.set(row.date, currentStreak >= STREAK_WEIGHT_MIN_LENGTH);
+      prevDate = row.date;
+    });
+
+    const baseTime = weightRows.length > 0 ? new Date(weightRows[0].date).getTime() : null;
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const streakWeightPoints = [];
+    const noStreakWeightPoints = [];
+
+    weightRows.forEach(r => {
+      const isStreakDay = streakStatusByDate.get(r.date);
+      if (isStreakDay === undefined) return; // brak danych kalorycznych dla tej daty - nie wiemy, do której grupy przypisać
+      const point = { x: (new Date(r.date).getTime() - baseTime) / msPerDay, y: r.weight };
+      (isStreakDay ? streakWeightPoints : noStreakWeightPoints).push(point);
+    });
+
+    const spanOf = (points) => (points.length > 0 ? points[points.length - 1].x - points[0].x : 0);
+
+    if (
+      streakWeightPoints.length < MIN_WEIGHT_POINTS_PER_STREAK_GROUP ||
+      noStreakWeightPoints.length < MIN_WEIGHT_POINTS_PER_STREAK_GROUP ||
+      spanOf(streakWeightPoints) < MIN_WEIGHT_SPAN_DAYS_PER_STREAK_GROUP ||
+      spanOf(noStreakWeightPoints) < MIN_WEIGHT_SPAN_DAYS_PER_STREAK_GROUP
+    ) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_data_per_group',
+        streakWeightPoints: streakWeightPoints.length,
+        noStreakWeightPoints: noStreakWeightPoints.length,
+        minPointsRequired: MIN_WEIGHT_POINTS_PER_STREAK_GROUP,
+        minSpanDaysRequired: MIN_WEIGHT_SPAN_DAYS_PER_STREAK_GROUP
+      });
+    }
+
+    const streakSlope = linearRegressionSlope(streakWeightPoints);
+    const noStreakSlope = linearRegressionSlope(noStreakWeightPoints);
+    if (streakSlope === null || noStreakSlope === null) {
+      return res.json({ hasEnoughData: false, reason: 'flat_data' });
+    }
+
+    res.json({
+      hasEnoughData: true,
+      streakMinLength: STREAK_WEIGHT_MIN_LENGTH,
+      targetCalories,
+      streakWeightPoints: streakWeightPoints.length,
+      noStreakWeightPoints: noStreakWeightPoints.length,
+      weightSlopeKgPerWeekDuringStreak: Math.round(streakSlope * 7 * 100) / 100,
+      weightSlopeKgPerWeekWithoutStreak: Math.round(noStreakSlope * 7 * 100) / 100,
+      slopeDiffKgPerWeek: Math.round((streakSlope - noStreakSlope) * 7 * 100) / 100
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu passa-efekt na wadze.' });
+  }
+});
+
+const SEDENTARY_PERFORMANCE_LOOKBACK_DAYS = 90;
+const MIN_WORKOUTS_PER_SEDENTARY_GROUP = 4;
+
+// Runda 13, nowa funkcja 8: czas siedzenia (sedentary_minutes, Oura) TEGO SAMEGO dnia
+// vs wydajność treningu wykonanego tego dnia (kcal/min, jak w
+// workout-efficiency-insight - prostszy i szerzej dostępny proxy "wydajności" niż
+// udział stref Z4+Z5 z recovery-insight, bo nie wymaga włączonych dodatkowych metryk
+// strefowych w Health Auto Export). Podział wg mediany WŁASNEGO czasu siedzenia
+// użytkownika w dniach treningowych.
+router.get('/api/dashboard/sedentary-performance-insight', async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -SEDENTARY_PERFORMANCE_LOOKBACK_DAYS);
+
+    const workoutRows = await db.all(
+      `SELECT date, COALESCE(SUM(active_calories), 0) AS active_calories, COALESCE(SUM(duration_minutes), 0) AS duration_minutes
+       FROM apple_health_workouts WHERE user_id = ? AND date >= ? AND date <= ?
+       GROUP BY date HAVING duration_minutes >= 5 AND active_calories > 0`,
+      [req.user.id, startDate, today]
+    );
+    const sedentaryRows = await db.all(
+      `SELECT date, sedentary_minutes FROM health_metrics WHERE user_id = ? AND date >= ? AND date <= ? AND sedentary_minutes IS NOT NULL`,
+      [req.user.id, startDate, today]
+    );
+    const sedentaryByDate = new Map(sedentaryRows.map(r => [r.date, r.sedentary_minutes]));
+
+    const combined = workoutRows
+      .filter(r => sedentaryByDate.has(r.date))
+      .map(r => ({
+        date: r.date,
+        sedentaryMinutes: sedentaryByDate.get(r.date),
+        kcalPerMin: r.active_calories / r.duration_minutes
+      }));
+
+    if (combined.length < MIN_WORKOUTS_PER_SEDENTARY_GROUP * 2) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_workout_days',
+        workoutDays: combined.length,
+        minWorkoutDaysRequired: MIN_WORKOUTS_PER_SEDENTARY_GROUP * 2
+      });
+    }
+
+    const medianSedentary = median(combined.map(r => r.sedentaryMinutes));
+    const moreSitting = combined.filter(r => r.sedentaryMinutes >= medianSedentary);
+    const lessSitting = combined.filter(r => r.sedentaryMinutes < medianSedentary);
+
+    if (moreSitting.length < MIN_WORKOUTS_PER_SEDENTARY_GROUP || lessSitting.length < MIN_WORKOUTS_PER_SEDENTARY_GROUP) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_workout_days_per_group',
+        moreSittingWorkoutDays: moreSitting.length,
+        lessSittingWorkoutDays: lessSitting.length,
+        minWorkoutDaysRequired: MIN_WORKOUTS_PER_SEDENTARY_GROUP
+      });
+    }
+
+    const avgOf = (arr) => Math.round((arr.reduce((s, x) => s + x.kcalPerMin, 0) / arr.length) * 10) / 10;
+    const avgPerformanceMoreSitting = avgOf(moreSitting);
+    const avgPerformanceLessSitting = avgOf(lessSitting);
+
+    res.json({
+      hasEnoughData: true,
+      medianSedentaryMinutes: Math.round(medianSedentary),
+      moreSittingWorkoutDays: moreSitting.length,
+      lessSittingWorkoutDays: lessSitting.length,
+      avgKcalPerMinMoreSitting: avgPerformanceMoreSitting,
+      avgKcalPerMinLessSitting: avgPerformanceLessSitting,
+      performanceDiffKcalPerMin: Math.round((avgPerformanceMoreSitting - avgPerformanceLessSitting) * 10) / 10
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu siedzenie-wydajność treningu.' });
   }
 });
 

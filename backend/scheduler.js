@@ -56,13 +56,19 @@ async function checkAndSendAutomatedSummaries() {
               console.log(`[SCHEDULER] Uruchamianie wysyłki miesięcznej dla ${user.username} (${user.email || 'brak e-maila'})`);
               if (user.email) {
                 try {
-                  await sendMonthlySummaryForUser(user.id);
-                  // Zapisz informacje o wysłaniu w settings (klucz 'YYYY-MM', żeby wysłać raz w miesiącu kalendarzowym)
+                  // Runda 12 (audyt): flaga idempotencji jest zapisywana PRZED wysyłką, nie
+                  // po. Wcześniej, gdyby proces backendu zrestartował się PO wysłaniu maila,
+                  // ale PRZED zapisem last_monthly_summary_sent, kolejny przebieg harmonogramu
+                  // wysłałby ten sam raport drugi raz. Zamiana kolejności "rezerwuje" ten
+                  // miesiąc PRZED wysyłką - w najgorszym razie (restart/błąd dokładnie między
+                  // tym zapisem a wysyłką) raport zostanie pominięty w tym miesiącu, co jest
+                  // bezpieczniejszym kompromisem niż zduplikowany e-mail.
                   await db.run(`
                     INSERT INTO settings (user_id, key, value)
                     VALUES (?, 'last_monthly_summary_sent', ?)
                     ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
                   `, [user.id, currentYearMonthStr]);
+                  await sendMonthlySummaryForUser(user.id);
                   console.log(`[SCHEDULER] Z powodzeniem wysłano miesięczne podsumowanie dla ${user.username} i ustawiono last_monthly_summary_sent na ${currentYearMonthStr}`);
                 } catch (sendErr) {
                   console.error(`[SCHEDULER ERROR] Błąd podczas wysyłania miesięcznego dla ${user.username}:`, sendErr.message);
@@ -82,13 +88,15 @@ async function checkAndSendAutomatedSummaries() {
             console.log(`[SCHEDULER] Uruchamianie wysyłki codziennej dla ${user.username} (${user.email || 'brak e-maila'})`);
             if (user.email) {
               try {
-                await sendDailySummaryForUser(user.id);
-                // Zapisz informacje o wysłaniu w settings
+                // Runda 12 (audyt): jak przy podsumowaniu miesięcznym - flaga idempotencji
+                // zapisywana PRZED wysyłką, żeby restart backendu między wysyłką a zapisem
+                // nie powodował duplikatu maila.
                 await db.run(`
                   INSERT INTO settings (user_id, key, value)
                   VALUES (?, 'last_daily_summary_sent', ?)
                   ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
                 `, [user.id, todayStr]);
+                await sendDailySummaryForUser(user.id);
                 console.log(`[SCHEDULER] Z powodzeniem wysłano codzienne podsumowanie dla ${user.username} i ustawiono last_daily_summary_sent na ${todayStr}`);
               } catch (sendErr) {
                 console.error(`[SCHEDULER ERROR] Błąd podczas wysyłania codziennego dla ${user.username}:`, sendErr.message);
@@ -106,13 +114,13 @@ async function checkAndSendAutomatedSummaries() {
               console.log(`[SCHEDULER] Uruchamianie wysyłki tygodniowej dla ${user.username} (${user.email || 'brak e-maila'})`);
               if (user.email) {
                 try {
-                  await sendWeeklySummaryForUser(user.id);
-                  // Zapisz informacje o wysłaniu w settings
+                  // Runda 12 (audyt): jak wyżej - flaga idempotencji PRZED wysyłką.
                   await db.run(`
                     INSERT INTO settings (user_id, key, value)
                     VALUES (?, 'last_weekly_summary_sent', ?)
                     ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
                   `, [user.id, todayStr]);
+                  await sendWeeklySummaryForUser(user.id);
                   console.log(`[SCHEDULER] Z powodzeniem wysłano tygodniowe podsumowanie dla ${user.username} i ustawiono last_weekly_summary_sent na ${todayStr}`);
                 } catch (sendErr) {
                   console.error(`[SCHEDULER ERROR] Błąd podczas wysyłania tygodniowego dla ${user.username}:`, sendErr.message);

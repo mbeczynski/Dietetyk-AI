@@ -782,29 +782,77 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   // największe dzisiejsze odchylenie sen/gotowość/HRV/RHR i prosi AI o krótkie
   // wyjaśnienie przyczyny. Patrz /api/dashboard/ai-explanation-insight.
   const [aiExplanationInsight, setAiExplanationInsight] = useState(null);
+  // Runda 12 (audyt): jawny stan ładowania - bez tego karta po prostu nie renderowała
+  // się NIC (ani treści, ani komunikatu) między mountem komponentu a odpowiedzią API,
+  // co na wolniejszym połączeniu wyglądało jak zniknięcie/brak karty, a nie jej ładowanie.
+  const [isLoadingAiExplanation, setIsLoadingAiExplanation] = useState(false);
   useEffect(() => {
+    let cancelled = false;
     const fetchAiExplanationInsight = async () => {
       if (!sessionToken) return;
+      setIsLoadingAiExplanation(true);
       try {
         const dateParam = selectedDate ? `?date=${selectedDate}` : '';
         const res = await fetch(`/api/dashboard/ai-explanation-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setAiExplanationInsight(await res.json());
+        if (res.ok && !cancelled) setAiExplanationInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania wyjaśnienia AI:', err);
+      } finally {
+        if (!cancelled) setIsLoadingAiExplanation(false);
       }
     };
     fetchAiExplanationInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
+
+  // Backend generuje wyjaśnienie AI W TLE i zwraca `generating: true` zanim tekst jest
+  // gotowy (patrz /api/dashboard/ai-explanation-insight w dashboard.js). Wcześniej karta
+  // pokazywała statyczny tekst "wyjaśnienie pojawi się po odświeżeniu" i wymagała od
+  // użytkownika RĘCZNEGO przeładowania strony, żeby zobaczyć wynik. Tu odpytujemy
+  // ponownie co kilka sekund, dopóki backend nie zwróci `generating: false` (gotowe albo
+  // poddane, np. brak klucza AI) - maks. ograniczona liczba prób, żeby nie odpytywać
+  // w nieskończoność, gdyby generowanie w tle z jakiegoś powodu nigdy się nie zakończyło.
+  const MAX_AI_EXPLANATION_POLL_ATTEMPTS = 10;
+  useEffect(() => {
+    if (!aiExplanationInsight || !aiExplanationInsight.generating || !sessionToken) return;
+    let attempts = 0;
+    let cancelled = false;
+    const intervalId = setInterval(async () => {
+      attempts += 1;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/ai-explanation-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setAiExplanationInsight(data);
+          if (!data.generating || attempts >= MAX_AI_EXPLANATION_POLL_ATTEMPTS) {
+            clearInterval(intervalId);
+          }
+        }
+      } catch (err) {
+        console.error('Błąd odpytywania o status generowania wyjaśnienia AI:', err);
+      }
+      if (attempts >= MAX_AI_EXPLANATION_POLL_ATTEMPTS) {
+        clearInterval(intervalId);
+      }
+    }, 4000);
+    return () => { cancelled = true; clearInterval(intervalId); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiExplanationInsight && aiExplanationInsight.generating, sessionToken, selectedDate]);
 
   // Benchmark "Ty dziś vs Ty w przeszłości" (Runda 11, prywatna wersja Whoop
   // "people like you" - WYŁĄCZNIE własna historia, bez porównań z innymi
   // użytkownikami). Patrz /api/dashboard/self-benchmark-insight.
   const [selfBenchmarkInsight, setSelfBenchmarkInsight] = useState(null);
+  const [isLoadingSelfBenchmark, setIsLoadingSelfBenchmark] = useState(false);
   useEffect(() => {
     const fetchSelfBenchmarkInsight = async () => {
       if (!sessionToken) return;
+      setIsLoadingSelfBenchmark(true);
       try {
         const dateParam = selectedDate ? `?date=${selectedDate}` : '';
         const res = await fetch(`/api/dashboard/self-benchmark-insight${dateParam}`, {
@@ -813,9 +861,203 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         if (res.ok) setSelfBenchmarkInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania benchmarku "Ty dziś vs Ty w przeszłości":', err);
+      } finally {
+        setIsLoadingSelfBenchmark(false);
       }
     };
     fetchSelfBenchmarkInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Runda 13, nowa funkcja 1: typ treningu -> jakość snu tej samej nocy.
+  const [workoutTypeSleepInsight, setWorkoutTypeSleepInsight] = useState(null);
+  const [isLoadingWorkoutTypeSleep, setIsLoadingWorkoutTypeSleep] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchWorkoutTypeSleepInsight = async () => {
+      if (!sessionToken) return;
+      setIsLoadingWorkoutTypeSleep(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/workout-type-sleep-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok && !cancelled) setWorkoutTypeSleepInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu typ treningu-sen:', err);
+      } finally {
+        if (!cancelled) setIsLoadingWorkoutTypeSleep(false);
+      }
+    };
+    fetchWorkoutTypeSleepInsight();
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Runda 13, nowa funkcja 2: masa mięśniowa vs spożycie białka.
+  const [muscleProteinInsight, setMuscleProteinInsight] = useState(null);
+  const [isLoadingMuscleProtein, setIsLoadingMuscleProtein] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchMuscleProteinInsight = async () => {
+      if (!sessionToken) return;
+      setIsLoadingMuscleProtein(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/muscle-protein-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok && !cancelled) setMuscleProteinInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu masa mięśniowa-białko:', err);
+      } finally {
+        if (!cancelled) setIsLoadingMuscleProtein(false);
+      }
+    };
+    fetchMuscleProteinInsight();
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Runda 13, nowa funkcja 3: rozjazd temperatury Oura vs Apple Watch.
+  const [temperatureDivergenceInsight, setTemperatureDivergenceInsight] = useState(null);
+  const [isLoadingTemperatureDivergence, setIsLoadingTemperatureDivergence] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchTemperatureDivergenceInsight = async () => {
+      if (!sessionToken) return;
+      setIsLoadingTemperatureDivergence(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/temperature-divergence-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok && !cancelled) setTemperatureDivergenceInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu rozjazdu temperatur:', err);
+      } finally {
+        if (!cancelled) setIsLoadingTemperatureDivergence(false);
+      }
+    };
+    fetchTemperatureDivergenceInsight();
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Runda 13, nowa funkcja 4: proporcje obwodów ciała (barki/talia, klatka/talia).
+  const [bodyProportionsInsight, setBodyProportionsInsight] = useState(null);
+  const [isLoadingBodyProportions, setIsLoadingBodyProportions] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchBodyProportionsInsight = async () => {
+      if (!sessionToken) return;
+      setIsLoadingBodyProportions(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/body-proportions-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok && !cancelled) setBodyProportionsInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu proporcji obwodów ciała:', err);
+      } finally {
+        if (!cancelled) setIsLoadingBodyProportions(false);
+      }
+    };
+    fetchBodyProportionsInsight();
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Runda 13, nowa funkcja 5: aktywność dnia -> apetyt tego samego dnia.
+  const [activityAppetiteInsight, setActivityAppetiteInsight] = useState(null);
+  const [isLoadingActivityAppetite, setIsLoadingActivityAppetite] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchActivityAppetiteInsight = async () => {
+      if (!sessionToken) return;
+      setIsLoadingActivityAppetite(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/activity-appetite-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok && !cancelled) setActivityAppetiteInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu aktywność-apetyt:', err);
+      } finally {
+        if (!cancelled) setIsLoadingActivityAppetite(false);
+      }
+    };
+    fetchActivityAppetiteInsight();
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Runda 13, nowa funkcja 6: jakość diety jako modyfikator tempa zmiany wagi.
+  const [dietQualityWeightPaceInsight, setDietQualityWeightPaceInsight] = useState(null);
+  const [isLoadingDietQualityWeightPace, setIsLoadingDietQualityWeightPace] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchDietQualityWeightPaceInsight = async () => {
+      if (!sessionToken) return;
+      setIsLoadingDietQualityWeightPace(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/diet-quality-weight-pace-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok && !cancelled) setDietQualityWeightPaceInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu jakość diety-tempo wagi:', err);
+      } finally {
+        if (!cancelled) setIsLoadingDietQualityWeightPace(false);
+      }
+    };
+    fetchDietQualityWeightPaceInsight();
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Runda 13, nowa funkcja 7: streak -> realny efekt na wadze.
+  const [streakWeightEffectInsight, setStreakWeightEffectInsight] = useState(null);
+  const [isLoadingStreakWeightEffect, setIsLoadingStreakWeightEffect] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchStreakWeightEffectInsight = async () => {
+      if (!sessionToken) return;
+      setIsLoadingStreakWeightEffect(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/streak-weight-effect-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok && !cancelled) setStreakWeightEffectInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu passa-efekt na wadze:', err);
+      } finally {
+        if (!cancelled) setIsLoadingStreakWeightEffect(false);
+      }
+    };
+    fetchStreakWeightEffectInsight();
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Runda 13, nowa funkcja 8: siedzenie -> wydajność treningu tego dnia.
+  const [sedentaryPerformanceInsight, setSedentaryPerformanceInsight] = useState(null);
+  const [isLoadingSedentaryPerformance, setIsLoadingSedentaryPerformance] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchSedentaryPerformanceInsight = async () => {
+      if (!sessionToken) return;
+      setIsLoadingSedentaryPerformance(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/sedentary-performance-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok && !cancelled) setSedentaryPerformanceInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu siedzenie-wydajność treningu:', err);
+      } finally {
+        if (!cancelled) setIsLoadingSedentaryPerformance(false);
+      }
+    };
+    fetchSedentaryPerformanceInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Zwijalna sekcja "Analizy" (UX: rundy 7 - 12 kart insightów w jednym miejscu,
@@ -1624,6 +1866,31 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           )}
         </div>
 
+        {/* INSIGHT (Runda 10): WELLNESS SCORE (0-100) - Runda 12 (audyt): wyniesiony
+            POZA zwijaną sekcję "Analizy" poniżej. To najbardziej syntetyczny, "na pierwszy
+            rzut oka" wskaźnik dnia (jak Oura Readiness/Whoop Recovery) - chowanie go za
+            dodatkowym kliknięciem "Pokaż" w 12-kartowej liście było niespójne z jego rolą
+            głównego podsumowania, a nie jednej z wielu szczegółowych analiz. */}
+        {wellnessScore && wellnessScore.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">✨ Wellness Score</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Syntetyczny wskaźnik dnia z {wellnessScore.componentsUsed}/{wellnessScore.componentsTotal} dostępnych sygnałów (sen, gotowość, RHR, dieta, nawodnienie).
+            </p>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+              <span style={{ fontSize: '2rem', fontWeight: '800', color: wellnessScore.wellnessScore >= 80 ? 'var(--success-light)' : wellnessScore.wellnessScore >= 60 ? '#fff' : wellnessScore.wellnessScore >= 40 ? '#fbbf24' : 'var(--danger-light)' }}>
+                {wellnessScore.wellnessScore}
+              </span>
+              <span style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)' }}>/100 - {wellnessScore.label}</span>
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Ważona synteza Twoich danych, nie kliniczny pomiar zdrowia.
+            </p>
+          </div>
+        )}
+
         {/* ZWIJALNA SEKCJA "ANALIZY" - 12 kart opisowych porównań (sen, sód,
             regeneracja, suplementy + 8 nowych z rundy 7), domyślnie zwinięta,
             żeby nie zalewać dashboardu od razu po wejściu (UX runda 7, punkt 1). */}
@@ -2391,28 +2658,20 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
         )}
 
-        {/* INSIGHT (Runda 10): WELLNESS SCORE (0-100) */}
-        {wellnessScore && wellnessScore.hasEnoughData && (
+        {/* INSIGHT (Runda 11): AI TŁUMACZĄCE PRZYCZYNY (styl Oura Advisor/Whoop Coach) */}
+        {/* Runda 12 (audyt): jawny stan ładowania - zamiast karty, która po prostu nie
+            istniała do czasu odpowiedzi API (wyglądało to jak brak insightu, nie ładowanie). */}
+        {isLoadingAiExplanation && !aiExplanationInsight && (
           <div className="premium-card">
             <div className="premium-title-row">
-              <span className="premium-title">✨ Wellness Score</span>
+              <span className="premium-title">🔎 Dlaczego dzisiaj tak jest?</span>
             </div>
-            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
-              Syntetyczny wskaźnik dnia z {wellnessScore.componentsUsed}/{wellnessScore.componentsTotal} dostępnych sygnałów (sen, gotowość, RHR, dieta, nawodnienie).
-            </p>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
-              <span style={{ fontSize: '2rem', fontWeight: '800', color: wellnessScore.wellnessScore >= 80 ? 'var(--success-light)' : wellnessScore.wellnessScore >= 60 ? '#fff' : wellnessScore.wellnessScore >= 40 ? '#fbbf24' : 'var(--danger-light)' }}>
-                {wellnessScore.wellnessScore}
-              </span>
-              <span style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)' }}>/100 - {wellnessScore.label}</span>
-            </div>
-            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
-              Ważona synteza Twoich danych, nie kliniczny pomiar zdrowia.
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span className="ai-explanation-spinner" aria-hidden="true" />
+              Wczytywanie...
             </p>
           </div>
         )}
-
-        {/* INSIGHT (Runda 11): AI TŁUMACZĄCE PRZYCZYNY (styl Oura Advisor/Whoop Coach) */}
         {aiExplanationInsight && aiExplanationInsight.hasEnoughData && aiExplanationInsight.hasFinding && (
           <div className="premium-card">
             <div className="premium-title-row">
@@ -2425,9 +2684,14 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               <p style={{ fontSize: '0.85rem', color: '#fff', marginTop: 0, marginBottom: 0, lineHeight: '1.5' }}>
                 {aiExplanationInsight.explanation}
               </p>
+            ) : aiExplanationInsight.generating ? (
+              <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', marginTop: 0, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="ai-explanation-spinner" aria-hidden="true" />
+                AI analizuje przyczynę...
+              </p>
             ) : (
               <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', marginTop: 0, marginBottom: 0 }}>
-                AI analizuje przyczynę - wyjaśnienie pojawi się po odświeżeniu.
+                Nie udało się wygenerować wyjaśnienia (sprawdź klucz AI w Ustawieniach).
               </p>
             )}
             <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
@@ -2435,25 +2699,65 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </p>
           </div>
         )}
+        {/* Pusty stan: dane są wystarczające, ale AI nie znalazło dziś żadnego znaczącego
+            odchylenia (z-score poniżej progu) - bez tego karta po prostu nie pojawiała się,
+            co użytkownik mógł odczytać jako błąd/brak danych, a nie "wszystko w normie". */}
+        {!isLoadingAiExplanation && aiExplanationInsight && aiExplanationInsight.hasEnoughData && !aiExplanationInsight.hasFinding && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔎 Dlaczego dzisiaj tak jest?</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              Dziś żadna z Twoich metryk nie odchyla się wyraźnie od 28-dniowego wzorca - wszystko w normie.
+            </p>
+          </div>
+        )}
 
         {/* INSIGHT (Runda 11): BENCHMARK "TY DZIŚ VS TY W PRZESZŁOŚCI" (bez porównań z innymi użytkownikami) */}
+        {isLoadingSelfBenchmark && !selfBenchmarkInsight && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">📊 Ty dziś vs Ty w przeszłości</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span className="ai-explanation-spinner" aria-hidden="true" />
+              Wczytywanie...
+            </p>
+          </div>
+        )}
         {selfBenchmarkInsight && selfBenchmarkInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">📊 Ty dziś vs Ty w przeszłości</span>
             </div>
             <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
-              Na bazie Twoich ostatnich {selfBenchmarkInsight.lookbackDays} dni - wyłącznie Twoja historia, bez porównań z innymi użytkownikami.
+              Na bazie Twoich ostatnich {selfBenchmarkInsight.lookbackDays} dni - wyłącznie Twoja historia, bez porównań z innymi użytkownikami. Percentyl 100 = Twój najlepszy dzień, niezależnie od metryki.
             </p>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginBottom: selfBenchmarkInsight.worst ? '8px' : 0 }}>
-              <span style={{ color: 'rgba(255,255,255,0.6)' }}>{selfBenchmarkInsight.best.label}</span>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                {selfBenchmarkInsight.best.label}
+                {selfBenchmarkInsight.best.higherIsBetter === false && (
+                  <span style={{ color: 'rgba(255,255,255,0.35)' }}> (niżej = lepiej)</span>
+                )}
+                {selfBenchmarkInsight.best.todayValue != null && (
+                  <span style={{ color: 'rgba(255,255,255,0.35)' }}> · {selfBenchmarkInsight.best.todayValue}{selfBenchmarkInsight.best.unit ? ` ${selfBenchmarkInsight.best.unit}` : ''}</span>
+                )}
+              </span>
               <span style={{ fontWeight: '700', color: 'var(--success-light)' }}>
                 lepszy niż {selfBenchmarkInsight.best.percentile}% Twoich dni
               </span>
             </div>
             {selfBenchmarkInsight.worst && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
-                <span style={{ color: 'rgba(255,255,255,0.6)' }}>{selfBenchmarkInsight.worst.label}</span>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  {selfBenchmarkInsight.worst.label}
+                  {selfBenchmarkInsight.worst.higherIsBetter === false && (
+                    <span style={{ color: 'rgba(255,255,255,0.35)' }}> (niżej = lepiej)</span>
+                  )}
+                  {selfBenchmarkInsight.worst.todayValue != null && (
+                    <span style={{ color: 'rgba(255,255,255,0.35)' }}> · {selfBenchmarkInsight.worst.todayValue}{selfBenchmarkInsight.worst.unit ? ` ${selfBenchmarkInsight.worst.unit}` : ''}</span>
+                  )}
+                </span>
                 <span style={{ fontWeight: '700', color: selfBenchmarkInsight.worst.percentile < 30 ? 'var(--danger-light)' : '#fff' }}>
                   lepszy niż {selfBenchmarkInsight.worst.percentile}% Twoich dni
                 </span>
@@ -2461,6 +2765,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             )}
             <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
               Percentyl względem Twoich własnych dni z ostatnich {selfBenchmarkInsight.lookbackDays} dni.
+            </p>
+          </div>
+        )}
+        {!isLoadingSelfBenchmark && selfBenchmarkInsight && !selfBenchmarkInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">📊 Ty dziś vs Ty w przeszłości</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              {selfBenchmarkInsight.reason === 'no_data_for_date'
+                ? 'Brak danych zdrowia/posiłków dla tego dnia.'
+                : `Za mało dni z historią do porównania (min. ${selfBenchmarkInsight.minDaysRequired || 14}).`}
             </p>
           </div>
         )}
@@ -2593,6 +2909,400 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 ⚠️ {workoutVarietyInsight.dominantType} to {workoutVarietyInsight.dominantPct}% wszystkich treningów - rozważ większą różnorodność, by uniknąć przetrenowania jednej grupy mięśniowej/dyscypliny.
               </p>
             )}
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 13, nowa funkcja 1): TYP TRENINGU VS SEN TEJ SAMEJ NOCY */}
+        {isLoadingWorkoutTypeSleep && !workoutTypeSleepInsight && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🏋️😴 Typ treningu vs sen tej nocy</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span className="ai-explanation-spinner" aria-hidden="true" />
+              Wczytywanie...
+            </p>
+          </div>
+        )}
+        {workoutTypeSleepInsight && workoutTypeSleepInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🏋️😴 Typ treningu vs sen tej nocy</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Śr. jakość snu po dniu treningowym danego typu vs dni bez treningu (śr. {workoutTypeSleepInsight.avgRestDaySleepScore}, {workoutTypeSleepInsight.restDays} dni) z ostatnich {workoutTypeSleepInsight.lookbackDays} dni.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginBottom: workoutTypeSleepInsight.worst ? '8px' : 0 }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                {workoutTypeSleepInsight.best.type} · {workoutTypeSleepInsight.best.avgSleepScore} pkt ({workoutTypeSleepInsight.best.nights} nocy)
+              </span>
+              <span style={{ fontWeight: '700', color: workoutTypeSleepInsight.best.diffVsRestDays >= 0 ? 'var(--success-light)' : 'var(--danger-light)' }}>
+                {workoutTypeSleepInsight.best.diffVsRestDays > 0 ? '+' : ''}{workoutTypeSleepInsight.best.diffVsRestDays}
+              </span>
+            </div>
+            {workoutTypeSleepInsight.worst && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  {workoutTypeSleepInsight.worst.type} · {workoutTypeSleepInsight.worst.avgSleepScore} pkt ({workoutTypeSleepInsight.worst.nights} nocy)
+                </span>
+                <span style={{ fontWeight: '700', color: workoutTypeSleepInsight.worst.diffVsRestDays < 0 ? 'var(--danger-light)' : '#fff' }}>
+                  {workoutTypeSleepInsight.worst.diffVsRestDays > 0 ? '+' : ''}{workoutTypeSleepInsight.worst.diffVsRestDays}
+                </span>
+              </div>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Różnica pkt snu vs Twoja przeciętna noc bez treningu tego okresu.
+            </p>
+          </div>
+        )}
+        {!isLoadingWorkoutTypeSleep && workoutTypeSleepInsight && !workoutTypeSleepInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🏋️😴 Typ treningu vs sen tej nocy</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              {workoutTypeSleepInsight.reason === 'not_enough_rest_days'
+                ? `Za mało dni bez treningu z danymi o śnie do porównania (min. ${workoutTypeSleepInsight.minRestDaysRequired}).`
+                : `Za mało treningów danego typu z danymi o śnie (min. ${workoutTypeSleepInsight.minWorkoutsPerTypeRequired} na typ).`}
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 13, nowa funkcja 2): MASA MIĘŚNIOWA VS BIAŁKO */}
+        {isLoadingMuscleProtein && !muscleProteinInsight && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💪🥩 Masa mięśniowa vs białko</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span className="ai-explanation-spinner" aria-hidden="true" />
+              Wczytywanie...
+            </p>
+          </div>
+        )}
+        {muscleProteinInsight && muscleProteinInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💪🥩 Masa mięśniowa vs białko</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Trend masy mięśniowej z ostatnich {muscleProteinInsight.muscleSpanDays} dni ({muscleProteinInsight.muscleMeasurements} pomiarów) i Twoje śr. spożycie białka ({muscleProteinInsight.proteinLoggedDays} dni z logiem).
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginBottom: '8px' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>Trend masy mięśniowej</span>
+              <span style={{ fontWeight: '700', color: muscleProteinInsight.muscleTrend === 'up' ? 'var(--success-light)' : muscleProteinInsight.muscleTrend === 'down' ? 'var(--danger-light)' : '#fff' }}>
+                {muscleProteinInsight.muscleSlopeKgPerWeek > 0 ? '+' : ''}{muscleProteinInsight.muscleSlopeKgPerWeek} kg/tydz.
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                Białko: {muscleProteinInsight.avgProteinGramsPerDay} g/dzień
+                {muscleProteinInsight.proteinPerKgBodyweight !== null && ` (${muscleProteinInsight.proteinPerKgBodyweight} g/kg)`}
+              </span>
+              {muscleProteinInsight.proteinAdequate !== null && (
+                <span style={{ fontWeight: '700', color: muscleProteinInsight.proteinAdequate ? 'var(--success-light)' : 'var(--danger-light)' }}>
+                  {muscleProteinInsight.proteinAdequate ? 'wystarczające' : `poniżej ${muscleProteinInsight.adequateProteinThresholdGPerKg} g/kg`}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+        {!isLoadingMuscleProtein && muscleProteinInsight && !muscleProteinInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💪🥩 Masa mięśniowa vs białko</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              {muscleProteinInsight.reason === 'not_enough_data'
+                ? 'Za mało pomiarów masy mięśniowej lub dni z zalogowanym białkiem.'
+                : muscleProteinInsight.reason === 'span_too_short'
+                ? 'Pomiary masy mięśniowej obejmują za krótki okres.'
+                : 'Brak wyraźnego trendu masy mięśniowej w tym okresie.'}
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 13, nowa funkcja 3): ROZJAZD TEMPERATURY OURA VS APPLE WATCH */}
+        {isLoadingTemperatureDivergence && !temperatureDivergenceInsight && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🌡️ Rozjazd temperatury Oura/Apple Watch</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span className="ai-explanation-spinner" aria-hidden="true" />
+              Wczytywanie...
+            </p>
+          </div>
+        )}
+        {temperatureDivergenceInsight && temperatureDivergenceInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🌡️ Rozjazd temperatury Oura/Apple Watch</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Zgodność kierunku wychylenia temperatury (Oura vs Apple Watch) w {temperatureDivergenceInsight.decisiveDays} dniach z jednoznacznym odczytem z obu źródeł.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                Zgodne: {temperatureDivergenceInsight.agreeDays} · Rozjazd: {temperatureDivergenceInsight.divergeDays}
+              </span>
+              <span style={{ fontWeight: '700', color: temperatureDivergenceInsight.agreementRatePercent >= 70 ? 'var(--success-light)' : 'var(--danger-light)' }}>
+                {temperatureDivergenceInsight.agreementRatePercent}% zgodności
+              </span>
+            </div>
+            {temperatureDivergenceInsight.recentDivergentDates.length > 0 && (
+              <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+                Ostatnie dni z rozjazdem: {temperatureDivergenceInsight.recentDivergentDates.join(', ')}.
+              </p>
+            )}
+          </div>
+        )}
+        {!isLoadingTemperatureDivergence && temperatureDivergenceInsight && !temperatureDivergenceInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🌡️ Rozjazd temperatury Oura/Apple Watch</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              {temperatureDivergenceInsight.reason === 'no_wrist_temperature_data'
+                ? 'Brak danych z czujnika temperatury Apple Watch (Series 8+/Ultra).'
+                : temperatureDivergenceInsight.reason === 'not_enough_decisive_days'
+                ? 'Odczyty z obu źródeł są zbyt blisko własnej średniej (szum pomiaru), by ocenić zgodność kierunku wychylenia.'
+                : 'Za mało dni z odczytami temperatury z obu źródeł jednocześnie.'}
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 13, nowa funkcja 4): PROPORCJE OBWODÓW CIAŁA */}
+        {isLoadingBodyProportions && !bodyProportionsInsight && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">📐 Proporcje obwodów ciała</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span className="ai-explanation-spinner" aria-hidden="true" />
+              Wczytywanie...
+            </p>
+          </div>
+        )}
+        {bodyProportionsInsight && bodyProportionsInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">📐 Proporcje obwodów ciała</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Zmiana proporcji obwodów między pierwszym i ostatnim pomiarem z ostatniego roku. Punkt odniesienia z fizjologii sportu (Adonis Index): ~{bodyProportionsInsight.referenceGoldenRatio}.
+            </p>
+            {bodyProportionsInsight.shoulderToWaist && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginBottom: bodyProportionsInsight.chestToWaist ? '8px' : 0 }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  Barki/talia: {bodyProportionsInsight.shoulderToWaist.firstRatio} → {bodyProportionsInsight.shoulderToWaist.lastRatio}
+                </span>
+                <span style={{ fontWeight: '700', color: bodyProportionsInsight.shoulderToWaist.ratioDiff >= 0 ? 'var(--success-light)' : 'var(--danger-light)' }}>
+                  {bodyProportionsInsight.shoulderToWaist.ratioDiff > 0 ? '+' : ''}{bodyProportionsInsight.shoulderToWaist.ratioDiff}
+                </span>
+              </div>
+            )}
+            {bodyProportionsInsight.chestToWaist && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  Klatka/talia: {bodyProportionsInsight.chestToWaist.firstRatio} → {bodyProportionsInsight.chestToWaist.lastRatio}
+                </span>
+                <span style={{ fontWeight: '700', color: bodyProportionsInsight.chestToWaist.ratioDiff >= 0 ? 'var(--success-light)' : 'var(--danger-light)' }}>
+                  {bodyProportionsInsight.chestToWaist.ratioDiff > 0 ? '+' : ''}{bodyProportionsInsight.chestToWaist.ratioDiff}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+        {!isLoadingBodyProportions && bodyProportionsInsight && !bodyProportionsInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">📐 Proporcje obwodów ciała</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              Za mało pomiarów obwodów (barki/klatka i talia), by ocenić zmianę proporcji w czasie.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 13, nowa funkcja 5): AKTYWNOŚĆ DNIA VS APETYT */}
+        {isLoadingActivityAppetite && !activityAppetiteInsight && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔥🍽️ Aktywność dnia vs apetyt</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span className="ai-explanation-spinner" aria-hidden="true" />
+              Wczytywanie...
+            </p>
+          </div>
+        )}
+        {activityAppetiteInsight && activityAppetiteInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔥🍽️ Aktywność dnia vs apetyt</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Śr. kalorie z posiłków w dniach bardziej aktywnych ({activityAppetiteInsight.moreActiveDays} dni, ≥{activityAppetiteInsight.medianActiveCalories} kcal aktywności) vs mniej aktywnych ({activityAppetiteInsight.lessActiveDays} dni).
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                {activityAppetiteInsight.avgCaloriesMoreActiveDays} vs {activityAppetiteInsight.avgCaloriesLessActiveDays} kcal
+              </span>
+              <span style={{ fontWeight: '700', color: '#fff' }}>
+                {activityAppetiteInsight.caloriesDiff > 0 ? '+' : ''}{activityAppetiteInsight.caloriesDiff} kcal
+              </span>
+            </div>
+          </div>
+        )}
+        {!isLoadingActivityAppetite && activityAppetiteInsight && !activityAppetiteInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔥🍽️ Aktywność dnia vs apetyt</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              Za mało dni z danymi o aktywności i posiłkach do porównania.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 13, nowa funkcja 6): JAKOŚĆ DIETY I TEMPO ZMIANY WAGI */}
+        {isLoadingDietQualityWeightPace && !dietQualityWeightPaceInsight && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🥗⚖️ Jakość diety i tempo zmiany wagi</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span className="ai-explanation-spinner" aria-hidden="true" />
+              Wczytywanie...
+            </p>
+          </div>
+        )}
+        {dietQualityWeightPaceInsight && dietQualityWeightPaceInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🥗⚖️ Jakość diety i tempo zmiany wagi</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Śr. ocena jakości {dietQualityWeightPaceInsight.ratedMeals} posiłków i tempo zmiany wagi z ostatnich {dietQualityWeightPaceInsight.weightSpanDays} dni ({dietQualityWeightPaceInsight.weightMeasurements} pomiarów) - dwa niezależne fakty z tego okresu.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginBottom: '8px' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>Śr. ocena posiłków</span>
+              <span style={{ fontWeight: '700', color: dietQualityWeightPaceInsight.dietQuality === 'high' ? 'var(--success-light)' : dietQualityWeightPaceInsight.dietQuality === 'low' ? 'var(--danger-light)' : '#fff' }}>
+                {dietQualityWeightPaceInsight.avgMealRating}/10
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>Tempo zmiany wagi</span>
+              <span style={{ fontWeight: '700', color: '#fff' }}>
+                {dietQualityWeightPaceInsight.weightSlopeKgPerWeek > 0 ? '+' : ''}{dietQualityWeightPaceInsight.weightSlopeKgPerWeek} kg/tydz.
+              </span>
+            </div>
+          </div>
+        )}
+        {!isLoadingDietQualityWeightPace && dietQualityWeightPaceInsight && !dietQualityWeightPaceInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🥗⚖️ Jakość diety i tempo zmiany wagi</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              {dietQualityWeightPaceInsight.reason === 'not_enough_data'
+                ? 'Za mało ocenionych posiłków lub pomiarów wagi.'
+                : dietQualityWeightPaceInsight.reason === 'span_too_short'
+                ? 'Pomiary wagi obejmują za krótki okres.'
+                : 'Brak wyraźnego trendu wagi w tym okresie.'}
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 13, nowa funkcja 7): PASSA KALORYCZNA VS REALNY EFEKT NA WADZE */}
+        {isLoadingStreakWeightEffect && !streakWeightEffectInsight && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔥⚖️ Passa kaloryczna vs efekt na wadze</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span className="ai-explanation-spinner" aria-hidden="true" />
+              Wczytywanie...
+            </p>
+          </div>
+        )}
+        {streakWeightEffectInsight && streakWeightEffectInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔥⚖️ Passa kaloryczna vs efekt na wadze</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Tempo zmiany wagi w dniach z aktywną passą trzymania celu kalorycznego ({streakWeightEffectInsight.streakMinLength}+ dni w paśmie) vs dni bez passy.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginBottom: '8px' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>W trakcie passy ({streakWeightEffectInsight.streakWeightPoints} pomiarów)</span>
+              <span style={{ fontWeight: '700', color: '#fff' }}>
+                {streakWeightEffectInsight.weightSlopeKgPerWeekDuringStreak > 0 ? '+' : ''}{streakWeightEffectInsight.weightSlopeKgPerWeekDuringStreak} kg/tydz.
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>Bez passy ({streakWeightEffectInsight.noStreakWeightPoints} pomiarów)</span>
+              <span style={{ fontWeight: '700', color: '#fff' }}>
+                {streakWeightEffectInsight.weightSlopeKgPerWeekWithoutStreak > 0 ? '+' : ''}{streakWeightEffectInsight.weightSlopeKgPerWeekWithoutStreak} kg/tydz.
+              </span>
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Różnica tempa: {streakWeightEffectInsight.slopeDiffKgPerWeek > 0 ? '+' : ''}{streakWeightEffectInsight.slopeDiffKgPerWeek} kg/tydz.
+            </p>
+          </div>
+        )}
+        {!isLoadingStreakWeightEffect && streakWeightEffectInsight && !streakWeightEffectInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🔥⚖️ Passa kaloryczna vs efekt na wadze</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              {streakWeightEffectInsight.reason === 'not_enough_data_per_group'
+                ? 'Za mało pomiarów wagi w grupie z passą lub bez passy do porównania.'
+                : 'Brak wyraźnego trendu wagi w jednej z grup.'}
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 13, nowa funkcja 8): SIEDZENIE VS WYDAJNOŚĆ TRENINGU */}
+        {isLoadingSedentaryPerformance && !sedentaryPerformanceInsight && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🪑🏋️ Siedzenie vs wydajność treningu</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span className="ai-explanation-spinner" aria-hidden="true" />
+              Wczytywanie...
+            </p>
+          </div>
+        )}
+        {sedentaryPerformanceInsight && sedentaryPerformanceInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🪑🏋️ Siedzenie vs wydajność treningu</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Wydajność treningu (kcal/min) w dniach z większą ilością siedzenia (≥{sedentaryPerformanceInsight.medianSedentaryMinutes} min, {sedentaryPerformanceInsight.moreSittingWorkoutDays} dni treningowych) vs mniejszą ({sedentaryPerformanceInsight.lessSittingWorkoutDays} dni).
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                {sedentaryPerformanceInsight.avgKcalPerMinMoreSitting} vs {sedentaryPerformanceInsight.avgKcalPerMinLessSitting} kcal/min
+              </span>
+              <span style={{ fontWeight: '700', color: sedentaryPerformanceInsight.performanceDiffKcalPerMin < 0 ? 'var(--danger-light)' : 'var(--success-light)' }}>
+                {sedentaryPerformanceInsight.performanceDiffKcalPerMin > 0 ? '+' : ''}{sedentaryPerformanceInsight.performanceDiffKcalPerMin} kcal/min
+              </span>
+            </div>
+          </div>
+        )}
+        {!isLoadingSedentaryPerformance && sedentaryPerformanceInsight && !sedentaryPerformanceInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🪑🏋️ Siedzenie vs wydajność treningu</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              Za mało dni treningowych z danymi o siedzeniu do porównania.
+            </p>
           </div>
         )}
           </>

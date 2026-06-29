@@ -338,6 +338,12 @@ async function syncOura(userId) {
               WHEN activity_source = 'apple' AND (
                 COALESCE(steps, 0) > 0 OR COALESCE(active_calories, 0) > 0
                 OR COALESCE(total_calories_burned, 0) > 0 OR COALESCE(active_minutes, 0) > 0
+                -- Runda 12 (audyt): dodano distance_meters - bez tego dnia, w których
+                -- Apple Health dostarczał WYŁĄCZNIE dystans (bez kroków/kalorii/minut
+                -- aktywności w tym konkretnym imporcie), traciły ochronę source='apple'
+                -- i Oura/Google Fit mogły nadpisać distance_meters mimo że ta kolumna
+                -- sama w sobie jest chroniona (CASE przy distance_meters powyżej).
+                OR COALESCE(distance_meters, 0) > 0
               ) THEN activity_source
               ELSE COALESCE(excluded.activity_source, activity_source)
             END,
@@ -537,11 +543,20 @@ async function syncGoogleFit(userId) {
             active_calories = CASE WHEN activity_source = 'apple' AND COALESCE(active_calories, 0) > 0 THEN active_calories ELSE COALESCE(excluded.active_calories, active_calories) END,
             distance_meters = CASE WHEN activity_source = 'apple' AND COALESCE(distance_meters, 0) > 0 THEN distance_meters ELSE COALESCE(excluded.distance_meters, distance_meters) END,
             activity_source = CASE
-              WHEN activity_source = 'apple' AND (COALESCE(steps, 0) > 0 OR COALESCE(active_calories, 0) > 0) THEN activity_source
+              WHEN activity_source = 'apple' AND (COALESCE(steps, 0) > 0 OR COALESCE(active_calories, 0) > 0 OR COALESCE(distance_meters, 0) > 0) THEN activity_source
               ELSE COALESCE(excluded.activity_source, activity_source)
             END,
             last_sync = excluded.last_sync
-        `, [userId, dateStr, steps || null, calories || null, distance || null, lastSyncTime]);
+        `, [
+          userId, dateStr,
+          // Runda 12 (audyt): usunięto "|| null". Te wartości startują od 0 i są zliczane
+          // przez sumowanie punktów z Google Fit - 0 jest tu legalną, realną wartością
+          // dnia (np. faktycznie 0 kroków), a nie "brakiem danych". Konwersja na null
+          // psuła wzorzec ON CONFLICT (COALESCE(excluded.x, x)): null powodował, że
+          // SQLite zachowywał STARĄ wartość z bazy, więc dzień z realnym zerem nigdy nie
+          // nadpisywał błędnych/nieaktualnych danych z wcześniejszej synchronizacji.
+          steps, calories, distance, lastSyncTime
+        ]);
       }
     }
     return { success: true };

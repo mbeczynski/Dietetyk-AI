@@ -1197,7 +1197,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                   onChange={(e) => setBirthYearInput(e.target.value)}
                   placeholder="np. 1990"
                   min={1900}
-                  max={2025}
+                  max={new Date().getFullYear()}
                 />
               </div>
             </div>

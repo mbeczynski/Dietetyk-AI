@@ -14,6 +14,12 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
   const [isActivityGroupOpen, setIsActivityGroupOpen] = useState(false);
 
   useEffect(() => {
+    // Runda 12 (audyt): efekt zależy od `selectedDate` (zmiana dnia w nawigacji wyżej
+    // też przeładowuje historię), ale fetch zawsze pobiera te same "ostatnie 90 dni" -
+    // bez flagi `cancelled` szybka zmiana daty (np. kilka kliknięć "poprzedni dzień")
+    // mogła odłożyć starszą, wolniejszą odpowiedź NAD nowszą, jeśli ta pierwsza
+    // dociągnęła się jako ostatnia - dane na wykresach na chwilę "skakały" do tyłu.
+    let cancelled = false;
     const fetchHistory = async () => {
       if (!sessionToken) return;
       setIsLoading(true);
@@ -21,9 +27,10 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
         const res = await fetch('/api/health/history', {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (cancelled) return;
         if (res.ok) {
           const data = await res.json();
-          setHistoryData(data);
+          if (!cancelled) setHistoryData(data);
         } else if (res.status === 401) {
           // Wygasła sesja - bez tego Trends po prostu po cichu przestawał się odświeżać
           // (interwał co godzinę nadal działał, ale fetch zawsze zwracał 401), podczas gdy
@@ -32,9 +39,9 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
           if (onLogout) onLogout();
         }
       } catch (err) {
-        console.error('Błąd pobierania historii zdrowotnej:', err);
+        if (!cancelled) console.error('Błąd pobierania historii zdrowotnej:', err);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
     fetchHistory();
@@ -42,7 +49,10 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     // Odśwież dane co godzinę, zgodnie z godzinową synchronizacją po stronie backendu,
     // żeby otwarte wykresy też pokazywały najnowsze dane z bazy bez przeładowania strony.
     const intervalId = setInterval(fetchHistory, 60 * 60 * 1000);
-    return () => clearInterval(intervalId);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
   }, [sessionToken, selectedDate]);
 
   // Bezpieczna konwersja daty bez przesunięć strefy czasowej - new Date(selectedDate)
@@ -809,7 +819,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
           {renderLineChart("Wynik snu", "sleep_score", "%", [0, 50, 100], false, (v) => Math.round(v))}
           {renderLineChart("Wskaźnik regeneracji", "readiness_score", "%", [0, 50, 100], false, (v) => Math.round(v))}
           {renderLineChart("Spoczynkowe tętno", "rhr", "bpm", [40, 60, 80], false, (v) => Math.round(v))}
-          {renderLineChart("Zmienność rytmu zatokowego", "hrv", "ms", [20, 50, 80], false, (v) => Math.round(v))}
+          {renderLineChart("Zmienność rytmu serca (HRV)", "hrv", "ms", [20, 50, 80], false, (v) => Math.round(v))}
         </div>
       </div>
 

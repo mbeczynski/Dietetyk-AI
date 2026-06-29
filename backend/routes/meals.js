@@ -4,6 +4,7 @@ const db = require('../db');
 const { getLocalDateString } = require('../utils/dates');
 const { generateContentWithFallback } = require('../config');
 const { getCalorieBaseline, detectMealAnomalies } = require('../utils/mealAnomaly');
+const { invalidateAiExplanationCache } = require('../utils/aiExplanationCache');
 
 // Model AI (Gemini) czasem zwraca nierealistyczne lub ujemne wartości kalorii/makro
 // (np. błąd parsowania wielkości porcji, halucynacja liczby) - bez tego zabezpieczenia
@@ -254,6 +255,11 @@ Struktura JSON:
     const totalCalories = insertedMeals.reduce((sum, m) => sum + (m.calories || 0), 0);
     console.log(`[API LOG] Dodano ${insertedMeals.length} posiłek(ów) dla ${req.user.username} (ID: ${insertedMeals.map(m => m.id).join(', ')}). Łącznie: ${totalCalories} kcal`);
 
+    // Runda 12 (audyt): patrz komentarz w utils/aiExplanationCache.js - dodanie posiłku
+    // (w tym retroaktywnie, dla targetDate z przeszłości) może zmienić rzeczywistą
+    // przyczynę odchylenia, którą AI miało już wyjaśnione i zapisane w cache'u.
+    await invalidateAiExplanationCache(req.user.id, targetDate);
+
     res.status(201).json({
       count: insertedMeals.length,
       meals: insertedMeals
@@ -315,10 +321,14 @@ router.get('/api/meals', async (req, res) => {
 router.delete('/api/meals/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    // Data PRZED usunięciem - potrzebna do invalidacji cache'u wyjaśnienia AI (patrz
+    // utils/aiExplanationCache.js), po DELETE wiersza nie da się jej już odzyskać.
+    const meal = await db.get(`SELECT date FROM meals WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     const result = await db.run(`DELETE FROM meals WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Nie znaleziono posiłku.' });
     }
+    if (meal) await invalidateAiExplanationCache(req.user.id, meal.date);
     res.json({ success: true, message: 'Posiłek został usunięty.' });
   } catch (err) {
     console.error(err);
@@ -413,6 +423,8 @@ router.post('/api/meals/repeat', async (req, res) => {
     } catch (e) {
       analysis = {};
     }
+
+    await invalidateAiExplanationCache(req.user.id, targetDate);
 
     res.status(201).json({
       count: 1,

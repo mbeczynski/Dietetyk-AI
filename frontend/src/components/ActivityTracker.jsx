@@ -604,31 +604,35 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Długość snu:</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.sleep_duration != null ? `${summary.sleep_duration.toFixed(1)}h` : '--'}
+                    {summary.sleep_duration != null ? `${Number(summary.sleep_duration).toFixed(1)}h` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Faza głęboka / REM:</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.sleep_deep != null ? `${summary.sleep_deep.toFixed(1)}h` : '--'} / {summary.sleep_rem != null ? `${summary.sleep_rem.toFixed(1)}h` : '--'}
+                    {summary.sleep_deep != null ? `${Number(summary.sleep_deep).toFixed(1)}h` : '--'} / {summary.sleep_rem != null ? `${Number(summary.sleep_rem).toFixed(1)}h` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>HRV (Zmienność tętna):</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.hrv != null ? `${summary.hrv.toFixed(0)} ms` : '--'}
+                    {summary.hrv != null ? `${Number(summary.hrv).toFixed(0)} ms` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Tętno spoczynkowe (RHR):</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.rhr != null ? `${summary.rhr.toFixed(0)} bpm` : '--'}
+                    {summary.rhr != null ? `${Number(summary.rhr).toFixed(0)} bpm` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Odchylenie temperatury:</span>
-                  <span style={{ color: summary.temperature_deviation > 0 ? 'var(--danger-light)' : 'var(--success-light)', fontWeight: 600 }}>
-                    {summary.temperature_deviation != null ? `${summary.temperature_deviation > 0 ? '+' : ''}${summary.temperature_deviation.toFixed(2)} °C` : '--'}
+                  {/* Runda 12 (audyt): poprzednio `temperature_deviation > 0` przy null
+                      zwracało false, więc brak danych był kolorowany tak samo jak realne
+                      "0 lub mniej" (zielony) - teraz brak danych dostaje neutralny, wyciszony
+                      kolor, niezależny od interpretacji "dobre/złe". */}
+                  <span style={{ color: summary.temperature_deviation == null ? 'var(--text-dim)' : (summary.temperature_deviation > 0 ? 'var(--danger-light)' : 'var(--success-light)'), fontWeight: 600 }}>
+                    {summary.temperature_deviation != null ? `${summary.temperature_deviation > 0 ? '+' : ''}${Number(summary.temperature_deviation).toFixed(2)} °C` : '--'}
                   </span>
                 </div>
               </div>
@@ -657,7 +661,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', textAlign: 'center' }}>
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', display: 'block' }}>Aktualna Waga Ciała</span>
                   <strong style={{ fontSize: '1.8rem', color: '#fbbf24' }}>
-                    {summary.weight != null ? `${summary.weight.toFixed(1)} kg` : '--'}
+                    {summary.weight != null ? `${Number(summary.weight).toFixed(1)} kg` : '--'}
                   </strong>
                 </div>
               </div>
@@ -666,19 +670,19 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Procent tkanki tłuszczowej (Fat %):</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.fat_ratio != null ? `${summary.fat_ratio.toFixed(1)}%` : '--'}
+                    {summary.fat_ratio != null ? `${Number(summary.fat_ratio).toFixed(1)}%` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Szacowana masa tłuszczu:</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.weight != null && summary.fat_ratio != null ? `${((summary.weight * summary.fat_ratio) / 100).toFixed(1)} kg` : '--'}
+                    {summary.weight != null && summary.fat_ratio != null ? `${((Number(summary.weight) * Number(summary.fat_ratio)) / 100).toFixed(1)} kg` : '--'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Masa mięśniowa (Muscle mass):</span>
                   <span style={{ color: 'var(--success-light)', fontWeight: 600 }}>
-                    {summary.muscle_mass != null ? `${summary.muscle_mass.toFixed(1)} kg` : '--'}
+                    {summary.muscle_mass != null ? `${Number(summary.muscle_mass).toFixed(1)} kg` : '--'}
                   </span>
                 </div>
               </div>

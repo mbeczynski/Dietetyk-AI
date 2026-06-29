@@ -5,6 +5,8 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { requireAdmin } = require('../middleware/auth');
 const { sendMailgunEmail } = require('../services/mailgun');
+const { getAppConfig } = require('../services/oauthHelpers');
+const { APP_SECRET_CONFIG_KEYS, maskSecretValue, isMaskedSecretWrite } = require('../utils/secretKeys');
 
 // Klucze logowania Google - globalne dla całej aplikacji (w przeciwieństwie do Oura/Withings,
 // logowanie Google dotyczy uwierzytelnienia do samej aplikacji, więc konfiguruje je raz admin).
@@ -16,11 +18,7 @@ router.get('/api/admin/config', requireAdmin, async (req, res) => {
     const config = {};
     rows.forEach(r => {
       if (r.key.startsWith('mailgun_') || r.key === 'app_url' || r.key === 'force_2fa' || GOOGLE_CONFIG_KEYS.includes(r.key)) {
-        if ((r.key === 'mailgun_api_key' || r.key === 'google_client_secret') && r.value) {
-          config[r.key] = '********';
-        } else {
-          config[r.key] = r.value;
-        }
+        config[r.key] = maskSecretValue(r.key, r.value, APP_SECRET_CONFIG_KEYS);
       }
     });
     res.json(config);
@@ -34,7 +32,7 @@ router.post('/api/admin/config', requireAdmin, async (req, res) => {
   const settings = req.body;
   try {
     for (const [key, val] of Object.entries(settings)) {
-      if ((key === 'mailgun_api_key' || key === 'google_client_secret') && val === '********') {
+      if (isMaskedSecretWrite(key, val, APP_SECRET_CONFIG_KEYS)) {
         continue;
       }
       if (!key.startsWith('mailgun_') && key !== 'app_url' && key !== 'force_2fa' && !GOOGLE_CONFIG_KEYS.includes(key)) {
@@ -167,7 +165,14 @@ router.post('/api/admin/invite', requireAdmin, async (req, res) => {
       VALUES (?, ?, ?, 0, ?, ?, 'pending', ?)
     `, [tempUsername, dummyPassword, syncToken, email, roleToUse, token]);
 
-    const origin = req.headers.referer || req.headers.origin || `http://${req.headers.host}`;
+    // Runda 12 (audyt bezpieczeństwa): poprzednio origin był brany z req.headers.referer/
+    // origin/host - WSZYSTKIE w pełni kontrolowane przez klienta. Pozwalało to spreparować
+    // link rejestracyjny (z prawdziwym, działającym tokenem zaproszenia) wskazujący na
+    // dowolną domenę atakującego, wysyłany e-mailem w imieniu aplikacji. Teraz: skonfigurowany
+    // przez admina app_url (jak w integrations.js/auth.js), z fallbackiem na req.get('host')
+    // tylko gdy app_url nie jest ustawiony.
+    const appUrl = await getAppConfig('app_url');
+    const origin = appUrl ? appUrl.replace(/\/$/, '') : `${req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
     const registrationLink = `${origin}/register?token=${token}`;
 
     const emailHtml = `

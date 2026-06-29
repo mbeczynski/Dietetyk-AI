@@ -59,8 +59,14 @@ function buildGoalPaceAnalysis(targetWeightKg, currentWeight, weeklyWeightChange
   const goalDirection = remainingKg > 0 ? -1 : 1; // kierunek WYMAGANY przez cel
   const actualDirection = weeklyWeightChange === 0 ? 0 : (weeklyWeightChange > 0 ? 1 : -1);
   const directionMismatch = actualDirection !== 0 && actualDirection !== goalDirection;
+  // Runda 12 (audyt): próg minimalnego tempa - przy weeklyWeightChange bliskim zeru
+  // (np. 0.01 kg/tydzień) dzielenie dawało absurdalne wartości (setki/tysiące tygodni),
+  // które trafiały bez sensu do promptu AI w mailu. Poniżej tego progu tempo jest zbyt
+  // małe, by sensownie prognozować datę - traktujemy to jak "stalled" (brak postępu),
+  // mimo że formalnie actualDirection mogło wypaść niezerowe.
+  const MIN_WEEKLY_CHANGE_FOR_PROJECTION_KG = 0.05;
   let weeksToGoal = null;
-  if (!directionMismatch && actualDirection !== 0) {
+  if (!directionMismatch && actualDirection !== 0 && Math.abs(weeklyWeightChange) >= MIN_WEEKLY_CHANGE_FOR_PROJECTION_KG) {
     weeksToGoal = Math.round(Math.abs(remainingKg / weeklyWeightChange) * 10) / 10;
   }
   return {
@@ -70,7 +76,7 @@ function buildGoalPaceAnalysis(targetWeightKg, currentWeight, weeklyWeightChange
 }
 
 // Agregacja statystyk żywieniowo-zdrowotnych z zakresu dni (używana przez raport tygodniowy i miesięczny)
-function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
+async function aggregateNutritionAndHealth(meals, healthMetrics, numDays, userId, startDate) {
   // UWAGA: totalFiber/totalSugar/totalSodium MUSZĄ być zadeklarowane (let) PRZED forEach
   // poniżej, który ich używa - wcześniej deklaracja była niżej w funkcji, więc każde
   // wywołanie dla niepustej listy posiłków rzucało ReferenceError (Temporal Dead Zone),
@@ -141,7 +147,14 @@ function aggregateNutritionAndHealth(meals, healthMetrics, numDays) {
     }
   });
 
-  const workoutsCount = healthMetrics.filter(h => (h.active_calories || 0) > 0).length;
+  // Runda 12 (audyt): wcześniej workoutsCount liczył DNI, w których active_calories > 0,
+  // co (a) niedoszacowywało dni z kilkoma treningami (liczone jako 1) i (b) gubiło treningi
+  // bez zarejestrowanych kalorii aktywnych (np. trening siłowy bez danych z zegarka). Teraz
+  // liczymy realne wiersze z dedykowanej tabeli apple_health_workouts, tak jak robi to już
+  // routes/dashboard.js (np. recovery-insight/workout-calorie-efficiency).
+  const workoutsCount = userId && startDate
+    ? (await db.get(`SELECT COUNT(*) AS count FROM apple_health_workouts WHERE user_id = ? AND date >= ?`, [userId, startDate])).count
+    : healthMetrics.filter(h => (h.active_calories || 0) > 0).length;
 
   // POPRAWKA (runda 4 audytu): średnie dzienne liczone tu były dzielone przez STAŁĄ
   // długość okna (numDays=7 lub 30), niezależnie od tego, ile dni w tym okresie
@@ -405,7 +418,7 @@ async function sendWeeklySummaryForUser(userId, customEmail = null) {
   `, [userId, sevenDaysAgo]);
 
   const numDays = 7;
-  const stats = aggregateNutritionAndHealth(meals, healthMetrics, numDays);
+  const stats = await aggregateNutritionAndHealth(meals, healthMetrics, numDays, userId, sevenDaysAgo);
   const avgTotalBurned = bmr + stats.avgActiveCalories;
   const avgNetCalories = stats.avgEatenCalories - avgTotalBurned;
 
@@ -658,7 +671,7 @@ async function sendMonthlySummaryForUser(userId, customEmail = null) {
   `, [userId, thirtyDaysAgo]);
 
   const numDays = 30;
-  const stats = aggregateNutritionAndHealth(meals, healthMetrics, numDays);
+  const stats = await aggregateNutritionAndHealth(meals, healthMetrics, numDays, userId, thirtyDaysAgo);
   const avgTotalBurned = bmr + stats.avgActiveCalories;
   const avgNetCalories = stats.avgEatenCalories - avgTotalBurned;
 

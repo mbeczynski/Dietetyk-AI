@@ -44,6 +44,11 @@ const { parseHealthAutoExportDate, dateObjToLocalDateString } = require('../util
 // automatyzacji Health Auto Export na telefonie (domyślnie wyłączony - bez niego
 // payload treningu nie zawiera w ogóle pól tętna).
 
+// Górne limity rozmiaru payloadu webhooka (Runda 12, audyt bezpieczeństwa) - patrz
+// komentarz przy ich użyciu w handlerze POST niżej.
+const MAX_METRIC_ENTRIES_PER_REQUEST = 20000;
+const MAX_WORKOUTS_PER_REQUEST = 500;
+
 const KJ_TO_KCAL = 1 / 4.184;
 
 // Health Auto Export może wysyłać energię w "kJ" albo "kcal" w zależności od ustawień
@@ -312,6 +317,23 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
 
     if (!metrics && !workouts) {
       return res.status(400).json({ error: 'Nieprawidłowy format danych - oczekiwano pola data.metrics[] lub data.workouts[].' });
+    }
+
+    // Audyt bezpieczeństwa (Runda 12): ten webhook NIE ma autentykacji sesyjnej (tylko
+    // sync_token w URL, patrz komentarz na początku pliku) i przed tą zmianą nie miał
+    // ŻADNEGO górnego limitu liczby wpisów w payloadzie. Każdy trening robi sekwencyjne
+    // zapytania do bazy (getRestingHrForDate + INSERT), a każdy wpis metryki jest
+    // przetwarzany w pętli - spreparowany payload z tysiącami elementów mógłby zająć
+    // serwer na długo (DoS). Realny payload z Health Auto Export (nawet przy zbiorczej
+    // wysyłce wielu dni/automatyzacji naraz) nie powinien przekraczać tych wartości.
+    const totalMetricEntries = metrics
+      ? metrics.reduce((sum, m) => sum + (m && Array.isArray(m.data) ? m.data.length : 0), 0)
+      : 0;
+    if (totalMetricEntries > MAX_METRIC_ENTRIES_PER_REQUEST) {
+      return res.status(400).json({ error: `Za dużo wpisów metryk w jednym żądaniu (limit: ${MAX_METRIC_ENTRIES_PER_REQUEST}).` });
+    }
+    if (workouts && workouts.length > MAX_WORKOUTS_PER_REQUEST) {
+      return res.status(400).json({ error: `Za dużo treningów w jednym żądaniu (limit: ${MAX_WORKOUTS_PER_REQUEST}).` });
     }
 
     // Sumujemy wszystkie wpisy danej metryki/treningu przypadające na ten sam dzień

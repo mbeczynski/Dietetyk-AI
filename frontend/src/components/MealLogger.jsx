@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing, frequentMeals, onRepeatMeal }) {
   const [mealText, setMealText] = useState('');
@@ -10,6 +10,15 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
   const [successMessage, setSuccessMessage] = useState('');
   const fileInputRef = useRef(null);
   const successTimeoutRef = useRef(null);
+
+  // Runda 12 (audyt): setTimeout w handleSubmit/handleRepeatClick nie był czyszczony
+  // przy odmontowaniu komponentu (np. przełączenie zakładki tuż po zapisaniu posiłku) -
+  // po 4s próbował wywołać setSuccessMessage na już odmontowanym komponencie.
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    };
+  }, []);
   // ID posiłku aktualnie powtarzanego przez chip "częste posiłki" (Runda 9) - blokuje
   // tylko ten jeden chip podczas zapisu, nie cały formularz (w przeciwieństwie do
   // isAnalyzing, które dotyczy analizy AI nowego posiłku).

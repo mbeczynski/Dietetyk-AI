@@ -10,6 +10,7 @@ const { buildHealthReportPdf } = require('../services/pdfReport');
 const { createShareLink, listSharesForUser, revokeShare, VALIDITY_OPTIONS_HOURS } = require('../services/sharedReports');
 const { getAppConfig } = require('../services/oauthHelpers');
 const { summaryEmailLimiter } = require('../middleware/rateLimit');
+const { USER_SECRET_SETTING_KEYS, maskSecretValue, isMaskedSecretWrite } = require('../utils/secretKeys');
 
 // Prosta walidacja formatu e-maila (nie pełny RFC 5322 - to wystarcza, żeby
 // odrzucić oczywiście niepoprawne wartości zapisywane bezpośrednio do bazy /
@@ -39,8 +40,8 @@ router.get('/api/settings', async (req, res) => {
       sync_token: user ? user.sync_token : ''
     };
     rows.forEach(r => {
-      if ((r.key === 'gemini_api_key' || r.key === 'oura_client_secret' || r.key === 'withings_client_secret') && r.value) {
-        settings[r.key] = '********';
+      if (USER_SECRET_SETTING_KEYS.includes(r.key) && r.value) {
+        settings[r.key] = maskSecretValue(r.key, r.value, USER_SECRET_SETTING_KEYS);
       } else if (r.value === '') {
         // UWAGA: Number('') === 0, a isNaN('') === false - więc bez tego wyjątku
         // pusty string byłby tu zamieniany na liczbę 0. To był realny błąd:
@@ -80,7 +81,7 @@ router.post('/api/settings', async (req, res) => {
   try {
     for (const [key, val] of Object.entries(settings)) {
       if (key === 'sync_token') continue; // Pole tylko do odczytu
-      if ((key === 'gemini_api_key' || key === 'oura_client_secret' || key === 'withings_client_secret') && val === '********') {
+      if (isMaskedSecretWrite(key, val, USER_SECRET_SETTING_KEYS)) {
         continue; // Pomijamy aktualizację sekretów, jeśli przesłano maskę
       }
       if (CREDENTIAL_KEYS.includes(key) && (val === '' || val === null || val === undefined || val === 0)) {
@@ -551,11 +552,7 @@ router.get('/api/user/export', async (req, res) => {
     // gdzieś zapisać/wysłać dalej.
     const maskedSettings = {};
     settings.forEach(r => {
-      if (['gemini_api_key', 'oura_client_secret', 'withings_client_secret'].includes(r.key) && r.value) {
-        maskedSettings[r.key] = '********';
-      } else {
-        maskedSettings[r.key] = r.value;
-      }
+      maskedSettings[r.key] = maskSecretValue(r.key, r.value, USER_SECRET_SETTING_KEYS);
     });
 
     res.setHeader('Content-Disposition', 'attachment; filename="dietetyk-ai-eksport-danych.json"');

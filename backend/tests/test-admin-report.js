@@ -1,6 +1,6 @@
-const db = require('./db');
-const logger = require('./services/logger');
-const { sendWeeklyAdminReport } = require('./services/adminReport');
+const db = require('../db');
+const logger = require('../services/logger');
+const { sendWeeklyAdminReport } = require('../services/adminReport');
 
 async function runTest() {
   console.log('Rozpoczynam test modułu logów i raportu administratora...');

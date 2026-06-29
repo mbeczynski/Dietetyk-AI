@@ -243,11 +243,29 @@ router.post('/api/chat', requireAuth, async (req, res) => {
     let historyContext = '';
     if (Array.isArray(history) && history.length > 0) {
       // Filtrowanie pustych wpisów
-      const filteredHistory = history.filter(h => h.text && h.text.trim().length > 0);
-      historyContext = '\nHistoria rozmowy w tej sesji (od najstarszej):\n' + filteredHistory.map(h => {
-        const roleName = h.sender === 'user' ? 'Użytkownik' : 'Dietetyk AI';
-        return `${roleName}: ${h.text}`;
-      }).join('\n') + '\n';
+      let filteredHistory = history.filter(h => h.text && h.text.trim().length > 0);
+      
+      // Wykluczamy ostatnią wiadomość z historii, jeśli jest identyczna z bieżącym zapytaniem użytkownika
+      // (ponieważ bieżące zapytanie jest już dołączone na końcu promptu jako "Pytanie użytkownika")
+      if (
+        filteredHistory.length > 0 &&
+        filteredHistory[filteredHistory.length - 1].sender === 'user' &&
+        filteredHistory[filteredHistory.length - 1].text.trim() === message.trim()
+      ) {
+        filteredHistory.pop();
+      }
+
+      // Przycinamy historię do ostatnich 15 wiadomości, by uniknąć rozdęcia promptu (prompt bloat)
+      filteredHistory = filteredHistory.slice(-15);
+
+      if (filteredHistory.length > 0) {
+        historyContext = '\nHistoria rozmowy w tej sesji (od najstarszej):\n' + filteredHistory.map(h => {
+          const roleName = h.sender === 'user' ? 'Użytkownik' : 'Dietetyk AI';
+          // Przycinamy długie wiadomości w historii do 500 znaków jako dodatkowa ochrona
+          const text = h.text.length > 500 ? h.text.slice(0, 500) + '...' : h.text;
+          return `${roleName}: ${text}`;
+        }).join('\n') + '\n';
+      }
     }
 
     // Pobierz klucz API użytkownika (jeśli posiada)

@@ -1,4 +1,4 @@
-const db = require('./db');
+const db = require('../db');
 
 async function runTest() {
   console.log('\n--- TEST BAZY DANYCH: POMIARY OBWODÓW CIAŁA ---');

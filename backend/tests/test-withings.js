@@ -1,7 +1,7 @@
 const path = require('path');
 const dotenv = require('dotenv');
-dotenv.config({ path: path.join(__dirname, '.env') });
-const db = require('./db');
+dotenv.config({ path: path.join(__dirname, '../.env') });
+const db = require('../db');
 
 async function testWithingsConnection() {
   console.log('\n--- TEST ZINTEGROWANIA WITHINGS ---');

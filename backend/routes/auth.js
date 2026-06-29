@@ -468,6 +468,10 @@ router.post('/api/change-password-forced', async (req, res) => {
   if (!tempToken || !newPassword) {
     return res.status(400).json({ error: 'Token i nowe hasło są wymagane.' });
   }
+  const passError = validatePassword(newPassword);
+  if (passError) {
+    return res.status(400).json({ error: passError });
+  }
 
   try {
     const session = await db.get(`

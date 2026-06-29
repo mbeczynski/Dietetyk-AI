@@ -1,4 +1,4 @@
-const db = require('./db');
+const db = require('../db');
 
 async function sendMailgunEmail({ to, subject, html }) {
   const configRows = await db.all(`SELECT * FROM app_config`);

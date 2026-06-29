@@ -64,9 +64,18 @@ async function requireAuth(req, res, next) {
       return res.status(401).json({ error: 'Wymagana weryfikacja 2FA. Uzupełnij kod.' });
     }
 
-    // Przedłuż sesję o 7 dni
-    const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-    await db.run(`UPDATE sessions SET expires_at = ? WHERE token = ?`, [nextWeek, token]);
+    // Przedłuż sesję o 7 dni tylko, jeśli do wygaśnięcia zostało mniej niż 6 dni
+    // (zapobiega to ciągłym zapisom w SQLite przy każdym zapytaniu API, co mogło
+    // powodować locki bazy SQLITE_BUSY przy równoległych żądaniach z dashboardu).
+    const expiresAtMs = new Date(session.expires_at).getTime();
+    const nowMs = Date.now();
+    const remainingTimeMs = expiresAtMs - nowMs;
+    const sixDaysInMs = 6 * 24 * 60 * 60 * 1000;
+
+    if (remainingTimeMs < sixDaysInMs) {
+      const nextWeek = new Date(nowMs + 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+      await db.run(`UPDATE sessions SET expires_at = ? WHERE token = ?`, [nextWeek, token]);
+    }
 
     req.user = {
       id: session.user_id,

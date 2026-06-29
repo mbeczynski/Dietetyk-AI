@@ -664,6 +664,120 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     fetchFavoriteMealDriftInsight();
   }, [sessionToken, selectedDate]);
 
+  // Trend SpO2 (saturacja krwi) - ostatnie 7 dni vs poprzedzający baseline 28 dni.
+  // Patrz /api/dashboard/spo2-trend-insight.
+  const [spo2TrendInsight, setSpo2TrendInsight] = useState(null);
+  useEffect(() => {
+    const fetchSpo2TrendInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/spo2-trend-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setSpo2TrendInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania trendu SpO2:', err);
+      }
+    };
+    fetchSpo2TrendInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Wskaźnik WHR (obwód pasa / obwód bioder) - uznany wskaźnik ryzyka
+  // sercowo-naczyniowego. Patrz /api/dashboard/whr-insight.
+  const [whrInsight, setWhrInsight] = useState(null);
+  useEffect(() => {
+    const fetchWhrInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/whr-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setWhrInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu WHR:', err);
+      }
+    };
+    fetchWhrInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Symetria bicepsów (lewy vs prawy) z pomiarów obwodów ciała.
+  // Patrz /api/dashboard/body-symmetry-insight.
+  const [bodySymmetryInsight, setBodySymmetryInsight] = useState(null);
+  useEffect(() => {
+    const fetchBodySymmetryInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/body-symmetry-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setBodySymmetryInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu symetrii bicepsów:', err);
+      }
+    };
+    fetchBodySymmetryInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Trend tempa biegu/marszu (min/km, przybliżony) - dni z jednym treningiem
+  // run/walk/hike. Patrz /api/dashboard/pace-trend-insight.
+  const [paceTrendInsight, setPaceTrendInsight] = useState(null);
+  useEffect(() => {
+    const fetchPaceTrendInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/pace-trend-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setPaceTrendInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania trendu tempa:', err);
+      }
+    };
+    fetchPaceTrendInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Różnorodność treningów (rozkład workout_type, ostatnie 60 dni).
+  // Patrz /api/dashboard/workout-variety-insight.
+  const [workoutVarietyInsight, setWorkoutVarietyInsight] = useState(null);
+  useEffect(() => {
+    const fetchWorkoutVarietyInsight = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/workout-variety-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setWorkoutVarietyInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania różnorodności treningów:', err);
+      }
+    };
+    fetchWorkoutVarietyInsight();
+  }, [sessionToken, selectedDate]);
+
+  // Composite Wellness Score (0-100) - syntetyzuje sen/gotowość/RHR/dietę/nawodnienie
+  // w jeden nagłówkowy wskaźnik dnia. Patrz /api/dashboard/wellness-score.
+  const [wellnessScore, setWellnessScore] = useState(null);
+  useEffect(() => {
+    const fetchWellnessScore = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/wellness-score${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (res.ok) setWellnessScore(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania Wellness Score:', err);
+      }
+    };
+    fetchWellnessScore();
+  }, [sessionToken, selectedDate]);
+
   // Zwijalna sekcja "Analizy" (UX: rundy 7 - 12 kart insightów w jednym miejscu,
   // domyślnie zwinięta, żeby nie zalewać dashboardu od razu po wejściu).
   const [isAnalizyOpen, setIsAnalizyOpen] = useState(false);
@@ -2233,6 +2347,158 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 10): WELLNESS SCORE (0-100) */}
+        {wellnessScore && wellnessScore.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">✨ Wellness Score</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Syntetyczny wskaźnik dnia z {wellnessScore.componentsUsed}/{wellnessScore.componentsTotal} dostępnych sygnałów (sen, gotowość, RHR, dieta, nawodnienie).
+            </p>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+              <span style={{ fontSize: '2rem', fontWeight: '800', color: wellnessScore.wellnessScore >= 80 ? 'var(--success-light)' : wellnessScore.wellnessScore >= 60 ? '#fff' : wellnessScore.wellnessScore >= 40 ? '#fbbf24' : 'var(--danger-light)' }}>
+                {wellnessScore.wellnessScore}
+              </span>
+              <span style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)' }}>/100 - {wellnessScore.label}</span>
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Ważona synteza Twoich danych, nie kliniczny pomiar zdrowia.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 10): TREND SpO2 */}
+        {spo2TrendInsight && spo2TrendInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🫁 Trend SpO2</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Średnie SpO2 z ostatnich {spo2TrendInsight.recentDays} dni vs Twoja własna baseline z poprzedzających {spo2TrendInsight.baselineDays} dni.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                SpO2: {spo2TrendInsight.avgRecentSpo2}% vs {spo2TrendInsight.avgBaselineSpo2}%
+              </span>
+              <span style={{ fontWeight: '700', color: spo2TrendInsight.spo2Diff < 0 ? 'var(--danger-light)' : 'var(--success-light)' }}>
+                {spo2TrendInsight.spo2Diff > 0 ? '+' : ''}{spo2TrendInsight.spo2Diff} pp
+              </span>
+            </div>
+            {spo2TrendInsight.isLow && (
+              <p style={{ fontSize: '0.74rem', color: 'var(--danger-light)', marginTop: '10px', marginBottom: 0 }}>
+                ⚠️ SpO2 ostatnio niższe niż Twoja baseline - może to być sygnał problemów z oddychaniem w czasie snu, infekcji albo przebywania na wysokości.
+              </p>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie diagnoza medyczna.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 10): WSKAŹNIK WHR */}
+        {whrInsight && whrInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">📏 Wskaźnik WHR (pas/biodra)</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Z {whrInsight.measurements} pomiarów obwodów z ostatniego roku (najnowszy: {whrInsight.latestDate}).
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>Aktualny WHR</span>
+              <span style={{ fontWeight: '700', color: whrInsight.isAboveMaleThreshold ? 'var(--danger-light)' : '#fff' }}>
+                {whrInsight.latestWhr}
+              </span>
+            </div>
+            {(whrInsight.isAboveFemaleThreshold || whrInsight.isAboveMaleThreshold) && (
+              <p style={{ fontSize: '0.74rem', color: 'var(--danger-light)', marginTop: '10px', marginBottom: 0 }}>
+                ⚠️ Wartość powyżej progu WHO ({whrInsight.whoThresholdFemale} dla kobiet / {whrInsight.whoThresholdMale} dla mężczyzn) - podwyższone ryzyko sercowo-naczyniowe.
+              </p>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Trend: {whrInsight.whrTrend === 'down' ? 'spadkowy' : whrInsight.whrTrend === 'up' ? 'wzrostowy' : 'stabilny'}. Nie zastępuje konsultacji lekarskiej.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 10): SYMETRIA BICEPSÓW */}
+        {bodySymmetryInsight && bodySymmetryInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💪 Symetria bicepsów</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Z {bodySymmetryInsight.measurements} pomiarów (lewy vs prawy biceps), najnowszy: {bodySymmetryInsight.latestDate}.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>Średnia różnica (L - P)</span>
+              <span style={{ fontWeight: '700', color: bodySymmetryInsight.isAsymmetric ? 'var(--danger-light)' : 'var(--success-light)' }}>
+                {bodySymmetryInsight.avgDiffCm > 0 ? '+' : ''}{bodySymmetryInsight.avgDiffCm} cm
+              </span>
+            </div>
+            {bodySymmetryInsight.isAsymmetric && (
+              <p style={{ fontSize: '0.74rem', color: 'var(--danger-light)', marginTop: '10px', marginBottom: 0 }}>
+                ⚠️ Dominująca strona: {bodySymmetryInsight.dominantSide === 'left' ? 'lewa' : 'prawa'} (różnica ≥ {bodySymmetryInsight.asymmetryThresholdCm} cm) - rozważ korekcyjne ćwiczenia jednostronne.
+              </p>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Niewielka asymetria jest normalna - liczy się trwałość i kierunek trendu.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 10): TREND TEMPA BIEGU/MARSZU */}
+        {paceTrendInsight && paceTrendInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🏃 Trend tempa biegu/marszu</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Przybliżone tempo (dystans dnia / czas treningu) z ostatnich {paceTrendInsight.recentDays} dni vs poprzedzających {paceTrendInsight.baselineDays} dni z jednym treningiem run/walk/hike.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+                Tempo: {paceTrendInsight.avgRecentPaceMinPerKm} vs {paceTrendInsight.avgBaselinePaceMinPerKm} min/km
+              </span>
+              <span style={{ fontWeight: '700', color: paceTrendInsight.isImproving ? 'var(--success-light)' : paceTrendInsight.isSlower ? 'var(--danger-light)' : '#fff' }}>
+                {paceTrendInsight.paceDiffMinPerKm > 0 ? '+' : ''}{paceTrendInsight.paceDiffMinPerKm} min/km
+              </span>
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Przybliżenie z dziennego dystansu - apka nie zapisuje dystansu per trening.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 10): RÓŻNORODNOŚĆ TRENINGÓW */}
+        {workoutVarietyInsight && workoutVarietyInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🎲 Różnorodność treningów</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Rozkład typów treningów z ostatnich 60 dni ({workoutVarietyInsight.totalWorkouts} treningów, {workoutVarietyInsight.distinctTypes} dyscyplin).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {workoutVarietyInsight.breakdown.slice(0, 5).map((b, idx) => (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.type}</span>
+                  <div style={{ flex: 1, height: '8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                    <div style={{ width: `${b.pct}%`, height: '100%', background: '#60a5fa', borderRadius: '4px' }} />
+                  </div>
+                  <span style={{ fontWeight: '700', color: '#fff', minWidth: '40px', textAlign: 'right' }}>{b.pct}%</span>
+                </div>
+              ))}
+            </div>
+            {workoutVarietyInsight.isImbalanced && (
+              <p style={{ fontSize: '0.74rem', color: 'var(--danger-light)', marginTop: '10px', marginBottom: 0 }}>
+                ⚠️ {workoutVarietyInsight.dominantType} to {workoutVarietyInsight.dominantPct}% wszystkich treningów - rozważ większą różnorodność, by uniknąć przetrenowania jednej grupy mięśniowej/dyscypliny.
+              </p>
             )}
           </div>
         )}

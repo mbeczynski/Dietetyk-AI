@@ -2657,4 +2657,408 @@ router.get('/api/dashboard/favorite-meal-drift-insight', async (req, res) => {
   }
 });
 
+const SPO2_RECENT_WINDOW_DAYS = 7;
+const SPO2_BASELINE_WINDOW_DAYS = 28;
+const MIN_RECENT_SPO2_DAYS = 4;
+const MIN_BASELINE_SPO2_DAYS = 14;
+
+// Trend SpO2 (saturacja krwi): okno ostatnich dni vs poprzedzający baseline -
+// identyczny wzorzec jak rhr-drift-insight, ale tu interesuje nas SPADEK
+// (niższe SpO2 niż własny baseline może sygnalizować problemy z oddychaniem
+// w czasie snu, infekcję albo przebywanie na wysokości), nie wzrost.
+router.get('/api/dashboard/spo2-trend-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const recentStart = shiftDate(today, -(SPO2_RECENT_WINDOW_DAYS - 1));
+    const baselineEnd = shiftDate(recentStart, -1);
+    const baselineStart = shiftDate(baselineEnd, -(SPO2_BASELINE_WINDOW_DAYS - 1));
+
+    const rows = await db.all(
+      `SELECT date, spo2_percentage FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ? AND spo2_percentage IS NOT NULL AND spo2_percentage > 0`,
+      [req.user.id, baselineStart, today]
+    );
+
+    const recent = rows.filter(r => r.date >= recentStart && r.date <= today).map(r => r.spo2_percentage);
+    const baseline = rows.filter(r => r.date >= baselineStart && r.date <= baselineEnd).map(r => r.spo2_percentage);
+
+    if (recent.length < MIN_RECENT_SPO2_DAYS || baseline.length < MIN_BASELINE_SPO2_DAYS) {
+      return res.json({
+        hasEnoughData: false, reason: 'not_enough_days',
+        recentDays: recent.length, baselineDays: baseline.length,
+        minRecentDaysRequired: MIN_RECENT_SPO2_DAYS, minBaselineDaysRequired: MIN_BASELINE_SPO2_DAYS
+      });
+    }
+
+    const avg = (arr) => Math.round((arr.reduce((s, v) => s + v, 0) / arr.length) * 10) / 10;
+    const avgRecentSpo2 = avg(recent);
+    const avgBaselineSpo2 = avg(baseline);
+    const { stdDev: baselineStdDev } = meanAndStdDev(baseline);
+    const spo2Diff = Math.round((avgRecentSpo2 - avgBaselineSpo2) * 10) / 10;
+    // SpO2 ma naturalnie bardzo mały rozrzut (zwykle 95-99%), więc przy stdDev=0
+    // (np. tylko jedna odczytana wartość się powtarza) fallback jest niewielki - 1pp.
+    const isLow = baselineStdDev > 0 ? spo2Diff < -baselineStdDev : spo2Diff < -1;
+
+    res.json({
+      hasEnoughData: true, recentDays: recent.length, baselineDays: baseline.length,
+      avgRecentSpo2, avgBaselineSpo2, spo2Diff,
+      baselineStdDev: Math.round(baselineStdDev * 10) / 10, isLow
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu trendu SpO2.' });
+  }
+});
+
+const MIN_WHR_MEASUREMENTS = 4;
+const MIN_WHR_SPAN_DAYS = 14;
+const WHR_LOOKBACK_DAYS = 365;
+
+// Wskaźnik WHR (waist-to-hip ratio = obwód pasa / obwód bioder) - uznany w
+// literaturze klinicznej (WHO) wskaźnik ryzyka sercowo-naczyniowego, niezależny
+// od samej wagi czy BMI. Liczony tylko z pomiarów, gdzie waist i hips zapisano
+// TEGO SAMEGO dnia (inaczej łączenie po dacie zniekształcałoby wskaźnik).
+// Progi WHO: kobiety >0.85, mężczyźni >0.90 = podwyższone ryzyko. Aplikacja nie
+// zbiera pola "płeć" w ustawieniach, więc zwracamy oba progi i pozwalamy
+// frontowi/użytkownikowi samemu zinterpretować wynik względem własnego progu.
+router.get('/api/dashboard/whr-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -WHR_LOOKBACK_DAYS);
+
+    const rows = await db.all(
+      `SELECT date, waist, hips FROM body_measurements
+       WHERE user_id = ? AND date >= ? AND date <= ? AND waist IS NOT NULL AND hips IS NOT NULL AND hips > 0
+       ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+
+    if (rows.length < MIN_WHR_MEASUREMENTS) {
+      return res.json({
+        hasEnoughData: false, reason: 'not_enough_measurements',
+        measurements: rows.length, minMeasurementsRequired: MIN_WHR_MEASUREMENTS
+      });
+    }
+
+    const whrRows = rows.map(r => ({ date: r.date, whr: r.waist / r.hips }));
+    const spanDays = (new Date(whrRows[whrRows.length - 1].date).getTime() - new Date(whrRows[0].date).getTime()) / (24 * 60 * 60 * 1000);
+
+    if (spanDays < MIN_WHR_SPAN_DAYS) {
+      return res.json({
+        hasEnoughData: false, reason: 'span_too_short',
+        spanDays: Math.round(spanDays), minSpanDaysRequired: MIN_WHR_SPAN_DAYS
+      });
+    }
+
+    const latestWhr = Math.round(whrRows[whrRows.length - 1].whr * 1000) / 1000;
+    const whrPoints = toRegressionPoints(whrRows, 'whr');
+    const whrSlopePerDay = linearRegressionSlope(whrPoints);
+    const whrTrend = whrSlopePerDay === null ? 'flat' : (whrSlopePerDay < -0.0002 ? 'down' : whrSlopePerDay > 0.0002 ? 'up' : 'flat');
+
+    res.json({
+      hasEnoughData: true,
+      measurements: rows.length,
+      spanDays: Math.round(spanDays),
+      latestWhr,
+      latestDate: whrRows[whrRows.length - 1].date,
+      whrTrend,
+      whrSlopePerMonth: whrSlopePerDay !== null ? Math.round(whrSlopePerDay * 30 * 1000) / 1000 : null,
+      whoThresholdFemale: 0.85,
+      whoThresholdMale: 0.90,
+      isAboveFemaleThreshold: latestWhr > 0.85,
+      isAboveMaleThreshold: latestWhr > 0.90
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu WHR.' });
+  }
+});
+
+const MIN_SYMMETRY_MEASUREMENTS = 4;
+const SYMMETRY_LOOKBACK_DAYS = 365;
+const SYMMETRY_ASYMMETRY_THRESHOLD_CM = 0.5;
+
+// Symetria bicepsów (biceps_left vs biceps_right) - nigdy wcześniej nie
+// porównywane w aplikacji. Trwała różnica >0.5cm między stronami jest częstym
+// sygnałem nierównomiernego treningu/dominacji jednej strony ciała (typowe u
+// osób praworęcznych/leworęcznych trenujących bez świadomej korekty).
+router.get('/api/dashboard/body-symmetry-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -SYMMETRY_LOOKBACK_DAYS);
+
+    const rows = await db.all(
+      `SELECT date, biceps_left, biceps_right FROM body_measurements
+       WHERE user_id = ? AND date >= ? AND date <= ? AND biceps_left IS NOT NULL AND biceps_right IS NOT NULL
+       ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+
+    if (rows.length < MIN_SYMMETRY_MEASUREMENTS) {
+      return res.json({
+        hasEnoughData: false, reason: 'not_enough_measurements',
+        measurements: rows.length, minMeasurementsRequired: MIN_SYMMETRY_MEASUREMENTS
+      });
+    }
+
+    const diffRows = rows.map(r => ({ date: r.date, diff: r.biceps_left - r.biceps_right }));
+    const avgDiffCm = Math.round((diffRows.reduce((s, r) => s + r.diff, 0) / diffRows.length) * 100) / 100;
+    const latestDiffCm = Math.round(diffRows[diffRows.length - 1].diff * 100) / 100;
+    const diffPoints = toRegressionPoints(diffRows, 'diff');
+    const diffSlopePerDay = linearRegressionSlope(diffPoints);
+
+    res.json({
+      hasEnoughData: true,
+      measurements: rows.length,
+      avgDiffCm,
+      latestDiffCm,
+      latestDate: diffRows[diffRows.length - 1].date,
+      dominantSide: Math.abs(avgDiffCm) < 0.05 ? null : (avgDiffCm > 0 ? 'left' : 'right'),
+      isAsymmetric: Math.abs(avgDiffCm) >= SYMMETRY_ASYMMETRY_THRESHOLD_CM,
+      asymmetryThresholdCm: SYMMETRY_ASYMMETRY_THRESHOLD_CM,
+      diffTrendCmPerMonth: diffSlopePerDay !== null ? Math.round(diffSlopePerDay * 30 * 100) / 100 : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu symetrii bicepsów.' });
+  }
+});
+
+const PACE_LOOKBACK_DAYS = 120;
+const PACE_RECENT_WINDOW_DAYS = 14;
+const PACE_BASELINE_WINDOW_DAYS = 90;
+const MIN_RECENT_PACE_DAYS = 3;
+const MIN_BASELINE_PACE_DAYS = 5;
+const PACE_WORKOUT_TYPE_REGEX = /run|bieg|walk|marsz|spacer|hik|trek/i;
+
+// Tempo biegu/marszu (min/km) - PRZYBLIŻONE, bo apple_health_workouts NIE MA
+// kolumny dystansu per trening. Łączymy więc dzienny dystans (health_metrics.
+// distance_meters) z czasem trwania treningu, ale TYLKO dla dni, w których
+// zapisano DOKŁADNIE JEDEN trening danego dnia (niezależnie od typu) - inaczej
+// dzienny dystans mógłby być sumą np. biegu i osobnego marszu, co fałszowałoby
+// tempo. Patrz workout-efficiency-insight - tu zamiast kcal/min liczymy
+// czas/km, i dodatkowo wymagamy typu run/walk/hike.
+router.get('/api/dashboard/pace-trend-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -PACE_LOOKBACK_DAYS);
+
+    const workoutRows = await db.all(
+      `SELECT date, workout_type, duration_minutes FROM apple_health_workouts
+       WHERE user_id = ? AND date >= ? AND date <= ? AND duration_minutes IS NOT NULL AND duration_minutes > 0`,
+      [req.user.id, startDate, today]
+    );
+
+    const byDate = new Map();
+    workoutRows.forEach(w => {
+      if (!byDate.has(w.date)) byDate.set(w.date, []);
+      byDate.get(w.date).push(w);
+    });
+
+    const singleWorkoutDates = [...byDate.entries()]
+      .filter(([, workouts]) => workouts.length === 1 && PACE_WORKOUT_TYPE_REGEX.test(workouts[0].workout_type || ''))
+      .map(([date, workouts]) => ({ date, durationMinutes: workouts[0].duration_minutes }));
+
+    if (singleWorkoutDates.length === 0) {
+      return res.json({ hasEnoughData: false, reason: 'no_eligible_single_workout_days' });
+    }
+
+    const dates = singleWorkoutDates.map(d => d.date);
+    const distRows = await db.all(
+      `SELECT date, distance_meters FROM health_metrics
+       WHERE user_id = ? AND date IN (${dates.map(() => '?').join(',')}) AND distance_meters IS NOT NULL AND distance_meters > 0`,
+      [req.user.id, ...dates]
+    );
+    const distanceByDate = new Map(distRows.map(r => [r.date, r.distance_meters]));
+
+    const paceRows = singleWorkoutDates
+      .filter(d => distanceByDate.has(d.date))
+      .map(d => ({
+        date: d.date,
+        paceMinPerKm: d.durationMinutes / (distanceByDate.get(d.date) / 1000)
+      }))
+      .filter(r => r.paceMinPerKm > 0 && isFinite(r.paceMinPerKm))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const recentStart = shiftDate(today, -(PACE_RECENT_WINDOW_DAYS - 1));
+    const baselineEnd = shiftDate(recentStart, -1);
+    const recent = paceRows.filter(r => r.date >= recentStart && r.date <= today).map(r => r.paceMinPerKm);
+    const baseline = paceRows.filter(r => r.date < recentStart && r.date >= shiftDate(today, -PACE_BASELINE_WINDOW_DAYS)).map(r => r.paceMinPerKm);
+
+    if (recent.length < MIN_RECENT_PACE_DAYS || baseline.length < MIN_BASELINE_PACE_DAYS) {
+      return res.json({
+        hasEnoughData: false, reason: 'not_enough_days',
+        eligibleDays: paceRows.length, recentDays: recent.length, baselineDays: baseline.length,
+        minRecentDaysRequired: MIN_RECENT_PACE_DAYS, minBaselineDaysRequired: MIN_BASELINE_PACE_DAYS
+      });
+    }
+
+    const avg = (arr) => Math.round((arr.reduce((s, v) => s + v, 0) / arr.length) * 100) / 100;
+    const avgRecentPace = avg(recent);
+    const avgBaselinePace = avg(baseline);
+    const { stdDev: baselineStdDev } = meanAndStdDev(baseline);
+    const paceDiffMinPerKm = Math.round((avgRecentPace - avgBaselinePace) * 100) / 100;
+    // Niższe tempo (min/km) = szybciej = lepiej, więc "poprawa" to UJEMNA różnica.
+    const isImproving = baselineStdDev > 0 ? paceDiffMinPerKm < -baselineStdDev : paceDiffMinPerKm < -0.5;
+    const isSlower = baselineStdDev > 0 ? paceDiffMinPerKm > baselineStdDev : paceDiffMinPerKm > 0.5;
+
+    res.json({
+      hasEnoughData: true, recentDays: recent.length, baselineDays: baseline.length,
+      avgRecentPaceMinPerKm: avgRecentPace, avgBaselinePaceMinPerKm: avgBaselinePace,
+      paceDiffMinPerKm, baselineStdDev: Math.round(baselineStdDev * 100) / 100,
+      isImproving, isSlower
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu trendu tempa.' });
+  }
+});
+
+const VARIETY_LOOKBACK_DAYS = 60;
+const MIN_TOTAL_WORKOUTS_FOR_VARIETY = 6;
+const VARIETY_DOMINANCE_THRESHOLD_PERCENT = 70;
+
+// Różnorodność treningów - rozkład workout_type z ostatnich 60 dni. W odróżnieniu
+// od workout-efficiency-insight (kcal/min per typ), tu interesuje nas wyłącznie
+// CZĘSTOŚĆ poszczególnych dyscyplin - jedna dominująca dyscyplina >70% wszystkich
+// treningów może sygnalizować ryzyko przetrenowania jednostronnego (np. tylko
+// bieganie, brak treningu siłowego/mobilności).
+router.get('/api/dashboard/workout-variety-insight', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+    const startDate = shiftDate(today, -VARIETY_LOOKBACK_DAYS);
+
+    const rows = await db.all(
+      `SELECT workout_type FROM apple_health_workouts WHERE user_id = ? AND date >= ? AND date <= ? AND workout_type IS NOT NULL`,
+      [req.user.id, startDate, today]
+    );
+
+    if (rows.length < MIN_TOTAL_WORKOUTS_FOR_VARIETY) {
+      return res.json({
+        hasEnoughData: false, reason: 'not_enough_workouts',
+        totalWorkouts: rows.length, minWorkoutsRequired: MIN_TOTAL_WORKOUTS_FOR_VARIETY
+      });
+    }
+
+    const counts = new Map();
+    rows.forEach(r => {
+      const key = r.workout_type.trim();
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+
+    const breakdown = [...counts.entries()]
+      .map(([type, count]) => ({ type, count, pct: Math.round((count / rows.length) * 1000) / 10 }))
+      .sort((a, b) => b.count - a.count);
+
+    const dominant = breakdown[0];
+
+    res.json({
+      hasEnoughData: true,
+      totalWorkouts: rows.length,
+      distinctTypes: breakdown.length,
+      breakdown,
+      dominantType: dominant.type,
+      dominantPct: dominant.pct,
+      isImbalanced: dominant.pct >= VARIETY_DOMINANCE_THRESHOLD_PERCENT
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu różnorodności treningów.' });
+  }
+});
+
+const WELLNESS_SCORE_RHR_BASELINE_DAYS = 28;
+const MIN_WELLNESS_COMPONENTS = 3;
+// Wagi pięciu składowych - sumują się do 1.0 gdy WSZYSTKIE są dostępne. Gdy
+// część sygnałów brakuje danego dnia (np. brak HRV/RHR bo użytkownik nie ma
+// zegarka, albo brak posiłków bo jeszcze nic nie zjadł), wagi dostępnych
+// składowych są renormalizowane proporcjonalnie - patrz niżej.
+const WELLNESS_WEIGHTS = { sleep: 0.25, readiness: 0.25, rhrRecovery: 0.15, nutritionAdherence: 0.20, hydration: 0.15 };
+
+// Composite "Wellness Score" (0-100) - syntetyzuje sen, gotowość, RHR względem
+// własnego baseline, trzymanie się celu kalorycznego i nawodnienie w JEDEN
+// nagłówkowy wskaźnik dnia. Nie zastępuje pozostałych insightów (te analizują
+// PRZYCZYNY/korelacje w czasie) - to jest "stan dnia" w jednej liczbie, żeby
+// użytkownik nie musiał scrollować całego dashboardu, by ocenić "jak mi idzie dzisiaj".
+router.get('/api/dashboard/wellness-score', async (req, res) => {
+  try {
+    const today = req.query.date || getLocalDateString();
+
+    const health = await db.get(
+      `SELECT sleep_score, readiness_score, rhr, water_ml FROM health_metrics WHERE user_id = ? AND date = ?`,
+      [req.user.id, today]
+    );
+
+    const settingsRows = await db.all(`SELECT key, value FROM settings WHERE user_id = ?`, [req.user.id]);
+    const settings = {};
+    settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
+    const targetCalories = getTargetCalories(settings);
+    const targetWaterMl = getTargetWaterMl(settings);
+
+    const mealRow = await db.get(
+      `SELECT SUM(calories) AS calories FROM meals WHERE user_id = ? AND date = ?`,
+      [req.user.id, today]
+    );
+    const caloriesToday = mealRow && mealRow.calories != null ? mealRow.calories : null;
+
+    const baselineStart = shiftDate(today, -WELLNESS_SCORE_RHR_BASELINE_DAYS);
+    const baselineRhrRows = await db.all(
+      `SELECT rhr FROM health_metrics WHERE user_id = ? AND date >= ? AND date < ? AND rhr IS NOT NULL AND rhr > 0`,
+      [req.user.id, baselineStart, today]
+    );
+
+    const components = {};
+
+    if (health && health.sleep_score != null && health.sleep_score > 0) {
+      components.sleep = Math.max(0, Math.min(100, health.sleep_score));
+    }
+    if (health && health.readiness_score != null && health.readiness_score > 0) {
+      components.readiness = Math.max(0, Math.min(100, health.readiness_score));
+    }
+    if (health && health.rhr != null && health.rhr > 0 && baselineRhrRows.length >= 5) {
+      const { mean, stdDev } = meanAndStdDev(baselineRhrRows.map(r => r.rhr));
+      // Niższe RHR niż własny baseline = lepsza regeneracja. z>0 oznacza RHR
+      // WYŻSZE niż zwykle (gorzej), stąd odejmujemy z*15 od 100 (skala empiryczna,
+      // nie kliniczna - 1 odchylenie standardowe odpowiada -15 punktów).
+      const z = stdDev > 0 ? (health.rhr - mean) / stdDev : 0;
+      components.rhrRecovery = Math.max(0, Math.min(100, 100 - z * 15));
+    }
+    if (caloriesToday != null && caloriesToday > 0 && targetCalories > 0) {
+      const deviationRatio = Math.abs(caloriesToday - targetCalories) / targetCalories;
+      components.nutritionAdherence = Math.max(0, Math.min(100, 100 - deviationRatio * 100));
+    }
+    if (health && health.water_ml != null && health.water_ml > 0 && targetWaterMl > 0) {
+      components.hydration = Math.max(0, Math.min(100, (health.water_ml / targetWaterMl) * 100));
+    }
+
+    const availableKeys = Object.keys(components);
+    if (availableKeys.length < MIN_WELLNESS_COMPONENTS) {
+      return res.json({
+        hasEnoughData: false, reason: 'not_enough_components',
+        availableComponents: availableKeys, minComponentsRequired: MIN_WELLNESS_COMPONENTS
+      });
+    }
+
+    const weightSum = availableKeys.reduce((s, k) => s + WELLNESS_WEIGHTS[k], 0);
+    const wellnessScore = Math.round(
+      availableKeys.reduce((s, k) => s + components[k] * (WELLNESS_WEIGHTS[k] / weightSum), 0)
+    );
+
+    const label = wellnessScore >= 80 ? 'Świetnie' : wellnessScore >= 60 ? 'Dobrze' : wellnessScore >= 40 ? 'Przeciętnie' : 'Słabo';
+
+    res.json({
+      hasEnoughData: true,
+      date: today,
+      wellnessScore,
+      label,
+      components: Object.fromEntries(availableKeys.map(k => [k, Math.round(components[k])])),
+      componentsUsed: availableKeys.length,
+      componentsTotal: Object.keys(WELLNESS_WEIGHTS).length
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania Wellness Score.' });
+  }
+});
+
 module.exports = router;

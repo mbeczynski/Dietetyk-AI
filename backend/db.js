@@ -625,6 +625,31 @@ const initDb = async () => {
   `);
   await run(`CREATE INDEX IF NOT EXISTS idx_shared_reports_user ON shared_reports(user_id)`);
 
+  // 11. Tabela zdarzeń dnia (day_events) - "Tag dnia": użytkownik oznacza zakres dat
+  // kontekstem (choroba/wakacje/późne zaśnięcie), żeby (a) widzieć ten kontekst przy
+  // przeglądaniu danych z tych dni, (b) pozwolić wybranym insightom na dashboardzie
+  // wykluczyć te dni z liczenia baseline/normy, żeby nietypowy okres nie zaburzał
+  // trendu. Zakres dat (start_date/end_date), nie pojedyncza data - wakacje/choroba
+  // trwają zwykle kilka-kilkanaście dni, klikanie każdego dnia osobno byłoby
+  // niewygodne (dla zdarzeń jednodniowych, np. "późne zaśnięcie", start_date=end_date).
+  // `type` to zamknięty enum kontrolowany przez backend (patrz routes/dayEvents.js),
+  // nie wolny tekst - insighty mapują konkretne typy na konkretne wykluczenia.
+  await run(`
+    CREATE TABLE IF NOT EXISTS day_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      note TEXT DEFAULT NULL,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+  // Indeks pod zapytania "WHERE user_id = ? AND type = ? AND end_date >= ? AND
+  // start_date <= ?" (sprawdzanie przecięcia zakresu zdarzenia z oknem insightu).
+  await run(`CREATE INDEX IF NOT EXISTS idx_day_events_user_type ON day_events(user_id, type, start_date, end_date)`);
+
   // Indeksy pod zapytania zakresowe "WHERE user_id = ? AND date >= ?" (agregacje
   // 7/30/90-dniowe w dashboard.js/summaries.js/chat.js). health_metrics i
   // body_measurements mają już taki indeks "za darmo" (PRIMARY KEY(user_id, date)

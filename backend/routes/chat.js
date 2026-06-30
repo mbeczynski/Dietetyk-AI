@@ -6,6 +6,7 @@ const { getLocalDateString } = require('../utils/dates');
 const { getDefaultHealthMetrics } = require('../utils/defaultHealthMetrics');
 const { generateContentWithFallback } = require('../config');
 const { getTargetCalories, getBmr, getTargetWaterMl } = require('../utils/defaultSettings');
+const { getDayEventsInRange, formatDayEventsForPrompt } = require('../utils/dayEvents');
 
 // Limit znaków pojedynczej wiadomości czatu - bez tego nic nie ograniczało długości
 // `message` trafiającego prosto do promptu Gemini (limit body to 20MB, ustawiony w
@@ -268,6 +269,13 @@ router.post('/api/chat', requireAuth, async (req, res) => {
       }
     }
 
+    // "Tag dnia" (day_events) z analizowanego okna historii [pastDateStr, queryDate] -
+    // żeby AI w czacie też wiedziało o dniach oznaczonych jako choroba/wakacje/późne
+    // zaśnięcie i nie sugerowało korekt na bazie nietypowych danych z tych dni
+    // (patrz utils/dayEvents.js, ten sam mechanizm co w dashboard.js).
+    const dayEventsInWindow = await getDayEventsInRange(req.user.id, pastDateStr, queryDate);
+    const dayEventsContext = formatDayEventsForPrompt(dayEventsInWindow);
+
     // Pobierz klucz API użytkownika (jeśli posiada)
     const apiKeyRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'gemini_api_key'", [req.user.id]);
     const userApiKey = apiKeyRow ? apiKeyRow.value : null;
@@ -316,6 +324,7 @@ Aktualne statystyki użytkownika na dzień ${queryDate}:
 - Tętno spoczynkowe: ${health.rhr || '-'} bpm, HRV: ${health.hrv || '-'} ms
 - Wypita woda: ${health.water_ml || 0}ml (cel: ${getTargetWaterMl(settings)}ml)
 ${weeklyTrendSummary}
+${dayEventsContext}
 ${historyContext}
 Pytanie użytkownika: "${message}"
 

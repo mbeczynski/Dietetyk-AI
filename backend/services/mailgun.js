@@ -2,7 +2,14 @@ const db = require('../db');
 const { fetchWithTimeout } = require('../utils/fetchWithTimeout');
 
 async function sendMailgunEmail({ to, subject, html }) {
-  const configRows = await db.all(`SELECT * FROM app_config`);
+  // Pobieramy tylko kolumny faktycznie potrzebne w tym miejscu (Runda 17, naprawa
+  // z audytu) - wcześniej `SELECT * FROM app_config` ściągał WSZYSTKIE wiersze
+  // konfiguracji (w tym np. google_client_secret, force_2fa), mimo że ta funkcja
+  // używa wyłącznie ustawień Mailgun. `app_config` to tabela key-value (PRIMARY
+  // KEY(key)), więc filtrujemy po kluczu, nie po kolumnie.
+  const configRows = await db.all(
+    `SELECT key, value FROM app_config WHERE key IN ('mailgun_api_key', 'mailgun_domain', 'mailgun_region', 'mailgun_from')`
+  );
   const config = {};
   configRows.forEach(r => {
     config[r.key] = r.value;

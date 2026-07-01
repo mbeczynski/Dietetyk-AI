@@ -3070,6 +3070,14 @@ const MIN_WELLNESS_COMPONENTS = 3;
 // część sygnałów brakuje danego dnia (np. brak HRV/RHR bo użytkownik nie ma
 // zegarka, albo brak posiłków bo jeszcze nic nie zjadł), wagi dostępnych
 // składowych są renormalizowane proporcjonalnie - patrz niżej.
+// KONTRAKT: suma wag musi wynosić 1.0 (0.25+0.25+0.15+0.20+0.15=1.0) - przy
+// edycji tych wartości w przyszłości zachowaj tę sumę, inaczej renormalizacja
+// niżej (weightSum) to "naprawi" w locie, ale udział każdej składowej względem
+// pozostałych przestanie odpowiadać zamierzonym proporcjom.
+console.assert(
+  Math.abs(Object.values({ sleep: 0.25, readiness: 0.25, rhrRecovery: 0.15, nutritionAdherence: 0.20, hydration: 0.15 }).reduce((a, b) => a + b, 0) - 1) < 1e-9,
+  'WELLNESS_WEIGHTS musi sumować się do 1.0'
+);
 const WELLNESS_WEIGHTS = { sleep: 0.25, readiness: 0.25, rhrRecovery: 0.15, nutritionAdherence: 0.20, hydration: 0.15 };
 
 // Composite "Wellness Score" (0-100) - syntetyzuje sen, gotowość, RHR względem
@@ -3086,9 +3094,17 @@ router.get('/api/dashboard/wellness-score', async (req, res) => {
       [req.user.id, today]
     );
 
+    // Naprawa z audytu (runda 17): konwertujemy na liczbę WYŁĄCZNIE klucze faktycznie
+    // czytane niżej jako liczby (target_calories, target_water_ml) - wcześniej
+    // `Number(r.value)` było stosowane na WSZYSTKICH wierszach settings, co zepsułoby
+    // się przy dowolnym przyszłym kluczu tekstowym (np. gemini_api_key) zapisanym w tej
+    // samej tabeli. Pozostałe klucze zostają niezmienione (string).
+    const NUMERIC_SETTINGS_KEYS = ['target_calories', 'target_water_ml'];
     const settingsRows = await db.all(`SELECT key, value FROM settings WHERE user_id = ?`, [req.user.id]);
     const settings = {};
-    settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
+    settingsRows.forEach(r => {
+      settings[r.key] = NUMERIC_SETTINGS_KEYS.includes(r.key) ? Number(r.value) : r.value;
+    });
     const targetCalories = getTargetCalories(settings);
     const targetWaterMl = getTargetWaterMl(settings);
 

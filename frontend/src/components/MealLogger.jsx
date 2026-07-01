@@ -305,10 +305,10 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
                   </div>
 
                   <div className="meal-nutrition-chips">
-                    <span className="nutrition-chip calories">{meal.calories} kcal</span>
-                    <span className="nutrition-chip protein">B: {Math.round(meal.protein)}g</span>
-                    <span className="nutrition-chip carbs">W: {Math.round(meal.carbs)}g</span>
-                    <span className="nutrition-chip fat">T: {Math.round(meal.fat)}g</span>
+                    <span className="nutrition-chip calories">{meal.calories != null ? Math.round(meal.calories) : '-'} kcal</span>
+                    <span className="nutrition-chip protein">B: {meal.protein != null ? Math.round(meal.protein) : '-'}g</span>
+                    <span className="nutrition-chip carbs">W: {meal.carbs != null ? Math.round(meal.carbs) : '-'}g</span>
+                    <span className="nutrition-chip fat">T: {meal.fat != null ? Math.round(meal.fat) : '-'}g</span>
                     {/* health_rating == null (np. starszy wpis bez oceny AI) pokazuje
                         "Brak oceny" - poprzednio || 5 fałszywie udawało ocenę 5/10
                         zarówno dla null, jak i dla realnej, najniższej oceny 0. */}

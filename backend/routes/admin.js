@@ -17,7 +17,7 @@ router.get('/api/admin/config', requireAdmin, async (req, res) => {
     const rows = await db.all(`SELECT * FROM app_config`);
     const config = {};
     rows.forEach(r => {
-      if (r.key.startsWith('mailgun_') || r.key === 'app_url' || r.key === 'force_2fa' || GOOGLE_CONFIG_KEYS.includes(r.key)) {
+      if (r.key.startsWith('mailgun_') || r.key === 'app_url' || r.key === 'force_2fa' || r.key === 'allow_public_registration' || GOOGLE_CONFIG_KEYS.includes(r.key)) {
         config[r.key] = maskSecretValue(r.key, r.value, APP_SECRET_CONFIG_KEYS);
       }
     });
@@ -35,7 +35,7 @@ router.post('/api/admin/config', requireAdmin, async (req, res) => {
       if (isMaskedSecretWrite(key, val, APP_SECRET_CONFIG_KEYS)) {
         continue;
       }
-      if (!key.startsWith('mailgun_') && key !== 'app_url' && key !== 'force_2fa' && !GOOGLE_CONFIG_KEYS.includes(key)) {
+      if (!key.startsWith('mailgun_') && key !== 'app_url' && key !== 'force_2fa' && key !== 'allow_public_registration' && !GOOGLE_CONFIG_KEYS.includes(key)) {
         continue;
       }
       await db.run(`

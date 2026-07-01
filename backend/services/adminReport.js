@@ -1,17 +1,32 @@
 const db = require('../db');
 const { sendMailgunEmail } = require('./mailgun');
 
+// Prosta walidacja formatu adresu e-mail (Runda 17, naprawa z audytu) - przed
+// wysyłką odfiltrowujemy adresy, które nawet nie wyglądają jak e-mail (np. literówka
+// zapisana wcześniej w profilu admina), żeby nie próbować wysyłki na ewidentnie
+// zepsuty adres i nie zaśmiecać logów błędami Mailgun dla oczywistych przypadków.
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 /**
  * Generuje i wysyła tygodniowy raport bezpieczeństwa i błędów dla administratorów.
  */
 async function sendWeeklyAdminReport() {
   console.log('[ADMIN REPORT] Uruchamianie procedury generowania raportu logów...');
-  
+
   try {
     // 1. Pobierz wszystkich aktywnych adminów z e-mailem
     const admins = await db.all(`SELECT id, username, email FROM users WHERE role = 'admin' AND status = 'active'`);
-    const adminEmails = admins.map(a => a.email).filter(Boolean);
-    
+    const adminEmails = admins
+      .map(a => a.email)
+      .filter(Boolean)
+      .filter(email => {
+        if (!EMAIL_REGEX.test(email)) {
+          console.warn(`[ADMIN REPORT] Pomijam nieprawidłowy adres e-mail administratora: ${email}`);
+          return false;
+        }
+        return true;
+      });
+
     if (adminEmails.length === 0) {
       console.warn('[ADMIN REPORT] Brak aktywnych administratorów z poprawnym adresem e-mail. Pomijam wysyłkę.');
       return;

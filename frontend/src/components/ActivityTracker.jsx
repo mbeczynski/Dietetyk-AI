@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 export default function ActivityTracker({ summary, userProfile, sessionToken, onGoalsUpdate }) {
   const [historyData, setHistoryData] = useState([]);
@@ -19,9 +19,14 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
   });
   const [isSavingGoals, setIsSavingGoals] = useState(false);
   const [goalsMessage, setGoalsMessage] = useState({ type: '', text: '' });
+  // POPRAWKA (runda 17 audytu): efekt synchronizujący `goals` ze `summary` nadpisywał
+  // formularz przy KAŻDEJ zmianie `summary` - również przy tle auto-refreshu - co mogło
+  // nadpisać to, co użytkownik właśnie wpisuje w pola celów. Flaga "dirty" pozwala
+  // efektowi synchronizować formularz tylko, gdy użytkownik nie ma niezapisanych zmian.
+  const [goalsDirty, setGoalsDirty] = useState(false);
 
   useEffect(() => {
-    if (summary) {
+    if (summary && !goalsDirty) {
       // POPRAWKA (runda 4 audytu): `||` nadpisywał świadomo zapisane 0 (cel wyłączony)
       // domyślną wartością przy każdym odświeżeniu `summary` (np. po zapisaniu celów -
       // onGoalsUpdate odpytuje dashboard na nowo), więc pole formularza "skakało" z
@@ -36,7 +41,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
         target_weight_kg: summary.target_weight_kg ?? 0
       });
     }
-  }, [summary]);
+  }, [summary, goalsDirty]);
 
   const handleSaveGoals = async (e) => {
     e.preventDefault();
@@ -53,6 +58,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
       });
       if (res.ok) {
         setGoalsMessage({ type: 'success', text: 'Cele zostały zaktualizowane!' });
+        setGoalsDirty(false);
         if (onGoalsUpdate) {
           onGoalsUpdate();
         }
@@ -85,6 +91,10 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
   });
 
   useEffect(() => {
+    // POPRAWKA (runda 17 audytu): brak flagi `cancelled` - spóźniona odpowiedź z
+    // nieaktualnego już żądania (np. po szybkiej zmianie sessionToken/last_sync)
+    // mogła nadpisać nowsze dane historii zdrowotnej. Wzorzec jak w Dashboard.jsx.
+    let cancelled = false;
     const fetchHistory = async () => {
       if (!sessionToken) return;
       setIsLoadingHistory(true);
@@ -94,22 +104,32 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
         });
         if (res.ok) {
           const data = await res.json();
-          setHistoryData(data);
+          if (!cancelled) setHistoryData(data);
         }
       } catch (err) {
         console.error('Błąd pobierania historii zdrowotnej:', err);
       } finally {
-        setIsLoadingHistory(false);
+        if (!cancelled) setIsLoadingHistory(false);
       }
     };
     fetchHistory();
+    return () => { cancelled = true; };
   }, [sessionToken, summary.last_sync]);
 
+  // POPRAWKA (runda 17 audytu): `fetchMeasurements` jest wywoływana zarówno z efektu
+  // startowego, jak i po zapisie/usunięciu pomiaru - ref przechowuje "numer" aktualnego
+  // żądania z efektu, żeby spóźniona odpowiedź z poprzedniego efektu (np. po szybkiej
+  // zmianie sessionToken) nie nadpisała nowszego stanu. Wywołania spoza efektu (zapis/
+  // usunięcie) nie ustawiają tej flagi, więc działają jak dotychczas.
+  const measurementsRequestRef = useRef(0);
+
   useEffect(() => {
-    fetchMeasurements();
+    measurementsRequestRef.current += 1;
+    const requestId = measurementsRequestRef.current;
+    fetchMeasurements(requestId);
   }, [sessionToken]);
 
-  const fetchMeasurements = async () => {
+  const fetchMeasurements = async (requestId) => {
     if (!sessionToken) return;
     setIsLoadingMeasurements(true);
     try {
@@ -118,12 +138,16 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
       });
       if (res.ok) {
         const data = await res.json();
-        setMeasurementsData(data);
+        if (requestId === undefined || requestId === measurementsRequestRef.current) {
+          setMeasurementsData(data);
+        }
       }
     } catch (err) {
       console.error('Błąd pobierania obwodów ciała:', err);
     } finally {
-      setIsLoadingMeasurements(false);
+      if (requestId === undefined || requestId === measurementsRequestRef.current) {
+        setIsLoadingMeasurements(false);
+      }
     }
   };
 
@@ -709,7 +733,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 </div>
               </div>
               <strong style={{ fontSize: '1.1rem', color: '#fff' }}>
-                {summary.steps ? summary.steps.toLocaleString('pl-PL') : '0'}
+                {summary.steps != null ? summary.steps.toLocaleString('pl-PL') : '0'}
               </strong>
             </div>
 
@@ -722,7 +746,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 </div>
               </div>
               <strong style={{ fontSize: '1.1rem', color: 'var(--color-secondary)' }}>
-                {summary.calories_burned_active ? `${summary.calories_burned_active} kcal` : '0 kcal'}
+                {summary.calories_burned_active != null ? `${summary.calories_burned_active} kcal` : '0 kcal'}
               </strong>
             </div>
 
@@ -749,7 +773,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 className="input-field"
                 style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                 value={goals.target_steps}
-                onChange={(e) => setGoals({...goals, target_steps: Number(e.target.value)})}
+                onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_steps: Number(e.target.value)}); }}
                 min="0"
                 required
               />
@@ -761,7 +785,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 className="input-field"
                 style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                 value={goals.target_active_calories}
-                onChange={(e) => setGoals({...goals, target_active_calories: Number(e.target.value)})}
+                onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_active_calories: Number(e.target.value)}); }}
                 min="0"
                 required
               />
@@ -774,7 +798,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 className="input-field"
                 style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                 value={goals.target_sleep_duration}
-                onChange={(e) => setGoals({...goals, target_sleep_duration: Number(e.target.value)})}
+                onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_sleep_duration: Number(e.target.value)}); }}
                 min="0"
                 required
               />
@@ -786,7 +810,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 className="input-field"
                 style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                 value={goals.target_active_minutes}
-                onChange={(e) => setGoals({...goals, target_active_minutes: Number(e.target.value)})}
+                onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_active_minutes: Number(e.target.value)}); }}
                 min="0"
                 required
               />
@@ -802,7 +826,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                 className="input-field"
                 style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                 value={goals.target_weight_kg}
-                onChange={(e) => setGoals({...goals, target_weight_kg: Number(e.target.value)})}
+                onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_weight_kg: Number(e.target.value)}); }}
                 min="0"
                 placeholder="np. 75"
               />
@@ -1178,14 +1202,14 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                         {m.waist !== null && m.waist !== undefined ? `${m.waist}` : '--'}
                         {(m.waist_above !== null || m.waist_below !== null) && ` (${m.waist_above !== null && m.waist_above !== undefined ? m.waist_above : '--'} / ${m.waist_below !== null && m.waist_below !== undefined ? m.waist_below : '--'})`} cm
                       </td>
-                      <td style={{ padding: '8px 4px' }}>{m.chest ? `${m.chest} cm` : '--'}</td>
-                      <td style={{ padding: '8px 4px' }}>{m.shoulders ? `${m.shoulders} cm` : '--'}</td>
-                      <td style={{ padding: '8px 4px' }}>{m.hips ? `${m.hips} cm` : '--'}</td>
+                      <td style={{ padding: '8px 4px' }}>{m.chest != null ? `${m.chest} cm` : '--'}</td>
+                      <td style={{ padding: '8px 4px' }}>{m.shoulders != null ? `${m.shoulders} cm` : '--'}</td>
+                      <td style={{ padding: '8px 4px' }}>{m.hips != null ? `${m.hips} cm` : '--'}</td>
                       <td style={{ padding: '8px 4px' }}>
                         {m.biceps !== null && m.biceps !== undefined ? `${m.biceps}` : '--'}
                         {(m.biceps_left !== null || m.biceps_right !== null) && ` (${m.biceps_left !== null && m.biceps_left !== undefined ? m.biceps_left : '--'} / ${m.biceps_right !== null && m.biceps_right !== undefined ? m.biceps_right : '--'})`} cm
                       </td>
-                      <td style={{ padding: '8px 4px' }}>{m.thigh ? `${m.thigh} cm` : '--'}</td>
+                      <td style={{ padding: '8px 4px' }}>{m.thigh != null ? `${m.thigh} cm` : '--'}</td>
                       <td style={{ padding: '8px 4px', textAlign: 'center' }}>
                         <button
                           type="button"

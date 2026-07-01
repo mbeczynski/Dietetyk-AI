@@ -1016,6 +1016,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 className="input-field"
                 value={settings.bmr}
                 onChange={handleInputChange}
+                min="500"
+                max="5000"
                 title="Podstawowa przemiana materii - kalorie, które Twój organizm spala na samo przeżycie leżąc."
                 required
               />
@@ -1335,8 +1337,15 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                       className="input-field"
                       value={monthlySummaryDay}
                       onChange={(e) => {
+                        // Pozwalamy na tymczasowo pusty string podczas wpisywania
+                        // (wzorzec jak dla pozostałych pól liczbowych w tym pliku).
+                        // Clamp do 1-31 stosowany dopiero przy submit (server-side też waliduje).
+                        if (e.target.value === '') {
+                          setMonthlySummaryDay('');
+                          return;
+                        }
                         const val = Number(e.target.value);
-                        setMonthlySummaryDay(Math.min(31, Math.max(1, val || 1)));
+                        setMonthlySummaryDay(Math.min(31, Math.max(1, val)));
                       }}
                       title="Jeśli dany miesiąc jest krótszy (np. luty), raport zostanie wysłany w ostatnim dniu tego miesiąca."
                       required
@@ -2109,10 +2118,10 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                     style={{ padding: '8px 12px', fontSize: '0.85rem' }}
                     value={settings.withings_redirect_uri || ''}
                     onChange={handleInputChange}
-                    placeholder="np. https://dietetyk.renacode.com/api/auth/oura/callback"
+                    placeholder="np. https://dietetyk.renacode.com/api/auth/withings/callback"
                   />
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
-                    Domyślnie używany jest: <code>https://dietetyk.renacode.com/api/auth/withings/callback</code>. Jeżeli w portalu Withings Developer masz zarejestrowany inny (np. <code>https://dietetyk.renacode.com/api/auth/oura/callback</code>), wpisz go powyżej.
+                    Domyślnie używany jest: <code>https://dietetyk.renacode.com/api/auth/withings/callback</code>. Jeżeli w portalu Withings Developer masz zarejestrowany inny adres (np. własna domena), wpisz go powyżej.
                   </span>
                 </div>
               </div>

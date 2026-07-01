@@ -610,6 +610,17 @@ router.post('/api/register-invitation', async (req, res) => {
 
 // 6f-2. Publiczna rejestracja (bez tokenu zaproszenia)
 router.post('/api/register-public', async (req, res) => {
+  // Runda 17 (naprawa z audytu): ten endpoint wcześniej nie miał ŻADNEJ flagi
+  // włącz/wyłącz i całkowicie omijał system zaproszeń admina (/api/admin/invite).
+  // Domyślnie WYŁĄCZONY - flaga `allow_public_registration` w app_config (domyślny
+  // wiersz '0' wstawiany w db.js, ta sama konwencja co `force_2fa`), zarządzana
+  // przez admina w GET/POST /api/admin/config.
+  const allowPublicRegRow = await db.get(`SELECT value FROM app_config WHERE key = 'allow_public_registration'`);
+  const isPublicRegistrationEnabled = allowPublicRegRow && allowPublicRegRow.value === '1';
+  if (!isPublicRegistrationEnabled) {
+    return res.status(403).json({ error: 'Rejestracja publiczna jest wyłączona. Skontaktuj się z administratorem, aby otrzymać zaproszenie.' });
+  }
+
   const { username, password, email } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Nazwa użytkownika i hasło są wymagane.' });

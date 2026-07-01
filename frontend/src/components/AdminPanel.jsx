@@ -29,8 +29,13 @@ export default function AdminPanel({ sessionToken, onLogout }) {
   const [actioningUserId, setActioningUserId] = useState(null);
 
   useEffect(() => {
-    fetchConfig();
-    fetchUsers();
+    // Minimalna ochrona przed setState po odmontowaniu (np. przy szybkim wylogowaniu
+    // admina) - sprawdzamy cancelled PRZED wywołaniem fetch, nie można tego zrobić
+    // wewnątrz fetchConfig/fetchUsers, bo są też wywoływane z innych miejsc.
+    let cancelled = false;
+    if (!cancelled) fetchConfig();
+    if (!cancelled) fetchUsers();
+    return () => { cancelled = true; };
   }, []);
 
   const fetchConfig = async () => {

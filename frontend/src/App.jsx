@@ -426,7 +426,14 @@ export default function App() {
       console.error(err);
       setErrorMessage('Błąd połączenia z serwerem. Upewnij się, że backend działa.');
     } finally {
-      setIsLoading(false);
+      // POPRAWKA (runda 17 audytu): `setIsLoading(false)` wcześniej wykonywał się
+      // niezależnie od `isCurrentRequestRef.current` - spóźniona odpowiedź z już
+      // nieaktualnego żądania (np. po szybkiej zmianie daty) mogła zgasić spinner
+      // ładowania nowszego, wciąż trwającego żądania. Ten sam warunek, co przy
+      // `setDashboardData` powyżej.
+      if (isCurrentRequestRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -766,6 +773,11 @@ export default function App() {
     localStorage.removeItem('diet_session_token');
     setLoginStep('password');
     setUserProfile({ username: '', avatar_base64: '' });
+    // POPRAWKA (runda 17 audytu): syncToken (token do ręcznej synchronizacji,
+    // patrz Settings) nie był resetowany przy wylogowaniu, w przeciwieństwie do
+    // dashboardData/userProfile - mógł zostać widoczny dla kolejnego użytkownika
+    // logującego się na tym samym urządzeniu/karcie.
+    setSyncToken('');
     setDashboardData({
       summary: {
         target_calories: 2500,

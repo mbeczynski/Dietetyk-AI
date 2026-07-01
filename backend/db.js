@@ -183,6 +183,15 @@ const initDb = async () => {
     )
   `);
 
+  // Domyślna wartość flagi `allow_public_registration` (Runda 17, naprawa z audytu) -
+  // wcześniej endpoint POST /api/register-public (routes/auth.js) był publicznie
+  // dostępny bez żadnego wyłącznika, całkowicie omijając system zaproszeń admina
+  // (/api/admin/invite). Domyślnie WYŁĄCZONA ('0') - ta sama konwencja co flaga
+  // `force_2fa` w tej samej tabeli (string '1' = włączone, sprawdzane przez
+  // === '1' w routes/auth.js) - admin musi świadomie włączyć tę flagę z panelu,
+  // żeby pozwolić na samodzielną rejestrację bez zaproszenia.
+  await run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('allow_public_registration', '0')`);
+
   // Wstawienie domyślnego konta admina.
   // Hasło NIE jest zapisane na sztywno w kodzie źródłowym. Przy pierwszym starcie
   // (gdy konto admina jeszcze nie istnieje w bazie) generujemy losowe, bezpieczne

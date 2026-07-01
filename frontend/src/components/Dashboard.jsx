@@ -193,7 +193,8 @@ const getLast7Days = (endDateStr) => {
 export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDate, onNavigate, onRefresh }) {
   const [historyData, setHistoryData] = useState([]);
   const [historyTrigger, setHistoryTrigger] = useState(0);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  // isLoadingHistory celowo usunięte (stan był ustawiany ale nigdy nie odczytywany
+  // w renderze - martwy kod, wykryty w audycie rundy 17)
   const [isAddingWater, setIsAddingWater] = useState(false);
   const [customWaterAmount, setCustomWaterAmount] = useState('');
   const [waterMessage, setWaterMessage] = useState('');
@@ -904,6 +905,9 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const [selfBenchmarkInsight, setSelfBenchmarkInsight] = useState(null);
   const [isLoadingSelfBenchmark, setIsLoadingSelfBenchmark] = useState(false);
   useEffect(() => {
+    // POPRAWKA (runda 17): brakująca flaga cancelled - jedyny insight bez niej,
+    // w otoczeniu kilkunastu analogicznych efektów, które tę flagę mają.
+    let cancelled = false;
     const fetchSelfBenchmarkInsight = async () => {
       if (!sessionToken) return;
       setIsLoadingSelfBenchmark(true);
@@ -912,14 +916,15 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/self-benchmark-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setSelfBenchmarkInsight(await res.json());
+        if (res.ok && !cancelled) setSelfBenchmarkInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania benchmarku "Ty dziś vs Ty w przeszłości":', err);
       } finally {
-        setIsLoadingSelfBenchmark(false);
+        if (!cancelled) setIsLoadingSelfBenchmark(false);
       }
     };
     fetchSelfBenchmarkInsight();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   // Runda 13, nowa funkcja 1: typ treningu -> jakość snu tej samej nocy.
@@ -1243,6 +1248,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const [isApplyingCalorieSuggestion, setIsApplyingCalorieSuggestion] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchCalorieSuggestion = async () => {
       if (!sessionToken) return;
       try {
@@ -1250,12 +1256,13 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/calorie-target-suggestion${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) setCalorieSuggestion(await res.json());
+        if (res.ok && !cancelled) setCalorieSuggestion(await res.json());
       } catch (err) {
         console.error('Błąd pobierania korekty celu kalorycznego:', err);
       }
     };
     fetchCalorieSuggestion();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate, caloriesTrigger]);
 
   const handleApplyCalorieSuggestion = async () => {
@@ -1282,27 +1289,27 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   };
 
   useEffect(() => {
+    let cancelled = false;
     const fetchHistory = async () => {
       if (!sessionToken) return;
-      setIsLoadingHistory(true);
       try {
         const res = await fetch('/api/health/history', {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
-        if (res.ok) {
+        if (res.ok && !cancelled) {
           const data = await res.json();
           setHistoryData(data);
         }
       } catch (err) {
         console.error('Błąd pobierania historii:', err);
-      } finally {
-        setIsLoadingHistory(false);
       }
     };
     fetchHistory();
+    return () => { cancelled = true; };
   }, [sessionToken, summary.last_sync, historyTrigger]);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchComparisonAndBalance = async () => {
       if (!sessionToken) return;
       setIsLoadingComparison(true);
@@ -1316,15 +1323,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             headers: { 'Authorization': `Bearer ${sessionToken}` }
           })
         ]);
-        if (comparisonRes.ok) setNutritionComparison(await comparisonRes.json());
-        if (balanceRes.ok) setCalorieBalance(await balanceRes.json());
+        if (!cancelled) {
+          if (comparisonRes.ok) setNutritionComparison(await comparisonRes.json());
+          if (balanceRes.ok) setCalorieBalance(await balanceRes.json());
+        }
       } catch (err) {
         console.error('Błąd pobierania porównania/bilansu kalorycznego:', err);
       } finally {
-        setIsLoadingComparison(false);
+        if (!cancelled) setIsLoadingComparison(false);
       }
     };
     fetchComparisonAndBalance();
+    return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
   const renderWeightCompositionChart = (data) => {
@@ -1539,6 +1549,16 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const eatenProtein = summary.eaten_protein || 0;
   const eatenCarbs = summary.eaten_carbs || 0;
   const eatenFat = summary.eaten_fat || 0;
+  // POPRAWKA (runda 17 audytu): wcześniej procenty wypełnienia pasków liczyły
+  // `eatenX / (targetX || 2000)` itd. - `||` ponownie nadpisywał świadomie
+  // zapisane 0 (cel wyłączony/wyzerowany) domyślną wartością, mimo że targetX
+  // już jest poprawnie wyliczone przez `??` powyżej. Dodatkowo dzielenie przez 0
+  // (gdyby cel=0 trafił bezpośrednio do dzielenia) dawałoby Infinity/NaN. Wzorzec
+  // zabezpieczenia jak przy waterPct: cel<=0 -> procent 0, brak dzielenia przez 0.
+  const caloriesPct = targetCalories > 0 ? Math.min((eatenCalories / targetCalories) * 100, 100) : 0;
+  const carbsPct = targetCarbs > 0 ? Math.min((eatenCarbs / targetCarbs) * 100, 100) : 0;
+  const proteinPct = targetProtein > 0 ? Math.min((eatenProtein / targetProtein) * 100, 100) : 0;
+  const fatPct = targetFat > 0 ? Math.min((eatenFat / targetFat) * 100, 100) : 0;
 
   // Licznik wody
   const waterMl = summary.water_ml || 0;
@@ -2185,7 +2205,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             {getDayEventLabelForDate(selectedDate, ['late_sleep']) && (
               <p style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', marginBottom: '8px' }}>
-                🏷️ Wybrany dzień oznaczony: {getDayEventLabelForDate(selectedDate, ['late_sleep'])}
+                🏷️ Uwaga: wybrany dzień ({selectedDate}) jest oznaczony jako: {getDayEventLabelForDate(selectedDate, ['late_sleep'])} - może to wpływać na statystykę z tego okresu
               </p>
             )}
             <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
@@ -2281,7 +2301,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             {getDayEventLabelForDate(selectedDate, ['illness', 'late_sleep']) && (
               <p style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', marginBottom: '8px' }}>
-                🏷️ Wybrany dzień oznaczony: {getDayEventLabelForDate(selectedDate, ['illness', 'late_sleep'])}
+                🏷️ Uwaga: wybrany dzień ({selectedDate}) jest oznaczony jako: {getDayEventLabelForDate(selectedDate, ['illness', 'late_sleep'])} - może to wpływać na statystykę z tego okresu
               </p>
             )}
             <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
@@ -2690,7 +2710,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             {getDayEventLabelForDate(selectedDate, ['illness']) && (
               <p style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', marginBottom: '8px' }}>
-                🏷️ Wybrany dzień oznaczony: {getDayEventLabelForDate(selectedDate, ['illness'])}
+                🏷️ Uwaga: wybrany dzień ({selectedDate}) jest oznaczony jako: {getDayEventLabelForDate(selectedDate, ['illness'])} - może to wpływać na statystykę z tego okresu
               </p>
             )}
             <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
@@ -2836,7 +2856,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             {getDayEventLabelForDate(selectedDate, ['vacation']) && (
               <p style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', marginBottom: '8px' }}>
-                🏷️ Wybrany dzień oznaczony: {getDayEventLabelForDate(selectedDate, ['vacation'])}
+                🏷️ Uwaga: wybrany dzień ({selectedDate}) jest oznaczony jako: {getDayEventLabelForDate(selectedDate, ['vacation'])} - może to wpływać na statystykę z tego okresu
               </p>
             )}
             <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
@@ -2862,7 +2882,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             {getDayEventLabelForDate(selectedDate, ['vacation']) && (
               <p style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', marginBottom: '8px' }}>
-                🏷️ Wybrany dzień oznaczony: {getDayEventLabelForDate(selectedDate, ['vacation'])}
+                🏷️ Uwaga: wybrany dzień ({selectedDate}) jest oznaczony jako: {getDayEventLabelForDate(selectedDate, ['vacation'])} - może to wpływać na statystykę z tego okresu
               </p>
             )}
             <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
@@ -2877,21 +2897,39 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                   {weekendEffectInsight.caloriesDiff > 0 ? '+' : ''}{weekendEffectInsight.caloriesDiff} kcal
                 </span>
               </div>
-              {weekendEffectInsight.avgWeekdaySteps != null && weekendEffectInsight.avgWeekendSteps != null && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>Kroki: {weekendEffectInsight.avgWeekdaySteps} vs {weekendEffectInsight.avgWeekendSteps}</span>
-                </div>
-              )}
-              {weekendEffectInsight.avgWeekdayActiveCalories != null && weekendEffectInsight.avgWeekendActiveCalories != null && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>Kalorie aktywne: {weekendEffectInsight.avgWeekdayActiveCalories} vs {weekendEffectInsight.avgWeekendActiveCalories} kcal</span>
-                </div>
-              )}
-              {weekendEffectInsight.avgWeekdaySleepScore != null && weekendEffectInsight.avgWeekendSleepScore != null && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>Wynik snu: {weekendEffectInsight.avgWeekdaySleepScore} vs {weekendEffectInsight.avgWeekendSleepScore}</span>
-                </div>
-              )}
+              {weekendEffectInsight.avgWeekdaySteps != null && weekendEffectInsight.avgWeekendSteps != null && (() => {
+                const stepsDiff = weekendEffectInsight.avgWeekendSteps - weekendEffectInsight.avgWeekdaySteps;
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>Kroki: {weekendEffectInsight.avgWeekdaySteps} vs {weekendEffectInsight.avgWeekendSteps}</span>
+                    <span style={{ fontWeight: '700', color: stepsDiff > 0 ? 'var(--success-light)' : stepsDiff < 0 ? 'var(--danger-light)' : '#fff' }}>
+                      {stepsDiff > 0 ? '+' : ''}{stepsDiff}
+                    </span>
+                  </div>
+                );
+              })()}
+              {weekendEffectInsight.avgWeekdayActiveCalories != null && weekendEffectInsight.avgWeekendActiveCalories != null && (() => {
+                const activeCalDiff = weekendEffectInsight.avgWeekendActiveCalories - weekendEffectInsight.avgWeekdayActiveCalories;
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>Kalorie aktywne: {weekendEffectInsight.avgWeekdayActiveCalories} vs {weekendEffectInsight.avgWeekendActiveCalories} kcal</span>
+                    <span style={{ fontWeight: '700', color: activeCalDiff > 0 ? 'var(--success-light)' : activeCalDiff < 0 ? 'var(--danger-light)' : '#fff' }}>
+                      {activeCalDiff > 0 ? '+' : ''}{activeCalDiff} kcal
+                    </span>
+                  </div>
+                );
+              })()}
+              {weekendEffectInsight.avgWeekdaySleepScore != null && weekendEffectInsight.avgWeekendSleepScore != null && (() => {
+                const sleepDiff = weekendEffectInsight.avgWeekendSleepScore - weekendEffectInsight.avgWeekdaySleepScore;
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>Wynik snu: {weekendEffectInsight.avgWeekdaySleepScore} vs {weekendEffectInsight.avgWeekendSleepScore}</span>
+                    <span style={{ fontWeight: '700', color: sleepDiff > 0 ? 'var(--success-light)' : sleepDiff < 0 ? 'var(--danger-light)' : '#fff' }}>
+                      {sleepDiff > 0 ? '+' : ''}{sleepDiff}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -3021,7 +3059,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             {getDayEventLabelForDate(selectedDate, ['illness']) && (
               <p style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', marginBottom: '8px' }}>
-                🏷️ Wybrany dzień oznaczony: {getDayEventLabelForDate(selectedDate, ['illness'])}
+                🏷️ Uwaga: wybrany dzień ({selectedDate}) jest oznaczony jako: {getDayEventLabelForDate(selectedDate, ['illness'])} - może to wpływać na statystykę z tego okresu
               </p>
             )}
             <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
@@ -3083,7 +3121,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             {getDayEventLabelForDate(selectedDate, ['illness']) && (
               <p style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', marginBottom: '8px' }}>
-                🏷️ Wybrany dzień oznaczony: {getDayEventLabelForDate(selectedDate, ['illness'])}
+                🏷️ Uwaga: wybrany dzień ({selectedDate}) jest oznaczony jako: {getDayEventLabelForDate(selectedDate, ['illness'])} - może to wpływać na statystykę z tego okresu
               </p>
             )}
             <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
@@ -3533,7 +3571,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             {getDayEventLabelForDate(selectedDate, ['vacation']) && (
               <p style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', marginBottom: '8px' }}>
-                🏷️ Wybrany dzień oznaczony: {getDayEventLabelForDate(selectedDate, ['vacation'])}
+                🏷️ Uwaga: wybrany dzień ({selectedDate}) jest oznaczony jako: {getDayEventLabelForDate(selectedDate, ['vacation'])} - może to wpływać na statystykę z tego okresu
               </p>
             )}
             <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
@@ -3620,7 +3658,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             {getDayEventLabelForDate(selectedDate, ['vacation']) && (
               <p style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', marginBottom: '8px' }}>
-                🏷️ Wybrany dzień oznaczony: {getDayEventLabelForDate(selectedDate, ['vacation'])}
+                🏷️ Uwaga: wybrany dzień ({selectedDate}) jest oznaczony jako: {getDayEventLabelForDate(selectedDate, ['vacation'])} - może to wpływać na statystykę z tego okresu
               </p>
             )}
             {weightGoalForecast.status === 'reached' ? (
@@ -4095,7 +4133,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           <div style={{ display: 'flex', alignItems: 'center', gap: '24px', margin: '8px 0' }}>
             <div style={{ position: 'relative', width: 92, height: 92, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               {/* Calories circular gauge */}
-              <RenderProgressCircle size={92} strokeWidth={8} percentage={Math.min((eatenCalories / (targetCalories || 2000)) * 100, 100)} color="var(--color-secondary)" />
+              <RenderProgressCircle size={92} strokeWidth={8} percentage={caloriesPct} color="var(--color-secondary)" />
               <div style={{ position: 'absolute', textAlign: 'center' }}>
                 <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>
                   {eatenCalories}
@@ -4114,7 +4152,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                   <span style={{ fontWeight: '700' }}>{Math.round(eatenCarbs)}g / {targetCarbs}g</span>
                 </div>
                 <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', background: '#06b6d4', width: `${Math.min((eatenCarbs / (targetCarbs || 250)) * 100, 100)}%` }}></div>
+                  <div style={{ height: '100%', background: '#06b6d4', width: `${carbsPct}%` }}></div>
                 </div>
               </div>
               <div>
@@ -4123,7 +4161,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                   <span style={{ fontWeight: '700' }}>{Math.round(eatenProtein)}g / {targetProtein}g</span>
                 </div>
                 <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', background: '#7c3aed', width: `${Math.min((eatenProtein / (targetProtein || 150)) * 100, 100)}%` }}></div>
+                  <div style={{ height: '100%', background: '#7c3aed', width: `${proteinPct}%` }}></div>
                 </div>
               </div>
               <div>
@@ -4132,7 +4170,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                   <span style={{ fontWeight: '700' }}>{Math.round(eatenFat)}g / {targetFat}g</span>
                 </div>
                 <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', background: '#fbbf24', width: `${Math.min((eatenFat / (targetFat || 80)) * 100, 100)}%` }}></div>
+                  <div style={{ height: '100%', background: '#fbbf24', width: `${fatPct}%` }}></div>
                 </div>
               </div>
             </div>

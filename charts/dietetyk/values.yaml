@@ -17,7 +17,7 @@ backend:
 frontend:
   image:
     repository: ghcr.io/mbeczynski/dietetyk-ai-frontend
-    tag: "sha-5d99d6b"
+    tag: "sha-b170514"
     pullPolicy: Always
   resources:
     limits:

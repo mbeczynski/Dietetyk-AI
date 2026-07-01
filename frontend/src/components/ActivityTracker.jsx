@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-export default function ActivityTracker({ summary, userProfile, sessionToken, onGoalsUpdate }) {
+export default function ActivityTracker({ summary, userProfile, sessionToken, onGoalsUpdate, onLogout }) {
   const [historyData, setHistoryData] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
@@ -24,6 +24,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
   // nadpisać to, co użytkownik właśnie wpisuje w pola celów. Flaga "dirty" pozwala
   // efektowi synchronizować formularz tylko, gdy użytkownik nie ma niezapisanych zmian.
   const [goalsDirty, setGoalsDirty] = useState(false);
+  const [isGoalsOpen, setIsGoalsOpen] = useState(false);
 
   useEffect(() => {
     if (summary && !goalsDirty) {
@@ -64,6 +65,8 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
         }
         setTimeout(() => setGoalsMessage({ type: '', text: '' }), 5000);
       } else {
+        // F-S6: Obsługa 401 — wygasła sesja
+        if (res.status === 401) { if (onLogout) onLogout(); return; }
         setGoalsMessage({ type: 'error', text: 'Błąd zapisu celów.' });
       }
     } catch (err) {
@@ -164,13 +167,17 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
     setIsSavingMeasurement(true);
     setMeasurementMessage({ type: '', text: '' });
     try {
+      // F-S5: Filtrowanie pustych stringów — nie wysyłamy '' do backendu (trafiłoby jako NULL lub błąd walidacji)
+      const measurementPayload = Object.fromEntries(
+        Object.entries(formMeasurement).map(([k, v]) => [k, v === '' ? null : v])
+      );
       const res = await fetch('/api/body-measurements', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${sessionToken}`
         },
-        body: JSON.stringify(formMeasurement)
+        body: JSON.stringify(measurementPayload)
       });
       if (res.ok) {
         setMeasurementMessage({ type: 'success', text: 'Zapisano pomiary pomyślnie!' });
@@ -590,257 +597,286 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
       {/* 1. Kafelki wskaźników z sensorów (Gotowość, Sen, Skład Ciała) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', alignItems: 'start' }}>
         
-        {/* Oura Ring: Sen i Gotowość */}
-        <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>💍</span> Oura Ring Status
-            </h3>
-            <span style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', background: userProfile?.has_oura ? 'rgba(52, 211, 153, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: userProfile?.has_oura ? 'var(--success-light)' : 'var(--danger-light)' }}>
-              {userProfile?.has_oura ? 'Połączono' : 'Rozłączono'}
-            </span>
-          </div>
-
-          {!userProfile?.has_oura ? (
-            <div style={{ textAlign: 'center', padding: '20px 10px', color: 'var(--text-dim)', fontSize: '0.9rem' }}>
-              Brak połączenia z kontem Oura Ring. Skonfiguruj integrację w zakładce Ustawienia.
+        {/* Kolumna 1: Oura & Dzisiejsza Aktywność */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Oura Ring: Sen i Gotowość */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>💍</span> Oura Ring Status
+              </h3>
+              <span style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', background: userProfile?.has_oura ? 'rgba(52, 211, 153, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: userProfile?.has_oura ? 'var(--success-light)' : 'var(--danger-light)' }}>
+                {userProfile?.has_oura ? 'Połączono' : 'Rozłączono'}
+              </span>
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' }}>
-                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', display: 'block' }}>Gotowość (Readiness)</span>
-                  <strong style={{ fontSize: '1.4rem', color: '#c084fc' }}>
-                    {summary.readiness_score != null ? `${summary.readiness_score}/100` : '--'}
-                  </strong>
-                </div>
-                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', display: 'block' }}>Wynik Snu (Sleep)</span>
-                  <strong style={{ fontSize: '1.4rem', color: '#38bdf8' }}>
-                    {summary.sleep_score != null ? `${summary.sleep_score}/100` : '--'}
-                  </strong>
-                </div>
+
+            {!userProfile?.has_oura ? (
+              <div style={{ textAlign: 'center', padding: '20px 10px', color: 'var(--text-dim)', fontSize: '0.9rem' }}>
+                Brak połączenia z kontem Oura Ring. Skonfiguruj integrację w zakładce Ustawienia.
               </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', display: 'block' }}>Gotowość (Readiness)</span>
+                    <strong style={{ fontSize: '1.4rem', color: '#c084fc' }}>
+                      {summary.readiness_score != null ? `${summary.readiness_score}/100` : '--'}
+                    </strong>
+                  </div>
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', display: 'block' }}>Wynik Snu (Sleep)</span>
+                    <strong style={{ fontSize: '1.4rem', color: '#38bdf8' }}>
+                      {summary.sleep_score != null ? `${summary.sleep_score}/100` : '--'}
+                    </strong>
+                  </div>
+                </div>
 
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Długość snu:</span>
-                  <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.sleep_duration != null ? `${Number(summary.sleep_duration).toFixed(1)}h` : '--'}
-                  </span>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Długość snu:</span>
+                    <span style={{ color: '#fff', fontWeight: 600 }}>
+                      {summary.sleep_duration != null ? `${Number(summary.sleep_duration).toFixed(1)}h` : '--'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Faza głęboka / REM:</span>
+                    <span style={{ color: '#fff', fontWeight: 600 }}>
+                      {summary.sleep_deep != null ? `${Number(summary.sleep_deep).toFixed(1)}h` : '--'} / {summary.sleep_rem != null ? `${Number(summary.sleep_rem).toFixed(1)}h` : '--'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>HRV (Zmienność tętna):</span>
+                    <span style={{ color: '#fff', fontWeight: 600 }}>
+                      {summary.hrv != null ? `${Number(summary.hrv).toFixed(0)} ms` : '--'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Tętno spoczynkowe (RHR):</span>
+                    <span style={{ color: '#fff', fontWeight: 600 }}>
+                      {summary.rhr != null ? `${Number(summary.rhr).toFixed(0)} bpm` : '--'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Odchylenie temperatury:</span>
+                    {/* Runda 12 (audyt): poprzednio `temperature_deviation > 0` przy null
+                        zwracało false, więc brak danych był kolorowany tak samo jak realne
+                        "0 lub mniej" (zielony) - teraz brak danych dostaje neutralny, wyciszony
+                        kolor, niezależny od interpretacji "dobre/złe". */}
+                    <span style={{ color: summary.temperature_deviation == null ? 'var(--text-dim)' : (summary.temperature_deviation > 0 ? 'var(--danger-light)' : 'var(--success-light)'), fontWeight: 600 }}>
+                      {summary.temperature_deviation != null ? `${summary.temperature_deviation > 0 ? '+' : ''}${Number(summary.temperature_deviation).toFixed(2)} °C` : '--'}
+                    </span>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Faza głęboka / REM:</span>
-                  <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.sleep_deep != null ? `${Number(summary.sleep_deep).toFixed(1)}h` : '--'} / {summary.sleep_rem != null ? `${Number(summary.sleep_rem).toFixed(1)}h` : '--'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>HRV (Zmienność tętna):</span>
-                  <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.hrv != null ? `${Number(summary.hrv).toFixed(0)} ms` : '--'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Tętno spoczynkowe (RHR):</span>
-                  <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.rhr != null ? `${Number(summary.rhr).toFixed(0)} bpm` : '--'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Odchylenie temperatury:</span>
-                  {/* Runda 12 (audyt): poprzednio `temperature_deviation > 0` przy null
-                      zwracało false, więc brak danych był kolorowany tak samo jak realne
-                      "0 lub mniej" (zielony) - teraz brak danych dostaje neutralny, wyciszony
-                      kolor, niezależny od interpretacji "dobre/złe". */}
-                  <span style={{ color: summary.temperature_deviation == null ? 'var(--text-dim)' : (summary.temperature_deviation > 0 ? 'var(--danger-light)' : 'var(--success-light)'), fontWeight: 600 }}>
-                    {summary.temperature_deviation != null ? `${summary.temperature_deviation > 0 ? '+' : ''}${Number(summary.temperature_deviation).toFixed(2)} °C` : '--'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Withings: Skład Ciała i Waga */}
-        <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>⚖️</span> Withings Status
-            </h3>
-            <span style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', background: userProfile?.has_withings ? 'rgba(52, 211, 153, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: userProfile?.has_withings ? 'var(--success-light)' : 'var(--danger-light)' }}>
-              {userProfile?.has_withings ? 'Połączono' : 'Rozłączono'}
-            </span>
-          </div>
-
-          {!userProfile?.has_withings ? (
-            <div style={{ textAlign: 'center', padding: '20px 10px', color: 'var(--text-dim)', fontSize: '0.9rem' }}>
-              Brak połączenia z kontem Withings. Skonfiguruj integrację w zakładce Ustawienia.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
-                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', textAlign: 'center' }}>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', display: 'block' }}>Aktualna Waga Ciała</span>
-                  <strong style={{ fontSize: '1.8rem', color: '#fbbf24' }}>
-                    {summary.weight != null ? `${Number(summary.weight).toFixed(1)} kg` : '--'}
-                  </strong>
-                </div>
-              </div>
-
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Procent tkanki tłuszczowej (Fat %):</span>
-                  <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.fat_ratio != null ? `${Number(summary.fat_ratio).toFixed(1)}%` : '--'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Szacowana masa tłuszczu:</span>
-                  <span style={{ color: '#fff', fontWeight: 600 }}>
-                    {summary.weight != null && summary.fat_ratio != null ? `${((Number(summary.weight) * Number(summary.fat_ratio)) / 100).toFixed(1)} kg` : '--'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Masa mięśniowa (Muscle mass):</span>
-                  <span style={{ color: 'var(--success-light)', fontWeight: 600 }}>
-                    {summary.muscle_mass != null ? `${Number(summary.muscle_mass).toFixed(1)} kg` : '--'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Ogólna Aktywność: Kroki i Kalorie */}
-        <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>👣</span> Dzisiejsza Aktywność
-            </h3>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Importowane</span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '1.2rem' }}>👣</span>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Kroki</div>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Wykonane dzisiaj</span>
-                </div>
-              </div>
-              <strong style={{ fontSize: '1.1rem', color: '#fff' }}>
-                {summary.steps != null ? summary.steps.toLocaleString('pl-PL') : '0'}
-              </strong>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '1.2rem' }}>🔥</span>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Aktywne Kalorie</div>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Spalone w ruchu</span>
-                </div>
-              </div>
-              <strong style={{ fontSize: '1.1rem', color: 'var(--color-secondary)' }}>
-                {summary.calories_burned_active != null ? `${summary.calories_burned_active} kcal` : '0 kcal'}
-              </strong>
-            </div>
-
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '10px', fontSize: '0.8rem', color: 'var(--text-dim)', textAlign: 'right' }}>
-              Ost. sync: {formatSyncTime(summary.last_sync)}
-            </div>
-          </div>
-        </div>
-
-        {/* Cele Aktywności */}
-        <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>🎯</span> Cele Aktywności
-            </h3>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Ustawienia celów</span>
-          </div>
-
-          <form onSubmit={handleSaveGoals} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Kroki (kroki)</label>
-              <input
-                type="number"
-                className="input-field"
-                style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                value={goals.target_steps}
-                onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_steps: Number(e.target.value)}); }}
-                min="0"
-                required
-              />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Aktywne kalorie (kcal)</label>
-              <input
-                type="number"
-                className="input-field"
-                style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                value={goals.target_active_calories}
-                onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_active_calories: Number(e.target.value)}); }}
-                min="0"
-                required
-              />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Czas snu (godziny)</label>
-              <input
-                type="number"
-                step="0.1"
-                className="input-field"
-                style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                value={goals.target_sleep_duration}
-                onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_sleep_duration: Number(e.target.value)}); }}
-                min="0"
-                required
-              />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Minuty ćwiczeń (min)</label>
-              <input
-                type="number"
-                className="input-field"
-                style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                value={goals.target_active_minutes}
-                onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_active_minutes: Number(e.target.value)}); }}
-                min="0"
-                required
-              />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Waga docelowa (kg, opcjonalnie)</label>
-              {/* Pole opcjonalne (0 = brak celu) - używane do wyliczenia szacowanej
-                  daty osiągnięcia celu na podstawie regresji liniowej z wykresu
-                  "Spalanie Tłuszczu" poniżej (patrz computeWeightForecast). */}
-              <input
-                type="number"
-                step="0.1"
-                className="input-field"
-                style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                value={goals.target_weight_kg}
-                onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_weight_kg: Number(e.target.value)}); }}
-                min="0"
-                placeholder="np. 75"
-              />
-            </div>
-            <button type="submit" className="btn-primary" style={{ padding: '6px 12px', fontSize: '0.85rem', marginTop: '6px', height: '34px' }} disabled={isSavingGoals}>
-              {isSavingGoals ? 'Zapisywanie...' : 'Zapisz cele'}
-            </button>
-            {goalsMessage.text && (
-              <div style={{ fontSize: '0.8rem', color: goalsMessage.type === 'success' ? 'var(--success-light)' : 'var(--danger-light)', textAlign: 'center', marginTop: '4px' }}>
-                {goalsMessage.text}
               </div>
             )}
-          </form>
+          </div>
+
+          {/* Ogólna Aktywność: Kroki i Kalorie */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>👣</span> Dzisiejsza Aktywność
+              </h3>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Importowane</span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '1.2rem' }}>👣</span>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Kroki</div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Wykonane dzisiaj</span>
+                  </div>
+                </div>
+                <strong style={{ fontSize: '1.1rem', color: '#fff' }}>
+                  {summary.steps != null ? summary.steps.toLocaleString('pl-PL') : '0'}
+                </strong>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: 'rgba(255,255,255,0.01)', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '1.2rem' }}>🔥</span>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Aktywne Kalorie</div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Spalone w ruchu</span>
+                  </div>
+                </div>
+                <strong style={{ fontSize: '1.1rem', color: 'var(--color-secondary)' }}>
+                  {summary.calories_burned_active != null ? `${summary.calories_burned_active} kcal` : '0 kcal'}
+                </strong>
+              </div>
+
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '10px', fontSize: '0.8rem', color: 'var(--text-dim)', textAlign: 'right' }}>
+                Ost. sync: {formatSyncTime(summary.last_sync)}
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Kolumna 2: Withings & Cele Aktywności */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Withings: Skład Ciała i Waga */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>⚖️</span> Withings Status
+              </h3>
+              <span style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', background: userProfile?.has_withings ? 'rgba(52, 211, 153, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: userProfile?.has_withings ? 'var(--success-light)' : 'var(--danger-light)' }}>
+                {userProfile?.has_withings ? 'Połączono' : 'Rozłączono'}
+              </span>
+            </div>
+
+            {!userProfile?.has_withings ? (
+              <div style={{ textAlign: 'center', padding: '20px 10px', color: 'var(--text-dim)', fontSize: '0.9rem' }}>
+                Brak połączenia z kontem Withings. Skonfiguruj integrację w zakładce Ustawienia.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', textAlign: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', display: 'block' }}>Aktualna Waga Ciała</span>
+                    <strong style={{ fontSize: '1.8rem', color: '#fbbf24' }}>
+                      {summary.weight != null ? `${Number(summary.weight).toFixed(1)} kg` : '--'}
+                    </strong>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Procent tkanki tłuszczowej (Fat %):</span>
+                    <span style={{ color: '#fff', fontWeight: 600 }}>
+                      {summary.fat_ratio != null ? `${Number(summary.fat_ratio).toFixed(1)}%` : '--'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Szacowana masa tłuszczu:</span>
+                    <span style={{ color: '#fff', fontWeight: 600 }}>
+                      {summary.weight != null && summary.fat_ratio != null ? `${((Number(summary.weight) * Number(summary.fat_ratio)) / 100).toFixed(1)} kg` : '--'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Masa mięśniowa (Muscle mass):</span>
+                    <span style={{ color: 'var(--success-light)', fontWeight: 600 }}>
+                      {summary.muscle_mass != null ? `${Number(summary.muscle_mass).toFixed(1)} kg` : '--'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Cele Aktywności */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div
+              className="glass-card"
+              role="button"
+              tabIndex={0}
+              aria-expanded={isGoalsOpen}
+              onClick={() => setIsGoalsOpen(o => !o)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsGoalsOpen(o => !o); } }}
+              style={{ cursor: 'pointer' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>🎯</span> Cele Aktywności
+                </h3>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+                  {isGoalsOpen ? 'Zwiń ▲' : 'Pokaż ▼'}
+                </span>
+              </div>
+            </div>
+
+            {isGoalsOpen && (
+              <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    Ustawienia celów
+                  </h3>
+                </div>
+
+                <form onSubmit={handleSaveGoals} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Kroki (kroki)</label>
+                    <input
+                      type="number"
+                      className="input-field"
+                      style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                      value={goals.target_steps}
+                      onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_steps: Number(e.target.value)}); }}
+                      min="0"
+                      required
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Aktywne kalorie (kcal)</label>
+                    <input
+                      type="number"
+                      className="input-field"
+                      style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                      value={goals.target_active_calories}
+                      onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_active_calories: Number(e.target.value)}); }}
+                      min="0"
+                      required
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Czas snu (godziny)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      className="input-field"
+                      style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                      value={goals.target_sleep_duration}
+                      onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_sleep_duration: Number(e.target.value)}); }}
+                      min="0"
+                      required
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Minuty ćwiczeń (min)</label>
+                    <input
+                      type="number"
+                      className="input-field"
+                      style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                      value={goals.target_active_minutes}
+                      onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_active_minutes: Number(e.target.value)}); }}
+                      min="0"
+                      required
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Waga docelowa (kg, opcjonalnie)</label>
+                    {/* Pole opcjonalne (0 = brak celu) - używane do wyliczenia szacowanej
+                        daty osiągnięcia celu na podstawie regresji liniowej z wykresu
+                        "Spalanie Tłuszczu" poniżej (patrz computeWeightForecast). */}
+                    <input
+                      type="number"
+                      step="0.1"
+                      className="input-field"
+                      style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                      value={goals.target_weight_kg}
+                      onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_weight_kg: Number(e.target.value)}); }}
+                      min="0"
+                      placeholder="np. 75"
+                    />
+                  </div>
+                  <button type="submit" className="btn-primary" style={{ padding: '6px 12px', fontSize: '0.85rem', marginTop: '6px', height: '34px' }} disabled={isSavingGoals}>
+                    {isSavingGoals ? 'Zapisywanie...' : 'Zapisz cele'}
+                  </button>
+                  {goalsMessage.text && (
+                    <div style={{ fontSize: '0.8rem', color: goalsMessage.type === 'success' ? 'var(--success-light)' : 'var(--danger-light)', textAlign: 'center', marginTop: '4px' }}>
+                      {goalsMessage.text}
+                    </div>
+                  )}
+                </form>
+              </div>
+            )}
+          </div>
+        </div>
+
       </div>
 
       {/* 2. Wykresy trendów z 30 dni (Spalanie Tłuszczu i Masa Mięśniowa) */}

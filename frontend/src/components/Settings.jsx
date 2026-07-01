@@ -41,6 +41,8 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   });
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
+  const [isPasswordOpen, setIsPasswordOpen] = useState(false);
+  const [isDietGoalsOpen, setIsDietGoalsOpen] = useState(false);
 
   // Stan eksportu danych i usuwania konta (RODO/GDPR)
   const [isExportingData, setIsExportingData] = useState(false);
@@ -137,8 +139,13 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   }, [userProfile]);
 
   useEffect(() => {
-    fetchSettings();
-    fetchSharedReports();
+    let cancelled = false;
+    const run = async () => {
+      if (!cancelled) fetchSettings();
+      if (!cancelled) fetchSharedReports();
+    };
+    run();
+    return () => { cancelled = true; };
   }, []);
 
   const fetchSettings = async () => {
@@ -179,6 +186,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           'Authorization': `Bearer ${sessionToken}`
         }
       });
+      if (res.status === 401) { if (onLogout) onLogout(); return; }
       if (res.ok) {
         const data = await res.json();
         let statusText = 'Synchronizacja zakończona pomyślnie!';
@@ -258,7 +266,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
         setTimeout(() => setMessage({ type: '', text: '' }), 8000);
         if (onProfileUpdate) onProfileUpdate();
       } else {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setMessage({ type: 'error', text: data.error || 'Błąd generowania nowego tokenu.' });
       }
     } catch (err) {
@@ -298,6 +306,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
         body: JSON.stringify(settings)
       });
 
+      if (res.status === 401) { if (onLogout) onLogout(); return; }
       if (res.ok) {
         setMessage({ type: 'success', text: 'Ustawienia zostały pomyślnie zaktualizowane!' });
         onProfileUpdate();
@@ -678,6 +687,12 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        try {
+          await fetch('/api/logout', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${sessionToken}` }
+          });
+        } catch (_) { /* ignorujemy błąd logout - konto i tak jest usuwane */ }
         localStorage.removeItem('diet_session_token');
         window.location.href = '/';
       } else {
@@ -980,132 +995,151 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     <div className="setup-container">
       
       {/* 1. Panel Ustawień Celów */}
-      <div className="glass-card">
-        <h3 className="card-title">⚙️ Twoje Cele Dietetyczne</h3>
-        <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
-          Skonfiguruj swoje dzienne limity, aby Dietetyk AI mógł poprawnie obliczać Twój bilans i dawać spersonalizowane porady.
-        </p>
-
-        {message.text && (
-          <div className={`alert alert-${message.type}`}>
-            {message.text}
-          </div>
-        )}
-
-        <form onSubmit={handleSave}>
-          <div className="settings-grid">
-            <div className="input-group">
-              <label className="input-label">Cel kalorii (kcal)</label>
-              <input
-                type="number"
-                name="target_calories"
-                className="input-field"
-                value={settings.target_calories}
-                onChange={handleInputChange}
-                min="500"
-                max="10000"
-                required
-              />
-            </div>
-            
-            <div className="input-group">
-              <label className="input-label">BMR / PPM (kcal)*</label>
-              <input
-                type="number"
-                name="bmr"
-                className="input-field"
-                value={settings.bmr}
-                onChange={handleInputChange}
-                min="500"
-                max="5000"
-                title="Podstawowa przemiana materii - kalorie, które Twój organizm spala na samo przeżycie leżąc."
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Białko (g)</label>
-              <input
-                type="number"
-                name="target_protein"
-                className="input-field"
-                value={settings.target_protein}
-                onChange={handleInputChange}
-                min="0"
-                max="1000"
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Węglowodany (g)</label>
-              <input
-                type="number"
-                name="target_carbs"
-                className="input-field"
-                value={settings.target_carbs}
-                onChange={handleInputChange}
-                min="0"
-                max="1500"
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Tłuszcz (g)</label>
-              <input
-                type="number"
-                name="target_fat"
-                className="input-field"
-                value={settings.target_fat}
-                onChange={handleInputChange}
-                min="0"
-                max="500"
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Cel wody (ml)</label>
-              <input
-                type="number"
-                name="target_water_ml"
-                className="input-field"
-                value={settings.target_water_ml}
-                onChange={handleInputChange}
-                min="0"
-                max="10000"
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Wzrost (cm)**</label>
-              <input
-                type="number"
-                name="height_cm"
-                className="input-field"
-                value={settings.height_cm}
-                onChange={handleInputChange}
-                min="0"
-                placeholder="np. 178"
-                title="Potrzebny do wyliczenia rzeczywistego BMI na Pulpicie."
-              />
-            </div>
-          </div>
-
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
-            * BMR (Podstawowa przemiana materii) służy do wyliczania całkowitego dziennego spalania: Całkowite spalanie = BMR + Aktywne kalorie ze zintegrowanych sensorów.
-          </p>
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '16px' }}>
-            ** Wzrost jest opcjonalny, ale bez niego BMI na Pulpicie nie będzie wyliczane (nie zgadujemy go za Ciebie).
-          </p>
-
-          <button type="submit" className="btn-primary" disabled={isSaving}>
-            {isSaving ? 'Zapisywanie...' : 'Zapisz cele'}
-          </button>
-        </form>
+      {/* 1. Panel Ustawień Celów */}
+      <div
+        className="glass-card"
+        role="button"
+        tabIndex={0}
+        aria-expanded={isDietGoalsOpen}
+        onClick={() => setIsDietGoalsOpen(o => !o)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsDietGoalsOpen(o => !o); } }}
+        style={{ cursor: 'pointer' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 className="card-title" style={{ margin: 0 }}>⚙️ Twoje Cele Dietetyczne</h3>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            {isDietGoalsOpen ? 'Zwiń ▲' : 'Pokaż ▼'}
+          </span>
+        </div>
       </div>
+
+      {isDietGoalsOpen && (
+        <div className="glass-card">
+          <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+            Skonfiguruj swoje dzienne limity, aby Dietetyk AI mógł poprawnie obliczać Twój bilans i dawać spersonalizowane porady.
+          </p>
+
+          {message.text && (
+            <div className={`alert alert-${message.type}`} style={{ marginBottom: '16px' }}>
+              {message.text}
+            </div>
+          )}
+
+          <form onSubmit={handleSave}>
+            <div className="settings-grid">
+              <div className="input-group">
+                <label className="input-label">Cel kalorii (kcal)</label>
+                <input
+                  type="number"
+                  name="target_calories"
+                  className="input-field"
+                  value={settings.target_calories}
+                  onChange={handleInputChange}
+                  min="500"
+                  max="10000"
+                  required
+                />
+              </div>
+              
+              <div className="input-group">
+                <label className="input-label">BMR / PPM (kcal)*</label>
+                <input
+                  type="number"
+                  name="bmr"
+                  className="input-field"
+                  value={settings.bmr}
+                  onChange={handleInputChange}
+                  min="500"
+                  max="5000"
+                  title="Podstawowa przemiana materii - kalorie, które Twój organizm spala na samo przeżycie leżąc."
+                  required
+                />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Białko (g)</label>
+                <input
+                  type="number"
+                  name="target_protein"
+                  className="input-field"
+                  value={settings.target_protein}
+                  onChange={handleInputChange}
+                  min="0"
+                  max="1000"
+                  required
+                />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Węglowodany (g)</label>
+                <input
+                  type="number"
+                  name="target_carbs"
+                  className="input-field"
+                  value={settings.target_carbs}
+                  onChange={handleInputChange}
+                  min="0"
+                  max="1500"
+                  required
+                />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Tłuszcz (g)</label>
+                <input
+                  type="number"
+                  name="target_fat"
+                  className="input-field"
+                  value={settings.target_fat}
+                  onChange={handleInputChange}
+                  min="0"
+                  max="500"
+                  required
+                />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Cel wody (ml)</label>
+                <input
+                  type="number"
+                  name="target_water_ml"
+                  className="input-field"
+                  value={settings.target_water_ml}
+                  onChange={handleInputChange}
+                  min="0"
+                  max="10000"
+                  required
+                />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Wzrost (cm)**</label>
+                <input
+                  type="number"
+                  name="height_cm"
+                  className="input-field"
+                  value={settings.height_cm}
+                  onChange={handleInputChange}
+                  min="0"
+                  placeholder="np. 178"
+                  title="Potrzebny do wyliczenia rzeczywistego BMI na Pulpicie."
+                />
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+              * BMR (Podstawowa przemiana materii) służy do wyliczania całkowitego dziennego spalania: Całkowite spalanie = BMR + Aktywne kalorie ze zintegrowanych sensorów.
+            </p>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '16px' }}>
+              ** Wzrost jest opcjonalny, ale bez niego BMI na Pulpicie nie będzie wyliczane (nie zgadujemy go za Ciebie).
+            </p>
+
+            <button type="submit" className="btn-primary" disabled={isSaving}>
+              {isSaving ? 'Zapisywanie...' : 'Zapisz cele'}
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Panel Profilu (Avatar) oraz pozostałe karty ustawień.
           Karta Profilu jest dużo wyższa niż pozostałe (Cel Sylwetki, Twoje Dane,
@@ -1417,7 +1451,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
             <div className="glass-card">
               <h3 className="card-title">🎯 Cel Sylwetki</h3>
               <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
-                Opisz, do jakiej sylwetki/celu dążysz (np. "redukcja tkanki tłuszczowej, widoczne mięśnie brzucha" albo "budowa masy mięśniowej, +5kg"), opcjonalnie dołącz zdjęcie referencyjne. AI dietetyk weźmie to pod uwagę przy poradach i w czacie.
+                Opisz, do jakiej sylwetki/celu dążysz (np. &quot;redukcja tkanki tłuszczowej, widoczne mięśnie brzucha&quot; albo &quot;budowa masy mięśniowej, +5kg&quot;), opcjonalnie dołącz zdjęcie referencyjne. AI dietetyk weźmie to pod uwagę przy poradach i w czacie.
               </p>
 
               {bodyGoalPhotoMessage.text && (
@@ -1477,62 +1511,81 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 />
               </div>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '8px 0 16px' }}>
-                Opis zapisuje się razem z przyciskiem "Zapisz profil" powyżej. Zdjęcie zapisuje się od razu po wybraniu pliku.
+                Opis zapisuje się razem z przyciskiem &quot;Zapisz profil&quot; powyżej. Zdjęcie zapisuje się od razu po wybraniu pliku.
               </p>
             </div>
 
             {/* Panel Zmiany Hasła */}
-            <div className="glass-card">
-              <h3 className="card-title">🔑 Zmiana Hasła</h3>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
-                Zmień hasło logowania dla swojego konta.
-              </p>
-
-              {passwordMessage.text && (
-                <div className={`alert alert-${passwordMessage.type}`} style={{ marginBottom: '16px' }}>
-                  {passwordMessage.text}
-                </div>
-              )}
-
-              <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div className="input-group">
-                  <label className="input-label">Obecne hasło</label>
-                  <input
-                    type="password"
-                    className="input-field"
-                    value={passwordData.currentPassword}
-                    onChange={(e) => setPasswordData(prev => ({ ...prev, currentPassword: e.target.value }))}
-                    required
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label className="input-label">Nowe hasło</label>
-                  <input
-                    type="password"
-                    className="input-field"
-                    value={passwordData.newPassword}
-                    onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
-                    required
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label className="input-label">Powtórz nowe hasło</label>
-                  <input
-                    type="password"
-                    className="input-field"
-                    value={passwordData.confirmPassword}
-                    onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                    required
-                  />
-                </div>
-
-                <button type="submit" className="btn-primary" disabled={isChangingPassword} style={{ marginTop: '8px' }}>
-                  {isChangingPassword ? 'Zmienianie...' : 'Zmień hasło'}
-                </button>
-              </form>
+            {/* Panel Zmiany Hasła */}
+            <div
+              className="glass-card"
+              role="button"
+              tabIndex={0}
+              aria-expanded={isPasswordOpen}
+              onClick={() => setIsPasswordOpen(o => !o)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsPasswordOpen(o => !o); } }}
+              style={{ cursor: 'pointer' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 className="card-title" style={{ margin: 0 }}>🔑 Zmiana Hasła</h3>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  {isPasswordOpen ? 'Zwiń ▲' : 'Pokaż ▼'}
+                </span>
+              </div>
             </div>
+
+            {isPasswordOpen && (
+              <div className="glass-card">
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+                  Zmień hasło logowania dla swojego konta.
+                </p>
+
+                {passwordMessage.text && (
+                  <div className={`alert alert-${passwordMessage.type}`} style={{ marginBottom: '16px' }}>
+                    {passwordMessage.text}
+                  </div>
+                )}
+
+                <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div className="input-group">
+                    <label className="input-label">Obecne hasło</label>
+                    <input
+                      type="password"
+                      className="input-field"
+                      value={passwordData.currentPassword}
+                      onChange={(e) => setPasswordData(prev => ({ ...prev, currentPassword: e.target.value }))}
+                      required
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label">Nowe hasło</label>
+                    <input
+                      type="password"
+                      className="input-field"
+                      value={passwordData.newPassword}
+                      onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
+                      required
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label">Powtórz nowe hasło</label>
+                    <input
+                      type="password"
+                      className="input-field"
+                      value={passwordData.confirmPassword}
+                      onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                      required
+                    />
+                  </div>
+
+                  <button type="submit" className="btn-primary" disabled={isChangingPassword} style={{ marginTop: '8px' }}>
+                    {isChangingPassword ? 'Zmienianie...' : 'Zmień hasło'}
+                  </button>
+                </form>
+              </div>
+            )}
 
             {/* Panel 2FA (MFA) */}
             <div className="glass-card">
@@ -2021,7 +2074,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 ⚠️ <strong>Ważne:</strong> Upewnij się, że w konfiguracji Twojej aplikacji na
                 <a href="https://cloud.ouraring.com/developer/manage" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'underline', marginLeft: '4px', marginRight: '4px' }}>
                   Oura Developer Portal
-                </a> zaznaczyłeś zakresy (scopes) <strong>"daily"</strong> (dane dobowe), <strong>"heartrate"</strong> oraz <strong>"personal"</strong>. Bez tych zakresów API Oura zwróci błąd autoryzacji (401 - Token is not authorized access daily scope) i pobranie parametrów snu, gotowości oraz aktywności nie powiedzie się. Po zmianie zakresów na portalu Oura, odłącz i połącz Oura ponownie w aplikacji.
+                </a> zaznaczyłeś zakresy (scopes) <strong>&quot;daily&quot;</strong> (dane dobowe), <strong>&quot;heartrate&quot;</strong> oraz <strong>&quot;personal&quot;</strong>. Bez tych zakresów API Oura zwróci błąd autoryzacji (401 - Token is not authorized access daily scope) i pobranie parametrów snu, gotowości oraz aktywności nie powiedzie się. Po zmianie zakresów na portalu Oura, odłącz i połącz Oura ponownie w aplikacji.
               </div>
             </div>
             )}

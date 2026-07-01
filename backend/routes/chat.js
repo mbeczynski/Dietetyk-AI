@@ -264,7 +264,8 @@ router.post('/api/chat', requireAuth, async (req, res) => {
           const roleName = h.sender === 'user' ? 'Użytkownik' : 'Dietetyk AI';
           // Przycinamy długie wiadomości w historii do 500 znaków jako dodatkowa ochrona
           const text = h.text.length > 500 ? h.text.slice(0, 500) + '...' : h.text;
-          return `${roleName}: ${text}`;
+          // B-W2: Wiadomości użytkownika owinięte w user_input zapobiegają prompt injection
+          return h.sender === 'user' ? `${roleName}: <user_input>${text}</user_input>` : `${roleName}: ${text}`;
         }).join('\n') + '\n';
       }
     }
@@ -296,7 +297,7 @@ Pomagasz użytkownikowi ${displayName} w optymalizacji jego diety, regeneracji, 
 
 Informacje o profilu i celach użytkownika:
 - Cel kaloryczny spożycia: ${getTargetCalories(settings)} kcal
-- Cel makroskładników: Białko: ${settings.target_protein || 150}g, Węglowodany: ${settings.target_carbs || 250}g, Tłuszcz: ${settings.target_fat || 80}g
+- Cel makroskładników: Białko: ${settings.target_protein ?? 150}g, Węglowodany: ${settings.target_carbs ?? 250}g, Tłuszcz: ${settings.target_fat ?? 80}g
 - BMR (Podstawowa Przemiana Materii): ${bmr} kcal
 - Cel sylwetki opisany przez użytkownika: ${bodyGoalText || 'nie opisany w Ustawieniach'}
 
@@ -326,7 +327,7 @@ Aktualne statystyki użytkownika na dzień ${queryDate}:
 ${weeklyTrendSummary}
 ${dayEventsContext}
 ${historyContext}
-Pytanie użytkownika: "${message}"
+Pytanie użytkownika: <user_input>${message}</user_input>
 
 Odpowiedz zwięźle, merytorycznie i praktycznie w języku polskim (maksymalnie 3-4 krótkie akapity). Skup się na bezpośrednich zaleceniach odnoszących się do powyższych danych zdrowotnych użytkownika. Nawiąż do historii rozmowy lub trendów z powyższego podsumowania historii, jeśli to istotne i odpowiada na pytanie. Jeśli użytkownik opisał swój cel sylwetki, odnoś rekomendacje do tego celu tam, gdzie to ma sens dla zadanego pytania - ale nie wspominaj o nim, jeśli pytanie go nie dotyczy. Możesz używać formatowania markdown (listy wypunktowane, pogrubienia). Odpowiedź powinna być profesjonalna, życzliwa i motywująca.
 `;

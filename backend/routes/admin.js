@@ -54,9 +54,13 @@ router.post('/api/admin/config', requireAdmin, async (req, res) => {
 // 6h. Zarządzanie użytkownikami (Admin)
 router.get('/api/admin/users', requireAdmin, async (req, res) => {
   try {
+    // B-N3: Paginacja — limit max 200, domyślnie 100
+    const limit = Math.min(parseInt(req.query.limit) || 100, 200);
+    const offset = parseInt(req.query.offset) || 0;
     const rows = await db.all(`
-      SELECT id, username, email, role, status, totp_enabled, force_password_change, force_2fa 
+      SELECT id, username, email, role, status, totp_enabled, force_password_change, force_2fa
       FROM users
+      LIMIT ${limit} OFFSET ${offset}
     `);
     res.json(rows);
   } catch (err) {

@@ -199,6 +199,8 @@ const initDb = async () => {
   // i wypisujemy je JEDNORAZOWO w logach serwera. Można je też nadpisać zmienną
   // środowiskową ADMIN_INITIAL_PASSWORD przy pierwszym uruchomieniu.
   const existingAdmin = await get(`SELECT id FROM users WHERE id = 1`);
+  // B-N4: Email admina z env var — nigdy hardcoded prywatny adres
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@dietetyk-ai.local';
   if (!existingAdmin) {
     const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || crypto.randomBytes(12).toString('base64url');
     const adminHash = await bcrypt.hash(initialPassword, 10);
@@ -207,8 +209,8 @@ const initDb = async () => {
     const forcePasswordChange = (process.env.CI === 'true' || process.env.ADMIN_INITIAL_PASSWORD) ? 0 : 1;
     await run(`
       INSERT INTO users (id, username, password_hash, sync_token, totp_enabled, email, role, status, force_password_change)
-      VALUES (1, 'admin', ?, ?, 0, 'mbeczynski@gmail.com', 'admin', 'active', ?)
-    `, [adminHash, adminSyncToken, forcePasswordChange]);
+      VALUES (1, 'admin', ?, ?, 0, ?, 'admin', 'active', ?)
+    `, [adminHash, adminSyncToken, adminEmail, forcePasswordChange]);
 
     console.log('========================================================');
     console.log('[DB INIT] Utworzono konto admina. Tymczasowe hasło logowania:');
@@ -219,7 +221,7 @@ const initDb = async () => {
 
   // Dla istniejących instalacji: zaktualizuj nazwę na admin, ustaw email oraz rolę 'admin'
   try {
-    await run(`UPDATE users SET username = 'admin', email = 'mbeczynski@gmail.com', role = 'admin' WHERE id = 1`);
+    await run(`UPDATE users SET username = 'admin', email = ?, role = 'admin' WHERE id = 1`, [adminEmail]);
   } catch (e) {}
 
 

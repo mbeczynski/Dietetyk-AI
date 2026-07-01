@@ -552,7 +552,8 @@ router.get('/api/user/export', async (req, res) => {
 
     const [settings, meals, healthMetrics, bodyMeasurements, workouts] = await Promise.all([
       db.all(`SELECT key, value FROM settings WHERE user_id = ?`, [userId]),
-      db.all(`SELECT * FROM meals WHERE user_id = ? ORDER BY timestamp`, [userId]),
+      // B-S1: Pominięcie image_base64 zapobiega OOM przy eksporcie RODO dużych kont
+      db.all(`SELECT id, user_id, date, timestamp, raw_text, calories, protein, carbs, fat, fiber, sugar, sodium, health_rating, analysis_json FROM meals WHERE user_id = ? ORDER BY timestamp`, [userId]),
       db.all(`SELECT * FROM health_metrics WHERE user_id = ? ORDER BY date`, [userId]),
       db.all(`SELECT * FROM body_measurements WHERE user_id = ? ORDER BY date`, [userId]),
       db.all(`SELECT * FROM apple_health_workouts WHERE user_id = ? ORDER BY date`, [userId])

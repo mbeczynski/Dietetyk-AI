@@ -2519,7 +2519,8 @@ router.get('/api/dashboard/weekend-effect-insight', async (req, res) => {
       weekendDaysLogged: weekendCalories.length,
       avgWeekdayCalories,
       avgWeekendCalories,
-      caloriesDiff: avgWeekendCalories - avgWeekdayCalories,
+      // B-S4: Zabezpieczenie przed NaN gdy avg() zwraca null (brak danych w jednej grupie)
+      caloriesDiff: (avgWeekendCalories != null && avgWeekdayCalories != null) ? avgWeekendCalories - avgWeekdayCalories : null,
       avgWeekdaySteps: avg(weekdaySteps),
       avgWeekendSteps: avg(weekendSteps),
       avgWeekdayActiveCalories: avg(weekdayActiveCal),
@@ -3222,7 +3223,7 @@ async function buildExplanationContext(userId, today) {
   ]);
 
   const lastMealHour = todayNutrition && todayNutrition.last_meal_timestamp
-    ? new Date(todayNutrition.last_meal_timestamp).getHours()
+    ? new Date(todayNutrition.last_meal_timestamp).getUTCHours() // B-S3: UTC aby uniknąć błędu strefy czasowej
     : null;
 
   return {

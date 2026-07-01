@@ -295,7 +295,8 @@ router.post('/api/login', async (req, res) => {
         status: 'require_2fa',
         tempToken: tempToken
       });
-    } else if (user.username !== 'admin') {
+    } else {
+      // B-W4: Wymuszenie 2FA działa dla WSZYSTKICH użytkowników — w tym admina (usunięto bypass)
       const force2faRow = await db.get(`SELECT value FROM app_config WHERE key = 'force_2fa'`);
       const isForce2faEnabled = force2faRow && force2faRow.value === '1';
       const isUserForce2fa = user.force_2fa === 1;
@@ -327,13 +328,6 @@ router.post('/api/login', async (req, res) => {
       }
 
       // Logowanie bezpośrednie bez 2FA (wymuszenie wyłączone lub konto młodsze niż 24h)
-      const permanentToken = await createSession(user.id, false);
-
-      return res.json({
-        token: permanentToken
-      });
-    } else {
-      // Bezpośrednie generowanie stałego tokenu sesji dla testowego konta admina (MFA wyłączone)
       const permanentToken = await createSession(user.id, false);
 
       return res.json({
@@ -495,9 +489,12 @@ router.post('/api/change-password-forced', async (req, res) => {
     const user = await db.get(`SELECT totp_enabled, username, totp_secret, force_2fa FROM users WHERE id = ?`, [session.user_id]);
     
     if (user.totp_enabled === 1) {
+      // B-W5: Unieważnij stary tempToken i wygeneruj nowy po zmianie hasła
+      await db.run(`DELETE FROM sessions WHERE token = ?`, [tempToken]);
+      const newTempToken = await createSession(session.user_id, false, TEMP_SESSION_TTL_DAYS);
       res.json({
         status: 'require_2fa',
-        tempToken: tempToken
+        tempToken: newTempToken
       });
     } else {
       const force2faRow = await db.get(`SELECT value FROM app_config WHERE key = 'force_2fa'`);
@@ -511,9 +508,12 @@ router.post('/api/change-password-forced', async (req, res) => {
         const otpauth = authenticator.keyuri(user.username, 'Dietetyk AI', secret);
         const qrCodeDataUrl = await QRCode.toDataURL(otpauth);
 
+        // B-W5: Unieważnij stary tempToken i wygeneruj nowy przed setup_2fa
+        await db.run(`DELETE FROM sessions WHERE token = ?`, [tempToken]);
+        const newTempToken = await createSession(session.user_id, false, TEMP_SESSION_TTL_DAYS);
         res.json({
           status: 'setup_2fa',
-          tempToken: tempToken,
+          tempToken: newTempToken,
           qrCode: qrCodeDataUrl,
           secret: secret
         });

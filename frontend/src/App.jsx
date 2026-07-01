@@ -52,6 +52,7 @@ export default function App() {
   
   const handlePublicRegister = async (e) => {
     e.preventDefault();
+    if (isRegistering) return; // F-S9: zapobieganie podwójnemu submitowi
     setLoginError('');
 
     if (registerPasswordInput !== registerConfirmPasswordInput) {
@@ -59,6 +60,7 @@ export default function App() {
       return;
     }
 
+    setIsRegistering(true); // F-S9
     try {
       const res = await fetch('/api/register-public', {
         method: 'POST',
@@ -98,6 +100,8 @@ export default function App() {
       }
     } catch (err) {
       setLoginError('Błąd połączenia z serwerem.');
+    } finally {
+      setIsRegistering(false); // F-S9
     }
   };
 
@@ -109,6 +113,7 @@ export default function App() {
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
   const [isCheckingToken, setIsCheckingToken] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false); // F-S9: ochrona przed podwójnym submitem rejestracji
   const [dashboardData, setDashboardData] = useState({
     summary: {
       target_calories: 2500,
@@ -323,6 +328,7 @@ export default function App() {
 
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
+    if (isRegistering) return; // F-S9: zapobieganie podwójnemu submitowi
     setRegisterError('');
 
     if (registerPassword !== registerConfirmPassword) {
@@ -330,6 +336,7 @@ export default function App() {
       return;
     }
 
+    setIsRegistering(true); // F-S9
     try {
       const res = await fetch('/api/register-invitation', {
         method: 'POST',
@@ -363,6 +370,8 @@ export default function App() {
       }
     } catch (err) {
       setRegisterError('Błąd połączenia z serwerem.');
+    } finally {
+      setIsRegistering(false); // F-S9
     }
   };
 
@@ -864,8 +873,8 @@ export default function App() {
                 />
               </div>
 
-              <button type="submit" className="btn-primary" style={{ width: '100%', padding: '12px', marginTop: '8px' }}>
-                Zarejestruj się i przejdź do 2FA
+              <button type="submit" className="btn-primary" style={{ width: '100%', padding: '12px', marginTop: '8px' }} disabled={isRegistering}>
+                {isRegistering ? 'Rejestrowanie…' : 'Zarejestruj się i przejdź do 2FA'}
               </button>
             </form>
           ) : (
@@ -946,8 +955,8 @@ export default function App() {
                 />
               </div>
 
-              <button type="submit" className="btn-primary" style={{ width: '100%', padding: '12px' }}>
-                Zarejestruj się
+              <button type="submit" className="btn-primary" style={{ width: '100%', padding: '12px' }} disabled={isRegistering}>
+                {isRegistering ? 'Rejestrowanie…' : 'Zarejestruj się'}
               </button>
 
               <button 
@@ -1252,7 +1261,7 @@ export default function App() {
       {/* Wyświetlanie aktywnej zakładki */}
       <main>
         {currentTab === 'dashboard' && (
-          <Dashboard summary={dashboardData.summary} aiAdvice={dashboardData.aiAdvice} sessionToken={sessionToken} selectedDate={selectedDate} onNavigate={setCurrentTab} onRefresh={fetchDashboardData} />
+          <Dashboard summary={dashboardData.summary} aiAdvice={dashboardData.aiAdvice} sessionToken={sessionToken} selectedDate={selectedDate} onNavigate={setCurrentTab} onRefresh={fetchDashboardData} onLogout={handleLogout} />
         )}
 
         {currentTab === 'meals' && (
@@ -1267,7 +1276,7 @@ export default function App() {
         )}
 
         {currentTab === 'activity' && (
-          <ActivityTracker summary={dashboardData.summary} userProfile={userProfile} sessionToken={sessionToken} onGoalsUpdate={fetchDashboardData} />
+          <ActivityTracker summary={dashboardData.summary} userProfile={userProfile} sessionToken={sessionToken} onGoalsUpdate={fetchDashboardData} onLogout={handleLogout} />
         )}
 
         {currentTab === 'trends' && (

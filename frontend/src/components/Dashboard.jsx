@@ -190,7 +190,7 @@ const getLast7Days = (endDateStr) => {
   return days;
 };
 
-export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDate, onNavigate, onRefresh }) {
+export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDate, onNavigate, onRefresh, onLogout }) {
   const [historyData, setHistoryData] = useState([]);
   const [historyTrigger, setHistoryTrigger] = useState(0);
   // isLoadingHistory celowo usunięte (stan był ustawiany ale nigdy nie odczytywany
@@ -259,6 +259,8 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         }
         setTimeout(() => setSupplementsMessage({ type: '', text: '' }), 5000);
       } else {
+        // F-S4: Obsługa 401 — wygasła sesja
+        if (res.status === 401) { onLogout(); return; }
         setSupplementsMessage({ type: 'error', text: 'Błąd zapisu.' });
       }
     } catch (err) {
@@ -897,7 +899,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     }, 4000);
     return () => { cancelled = true; clearInterval(intervalId); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiExplanationInsight && aiExplanationInsight.generating, sessionToken, selectedDate]);
+  }, [aiExplanationInsight?.generating, sessionToken, selectedDate]); // F-S1: optional chaining zamiast wyrażenia boolowskiego
 
   // Benchmark "Ty dziś vs Ty w przeszłości" (Runda 11, prywatna wersja Whoop
   // "people like you" - WYŁĄCZNIE własna historia, bez porównań z innymi
@@ -1195,7 +1197,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         setNewEventEnd('');
         setNewEventNote('');
         setDayEventMessage({ type: 'success', text: 'Zapisano zdarzenie.' });
-        await fetchDayEvents();
+        await fetchDayEvents({ current: false }); // F-S3: cancelledRef wymagany przez sygnaturę funkcji
         setTimeout(() => setDayEventMessage({ type: '', text: '' }), 4000);
       } else {
         const data = await res.json().catch(() => ({}));
@@ -1285,6 +1287,9 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
       if (res.ok) {
         if (onRefresh) onRefresh();
         setCaloriesTrigger(t => t + 1);
+      } else if (res.status === 401) {
+        // F-S4: Obsługa 401 — wygasła sesja
+        onLogout();
       }
     } catch (err) {
       console.error('Błąd zapisu nowego celu kalorycznego:', err);
@@ -1765,6 +1770,8 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
 
   const handleResetWater = async () => {
     if (isAddingWater) return;
+    // F-N1: Potwierdzenie przed resetem licznika wody
+    if (!window.confirm('Zresetować licznik wody do 0?')) return;
     setIsAddingWater(true);
     setWaterMessage('');
     try {
@@ -1860,7 +1867,8 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           />
         ) : (
           <p className="dietetyk-ai-advice-text">
-            {`Twoja regeneracja trzyma stabilny poziom (${readinessScore}%). HRV wynosi ${hrv} ms i mieści się w normie, więc organizm nie protestuje przeciwko aktywności. Dobrym wyborem będzie lekki tlenowy wysiłek kardio lub sesja mobility.`}
+            {/* F-W1: Guard dla null HRV — wypisanie 'null ms' zamiast wartości */}
+            {`Twoja regeneracja trzyma stabilny poziom (${readinessScore}%). HRV wynosi ${hrv != null ? hrv + ' ms' : '(brak danych)'} i mieści się w normie, więc organizm nie protestuje przeciwko aktywności. Dobrym wyborem będzie lekki tlenowy wysiłek kardio lub sesja mobility.`}
           </p>
         )}
         <button className="btn-dietetyk-ask" onClick={() => setIsChatOpen(true)}>

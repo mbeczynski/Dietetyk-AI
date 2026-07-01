@@ -29,13 +29,17 @@ export default function AdminPanel({ sessionToken, onLogout }) {
   const [actioningUserId, setActioningUserId] = useState(null);
 
   useEffect(() => {
-    // Minimalna ochrona przed setState po odmontowaniu (np. przy szybkim wylogowaniu
-    // admina) - sprawdzamy cancelled PRZED wywołaniem fetch, nie można tego zrobić
-    // wewnątrz fetchConfig/fetchUsers, bo są też wywoływane z innych miejsc.
+    // F-W4: Async IIFE z cancelled sprawdzanym PO każdym await — chroni przed
+    // setState po odmontowaniu i zapobiega uruchomieniu fetchUsers gdy komponent
+    // zniknął podczas fetchConfig (nie można tego zrobić inaczej bez modyfikacji
+    // fetchConfig/fetchUsers, które są też wywoływane z innych miejsc).
     let cancelled = false;
-    if (!cancelled) fetchConfig();
-    if (!cancelled) fetchUsers();
+    (async () => {
+      if (!cancelled) await fetchConfig();
+      if (!cancelled) await fetchUsers();
+    })();
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchConfig = async () => {
@@ -183,7 +187,7 @@ export default function AdminPanel({ sessionToken, onLogout }) {
       let data = {};
       try {
         data = await res.json();
-      } catch (parseErr) {
+      } catch (_parseErr) {
         if (!res.ok) {
           setUserActionMessage({ type: 'error', text: `Serwer zwrócił błąd (${res.status}) bez szczegółów.` });
           return;

@@ -48,6 +48,8 @@ function sanitizeNullableNumber(val, min, max) {
 router.post('/api/meals', async (req, res) => {
   const { rawText, date, image } = req.body;
   const targetDate = date || getLocalDateString();
+  // B-W1: Sanitizacja wejścia użytkownika — trim + ograniczenie długości
+  const safeRawText = rawText ? rawText.trim().slice(0, 500) : '';
 
   if ((!rawText || rawText.trim() === '') && !image) {
     return res.status(400).json({ error: 'Opis posiłku lub zdjęcie nie może być puste.' });
@@ -62,6 +64,12 @@ router.post('/api/meals', async (req, res) => {
       if (match) {
         const mimeType = match[1];
         const base64Data = match[2];
+
+        // B-S5: Whitelist dozwolonych typów MIME
+        const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
+          return res.status(400).json({ error: 'Nieobsługiwany format obrazu. Dozwolone: JPG, PNG, WebP, GIF.' });
+        }
 
         if (base64Data.length > MAX_MEAL_IMAGE_BASE64_CHARS) {
           console.warn(`[API WARNING] Odrzucono zdjęcie posiłku - za duży rozmiar (${base64Data.length} znaków base64).`);
@@ -84,7 +92,7 @@ router.post('/api/meals', async (req, res) => {
     if (imagePart) {
       prompt = `
 Przeanalizuj dołączone zdjęcie pod kątem wartości odżywczych.
-${rawText ? `Użytkownik podał dodatkowy kontekst/opis: "${rawText}"` : 'Użytkownik nie podał opisu tekstowego, zidentyfikuj dania na zdjęciu samodzielnie.'}
+${safeRawText ? `Użytkownik podał dodatkowy kontekst/opis: <user_input>${safeRawText}</user_input>` : 'Użytkownik nie podał opisu tekstowego, zidentyfikuj dania na zdjęciu samodzielnie.'}
 
 WAŻNE - zdjęcie może przedstawiać JEDEN posiłek (np. zdjęcie talerza) ALBO zrzut
 ekranu z aplikacji do liczenia kalorii, pokazujący podział całego dnia na kilka
@@ -131,7 +139,7 @@ Struktura JSON:
     } else {
       prompt = `
 Analizujesz posiłek użytkownika pod kątem wartości odżywczych. 
-Użytkownik napisał: "${rawText}"
+Użytkownik napisał: <user_input>${safeRawText}</user_input>
 
 Zwróć odpowiedź w formacie JSON zawierającym szacunkowe wartości odżywcze posiłku. Odpowiedź musi być wyłącznie poprawnym JSON-em, bez żadnych dodatkowych znaczników markdown czy tekstu przed/po.
 

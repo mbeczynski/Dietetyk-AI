@@ -105,7 +105,7 @@ async function syncOura(userId) {
     }
 
     const metricsByDate = {};
-    for (let i = 0; i <= 7; i++) {
+    for (let i = 0; i < 7; i++) { // B-N2: < zamiast <= (7 dni, nie 8)
       const d = new Date();
       d.setDate(now.getDate() - i);
       const dateStr = formatDateString(d);
@@ -433,6 +433,8 @@ async function syncWithings(userId) {
 
       grp.measures.forEach(m => {
         const val = m.value * Math.pow(10, m.unit);
+        // B-W3: Pomiń pomiar jeśli jednostka jest undefined → NaN propaguje do SQLite
+        if (isNaN(val) || !isFinite(val)) return;
         if (m.type === 1) weight = Math.round(val * 100) / 100;
         if (m.type === 6) fatRatio = Math.round(val * 100) / 100;
         if (m.type === 76) muscleMass = Math.round(val * 100) / 100;

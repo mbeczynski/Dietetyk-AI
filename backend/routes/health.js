@@ -127,7 +127,9 @@ router.post('/api/body-measurements', requireAuth, async (req, res) => {
 // Usuń pomiar obwodu ciała
 router.delete('/api/body-measurements/:id', requireAuth, async (req, res) => {
   try {
-    await db.run(`DELETE FROM body_measurements WHERE id = ? AND user_id = ?`, [req.params.id, req.user.id]);
+    const result = await db.run(`DELETE FROM body_measurements WHERE id = ? AND user_id = ?`, [req.params.id, req.user.id]);
+    // B-N1: Sprawdź czy rekord faktycznie istniał (chroni przed 200 OK przy nieistniejącym ID)
+    if (result.changes === 0) return res.status(404).json({ error: 'Pomiar nie znaleziony.' });
     res.json({ success: true, message: 'Pomiar obwodu ciała został usunięty.' });
   } catch (err) {
     console.error(err);

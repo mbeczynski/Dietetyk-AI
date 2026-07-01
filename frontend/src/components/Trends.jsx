@@ -164,17 +164,21 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     // (np. 0 -> 8000 kroków/dzień). Rozróżniamy te dwa przypadki przez isNewActivity.
     let pctChange = 0;
     let isNewActivity = false;
+    let isNoData = false; // F-N3: brak danych w obu tygodniach → nie pokazuj "0%"
     if (prevAvg > 0) {
       pctChange = Math.round(((currAvg - prevAvg) / prevAvg) * 100);
     } else if (currAvg > 0) {
       isNewActivity = true;
+    } else {
+      isNoData = true;
     }
 
     return {
       current: currValue,
       avg: currAvg,
       pctChange,
-      isNewActivity
+      isNewActivity,
+      isNoData
     };
   };
 
@@ -209,7 +213,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
       <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '600' }}>{title}</span>
-          {stats.current !== null && renderComparisonPill(stats.pctChange, stats.isNewActivity)}
+          {stats.current !== null && renderComparisonPill(stats.pctChange, stats.isNewActivity, stats.isNoData)}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
@@ -360,7 +364,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
           <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '600' }}>{title}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {isWeight && stats.current !== null && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Śr. {formatFn(stats.avg)} {unit}</span>}
-            {stats.current !== null && renderComparisonPill(stats.pctChange, stats.isNewActivity)}
+            {stats.current !== null && renderComparisonPill(stats.pctChange, stats.isNewActivity, stats.isNoData)}
           </div>
         </div>
 
@@ -767,7 +771,15 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     );
   };
 
-  const renderComparisonPill = (pctChange, isNewActivity = false) => {
+  const renderComparisonPill = (pctChange, isNewActivity = false, isNoData = false) => {
+    // F-N3: Brak danych w obu tygodniach — nie pokazuj mylącego "0%"
+    if (isNoData) {
+      return (
+        <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.3)', fontWeight: '600', display: 'inline-flex', alignItems: 'center' }}>
+          — brak danych
+        </span>
+      );
+    }
     if (isNewActivity) {
       return (
         <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(96, 165, 250, 0.12)', color: '#60a5fa', fontWeight: '600', display: 'inline-flex', alignItems: 'center' }}>

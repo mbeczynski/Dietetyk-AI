@@ -88,12 +88,12 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
     // sukcesu tylko gdy zapis w backendzie faktycznie się powiódł (nie optymistycznie
     // od razu po kliknięciu), żeby nie potwierdzać czegoś, co mogło się nie udać.
     const ok = await onAddMeal(mealText, imageSrc);
-    setMealText('');
-    setImageSrc(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
     if (ok) {
+      setMealText('');
+      setImageSrc(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       setSuccessMessage('Posiłek zapisany!');
       if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
       successTimeoutRef.current = setTimeout(() => setSuccessMessage(''), 4000);

@@ -200,7 +200,9 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
   });
 
   test('Obsługa zapisywania suplementów i weryfikacja historii na Dashboardzie', async ({ page }) => {
+    const initialResponsePromise = page.waitForResponse(response => response.url().includes('/api/dashboard') && response.status() === 200);
     await page.goto('/');
+    await initialResponsePromise;
 
     const supplementsCard = page.locator('.premium-card:has-text("Suplementy")');
     await expect(supplementsCard).toBeVisible();
@@ -228,10 +230,11 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
     await expect(supplementsCard.locator('span:text("🧬")').first()).toBeVisible();
 
     // Odśwież stronę i upewnij się, że wartość się zachowała w bazie i wczytała z powrotem
+    const reloadResponsePromise = page.waitForResponse(response => response.url().includes('/api/dashboard') && response.status() === 200);
     await page.reload();
+    await reloadResponsePromise;
     await expect(supplementsCard).toBeVisible();
-    const loadedVal = await supplementsCard.locator('textarea').inputValue();
-    expect(loadedVal).toBe(testSups);
+    await expect(supplementsCard.locator('textarea')).toHaveValue(testSups);
   });
 
   test('Weryfikacja lokalizacji kafelka Waga i Skład Ciała w drugiej kolumnie', async ({ page }) => {

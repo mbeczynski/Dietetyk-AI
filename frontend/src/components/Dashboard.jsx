@@ -1128,6 +1128,11 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     { value: 'late_sleep', label: 'Późne zaśnięcie' }
   ];
   const DAY_EVENT_TYPE_LABELS = Object.fromEntries(DAY_EVENT_TYPES.map(t => [t.value, t.label]));
+  const DAY_EVENT_ICONS = {
+    illness: '🤒',
+    vacation: '🌴',
+    late_sleep: '🌙'
+  };
 
   const [isDayEventsOpen, setIsDayEventsOpen] = useState(false);
   const [dayEvents, setDayEvents] = useState([]);
@@ -2101,10 +2106,11 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               sen, trend wagi, jakość posiłków, efekt weekendu i inne).
             </p>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+            <div className="day-event-inputs">
               <select
                 value={newEventType}
                 onChange={(e) => setNewEventType(e.target.value)}
+                className="day-event-select"
                 style={{ flex: '1 1 140px' }}
                 aria-label="Typ zdarzenia"
               >
@@ -2116,6 +2122,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 type="date"
                 value={newEventStart}
                 onChange={(e) => setNewEventStart(e.target.value)}
+                className="day-event-date"
                 style={{ flex: '1 1 130px' }}
                 aria-label="Data od"
               />
@@ -2123,6 +2130,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
                 type="date"
                 value={newEventEnd}
                 onChange={(e) => setNewEventEnd(e.target.value)}
+                className="day-event-date"
                 style={{ flex: '1 1 130px' }}
                 aria-label="Data do"
               />
@@ -2133,7 +2141,8 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               onChange={(e) => setNewEventNote(e.target.value)}
               placeholder="Notatka (opcjonalnie)"
               maxLength={500}
-              style={{ width: '100%', marginBottom: '8px' }}
+              className="day-event-note-input"
+              style={{ marginBottom: '12px' }}
               aria-label="Notatka"
             />
             <button
@@ -2149,25 +2158,36 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
               </p>
             )}
 
-            <div style={{ marginTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px' }}>
+            <div className="day-event-list">
               {isLoadingDayEvents && <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)' }}>Wczytywanie...</p>}
               {!isLoadingDayEvents && dayEvents.length === 0 && (
-                <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)' }}>Brak oznaczonych dni.</p>
+                <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', textAlign: 'center', padding: '10px 0' }}>Brak oznaczonych dni.</p>
               )}
               {!isLoadingDayEvents && dayEvents.map(ev => (
-                <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', padding: '6px 0', fontSize: '0.8rem' }}>
-                  <span>
-                    <strong>{DAY_EVENT_TYPE_LABELS[ev.type] || ev.type}</strong>
-                    {': '}{ev.start_date}{ev.start_date !== ev.end_date ? ` – ${ev.end_date}` : ''}
-                    {ev.note ? ` (${ev.note})` : ''}
-                  </span>
+                <div key={ev.id} className="day-event-item">
+                  <div className="day-event-info">
+                    <span className={`day-event-badge ${ev.type}`}>
+                      <span>{DAY_EVENT_ICONS[ev.type] || '🏷️'}</span>
+                      <span>{DAY_EVENT_TYPE_LABELS[ev.type] || ev.type}</span>
+                    </span>
+                    <span className="day-event-dates">
+                      {ev.start_date}{ev.start_date !== ev.end_date ? ` – ${ev.end_date}` : ''}
+                    </span>
+                    {ev.note && (
+                      <span className="day-event-note">
+                        ({ev.note})
+                      </span>
+                    )}
+                  </div>
                   <button
-                    className="btn-danger"
+                    className="day-event-delete-btn"
                     onClick={() => handleDeleteDayEvent(ev.id)}
-                    style={{ padding: '2px 8px', fontSize: '0.72rem' }}
                     aria-label={`Usuń zdarzenie ${DAY_EVENT_TYPE_LABELS[ev.type] || ev.type} ${ev.start_date}`}
                   >
-                    Usuń
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
                   </button>
                 </div>
               ))}

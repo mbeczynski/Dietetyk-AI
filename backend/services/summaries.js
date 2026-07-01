@@ -25,12 +25,12 @@ async function getUserSettings(userId) {
     settings[r.key] = Number(r.value);
   });
   return {
-    targetCalories: settings.target_calories || 2500,
-    targetProtein: settings.target_protein || 150,
-    targetCarbs: settings.target_carbs || 250,
-    targetFat: settings.target_fat || 80,
-    bmr: settings.bmr || 1800,
-    targetWaterMl: settings.target_water_ml || 2500,
+    targetCalories: settings.target_calories ?? 2500,
+    targetProtein: settings.target_protein ?? 150,
+    targetCarbs: settings.target_carbs ?? 250,
+    targetFat: settings.target_fat ?? 80,
+    bmr: settings.bmr ?? 1800,
+    targetWaterMl: settings.target_water_ml ?? 2500,
     // 0 = nieustawiony (ta sama konwencja co w routes/dashboard.js) - liczbowy cel
     // wagi jest opcjonalny, w przeciwieństwie do kalorii/makro, które mają sensowne
     // wartości domyślne.

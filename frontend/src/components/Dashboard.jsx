@@ -192,6 +192,14 @@ const getLast7Days = (endDateStr) => {
 
 export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDate, onNavigate, onRefresh, onLogout }) {
   const [historyData, setHistoryData] = useState([]);
+  // Centralny sygnał wygaśnięcia sesji dla ~40 insight useEffectów — zamiast
+  // wywoływać onLogout() bezpośrednio (co wymagałoby dodania go do dep-array każdego
+  // effectu i groziło pętlami re-render), effekty ustawiają flagę, a jeden centralny
+  // useEffect wywołuje onLogout() gdy flaga jest true.
+  const [sessionExpired, setSessionExpired] = useState(false);
+  useEffect(() => {
+    if (sessionExpired) onLogout();
+  }, [sessionExpired, onLogout]);
   const [historyTrigger, setHistoryTrigger] = useState(0);
   // isLoadingHistory celowo usunięte (stan był ustawiany ale nigdy nie odczytywany
   // w renderze - martwy kod, wykryty w audycie rundy 17)
@@ -291,6 +299,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/sleep-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setSleepInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu sen-odżywianie:', err);
@@ -314,6 +323,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/sodium-bp-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setSodiumBpInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu sód-ciśnienie:', err);
@@ -336,6 +346,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/recovery-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setRecoveryInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania wskaźnika regeneracji:', err);
@@ -360,6 +371,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/supplements-sleep-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setSupplementsSleepInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu suplementy-sen:', err);
@@ -381,6 +393,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/hydration-readiness-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setHydrationInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu nawodnienie-regeneracja:', err);
@@ -400,6 +413,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/sedentary-sleep-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setSedentaryInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu siedzenie-sen:', err);
@@ -419,6 +433,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/fiber-sleep-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setFiberSleepInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu błonnik-sen:', err);
@@ -438,6 +453,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/body-recomposition-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setBodyRecompInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu rekompozycji ciała:', err);
@@ -457,6 +473,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/early-strain-alert${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setStrainAlert(await res.json());
       } catch (err) {
         console.error('Błąd pobierania alertu przeciążenia:', err);
@@ -476,6 +493,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/stress-nutrition-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setStressNutritionInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu stres-odżywianie:', err);
@@ -495,6 +513,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/meal-frequency-adherence-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setMealFreqInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu częstość posiłków:', err);
@@ -514,6 +533,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/streak-drift-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setStreakDriftInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu passa-regeneracja:', err);
@@ -533,6 +553,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/rhr-drift-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setRhrDriftInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu trendu tętna spoczynkowego:', err);
@@ -552,6 +573,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/meal-timing-sleep-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setMealTimingSleepInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu godzina posiłku-sen:', err);
@@ -571,6 +593,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/bp-trend-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setBpTrendInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu trendu ciśnienia krwi:', err);
@@ -594,6 +617,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/hr-zones-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setHrZonesInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu stref kardio:', err);
@@ -615,6 +639,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/meal-quality-trend-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setMealQualityTrendInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania trendu jakości posiłków:', err);
@@ -636,6 +661,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/weekend-effect-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setWeekendEffectInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania efektu weekendu:', err);
@@ -657,6 +683,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/workout-efficiency-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setWorkoutEfficiencyInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania efektywności treningów:', err);
@@ -679,6 +706,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/weight-goal-forecast${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setWeightGoalForecast(await res.json());
       } catch (err) {
         console.error('Błąd pobierania prognozy celu wagi:', err);
@@ -700,6 +728,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/favorite-meal-drift-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setFavoriteMealDriftInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania dryfu ulubionych posiłków:', err);
@@ -721,6 +750,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/spo2-trend-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setSpo2TrendInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania trendu SpO2:', err);
@@ -742,6 +772,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/whr-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setWhrInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu WHR:', err);
@@ -763,6 +794,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/body-symmetry-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setBodySymmetryInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu symetrii bicepsów:', err);
@@ -784,6 +816,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/pace-trend-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setPaceTrendInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania trendu tempa:', err);
@@ -805,6 +838,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/workout-variety-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setWorkoutVarietyInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania różnorodności treningów:', err);
@@ -826,6 +860,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/wellness-score${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setWellnessScore(await res.json());
       } catch (err) {
         console.error('Błąd pobierania Wellness Score:', err);
@@ -853,6 +888,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/ai-explanation-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setAiExplanationInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania wyjaśnienia AI:', err);
@@ -883,6 +919,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/ai-explanation-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) {
           const data = await res.json();
           setAiExplanationInsight(data);
@@ -918,6 +955,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/self-benchmark-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setSelfBenchmarkInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania benchmarku "Ty dziś vs Ty w przeszłości":', err);
@@ -942,6 +980,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/workout-type-sleep-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setWorkoutTypeSleepInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu typ treningu-sen:', err);
@@ -966,6 +1005,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/muscle-protein-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setMuscleProteinInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu masa mięśniowa-białko:', err);
@@ -990,6 +1030,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/temperature-divergence-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setTemperatureDivergenceInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu rozjazdu temperatur:', err);
@@ -1014,6 +1055,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/body-proportions-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setBodyProportionsInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu proporcji obwodów ciała:', err);
@@ -1038,6 +1080,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/activity-appetite-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setActivityAppetiteInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu aktywność-apetyt:', err);
@@ -1062,6 +1105,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/diet-quality-weight-pace-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setDietQualityWeightPaceInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu jakość diety-tempo wagi:', err);
@@ -1086,6 +1130,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/streak-weight-effect-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setStreakWeightEffectInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu passa-efekt na wadze:', err);
@@ -1110,6 +1155,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/sedentary-performance-insight${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setSedentaryPerformanceInsight(await res.json());
       } catch (err) {
         console.error('Błąd pobierania insightu siedzenie-wydajność treningu:', err);
@@ -1263,6 +1309,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch(`/api/dashboard/calorie-target-suggestion${dateParam}`, {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) setCalorieSuggestion(await res.json());
       } catch (err) {
         console.error('Błąd pobierania korekty celu kalorycznego:', err);
@@ -1306,6 +1353,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         const res = await fetch('/api/health/history', {
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
         if (res.ok && !cancelled) {
           const data = await res.json();
           setHistoryData(data);
@@ -1578,10 +1626,6 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const targetWaterMl = summary.target_water_ml ?? 2500;
   const waterPct = targetWaterMl > 0 ? Math.min(Math.round((waterMl / targetWaterMl) * 100), 100) : 0;
 
-  // Cel obciążenia (Athlytic/WHOOP style)
-  // Wyznacza przedział docelowy w oparciu o readiness
-  const loadGoalMin = Math.round(readinessScore * 0.4);
-  const loadGoalMax = Math.round(readinessScore * 0.65);
   // Aktualne obciążenie na suwaku (np. wysiłek)
   const currentLoadPos = Math.max(Math.min(effortScore, 100), 5); // min 5% dla widoczności suwaka
   

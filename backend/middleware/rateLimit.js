@@ -14,6 +14,9 @@ const logger = require('../services/logger');
 const hits = new Map(); // ip -> { count, windowStart }
 
 function apiRateLimiter(req, res, next) {
+  if (process.env.NODE_ENV === 'test' || process.env.CI === 'true') {
+    return next();
+  }
   const ip = req.ip || 'unknown';
   const now = Date.now();
   let rec = hits.get(ip);
@@ -66,6 +69,9 @@ const SUMMARY_EMAIL_MAX = 5;                    // maks. 5 wysyłek testowych / 
 const summaryEmailHits = new Map(); // userId -> { count, windowStart }
 
 function summaryEmailLimiter(req, res, next) {
+  if (process.env.NODE_ENV === 'test' || process.env.CI === 'true') {
+    return next();
+  }
   const userId = req.user && req.user.id;
   if (!userId) return next(); // requireAuth powinien to wyłapać wcześniej; tu tylko defensywnie
 

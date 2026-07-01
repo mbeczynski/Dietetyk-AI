@@ -261,7 +261,7 @@ router.post('/api/login', async (req, res) => {
   }
 
   try {
-    const user = await db.get(`SELECT * FROM users WHERE username = ?`, [username]);
+    const user = await db.get(`SELECT * FROM users WHERE username = ? OR email = ?`, [username, username]);
     if (!user) {
       await loginAttempts.recordFailure(req.ip, username);
       logger.security(`Nieudana próba logowania na konto: ${username} (użytkownik nie istnieje)`, 'AUTH_LOGIN_FAILURE', { username }, req.ip);

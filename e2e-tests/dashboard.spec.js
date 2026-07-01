@@ -4,7 +4,7 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
   // Zaloguj się przed każdym testem w tym bloku
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.fill('input[placeholder="Wpisz nazwę użytkownika..."]', 'admin');
+    await page.fill('input[placeholder="Wpisz login lub e-mail..."]', 'admin');
     await page.fill('input[placeholder="Wpisz hasło..."]', '3bda877d518c8cf7a80b32bb');
     await page.click('button:has-text("Dalej")');
     await expect(page.locator('.logo-text')).toContainText('Dietetyk AI');

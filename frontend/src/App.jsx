@@ -973,13 +973,13 @@ export default function App() {
               {loginStep === 'password' && (
                 <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div className="input-group" style={{ textAlign: 'left' }}>
-                    <label className="input-label">Nazwa użytkownika</label>
+                    <label className="input-label">Nazwa użytkownika lub e-mail</label>
                     <input
                       type="text"
                       className="input-field"
                       value={usernameInput}
                       onChange={(e) => setUsernameInput(e.target.value)}
-                      placeholder="Wpisz nazwę użytkownika..."
+                      placeholder="Wpisz login lub e-mail..."
                       style={{ width: '100%' }}
                       required
                     />

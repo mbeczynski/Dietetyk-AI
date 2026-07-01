@@ -10,7 +10,7 @@ test.describe('Autoryzacja (Login i Logout)', () => {
     await expect(page.locator('p')).toContainText('Twój osobisty asystent żywieniowy.');
 
     // 2. Wypełnienie formularza logowania dla admina
-    await page.fill('input[placeholder="Wpisz nazwę użytkownika..."]', 'admin');
+    await page.fill('input[placeholder="Wpisz login lub e-mail..."]', 'admin');
     await page.fill('input[placeholder="Wpisz hasło..."]', '3bda877d518c8cf7a80b32bb');
 
     // 3. Kliknięcie "Dalej" / Zaloguj
@@ -28,9 +28,24 @@ test.describe('Autoryzacja (Login i Logout)', () => {
     await expect(page.locator('h2')).toContainText('Dietetyk AI');
   });
 
+  test('Powinno zalogować administratora przy użyciu adresu e-mail', async ({ page }) => {
+    await page.goto('/');
+    // Używamy e-maila admina zamiast nazwy użytkownika
+    await page.fill('input[placeholder="Wpisz login lub e-mail..."]', 'admin@dietetyk-ai.local');
+    await page.fill('input[placeholder="Wpisz hasło..."]', '3bda877d518c8cf7a80b32bb');
+    await page.click('button:has-text("Dalej")');
+
+    await expect(page.locator('.logo-text')).toContainText('Dietetyk AI');
+    await expect(page.locator('.nav-tab.active')).toContainText('Dashboard');
+    
+    // Wylogowanie
+    await page.click('button:has-text("Wyloguj")');
+    await expect(page.locator('h2')).toContainText('Dietetyk AI');
+  });
+
   test('Powinno pokazać błąd przy niepoprawnych danych logowania', async ({ page }) => {
     await page.goto('/');
-    await page.fill('input[placeholder="Wpisz nazwę użytkownika..."]', 'nieistniejacy_user');
+    await page.fill('input[placeholder="Wpisz login lub e-mail..."]', 'nieistniejacy_user');
     await page.fill('input[placeholder="Wpisz hasło..."]', 'blednehaslo');
     await page.click('button:has-text("Dalej")');
 

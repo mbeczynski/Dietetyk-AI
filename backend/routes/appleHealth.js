@@ -254,7 +254,11 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       return res.status(401).json({ error: 'Brak tokenu synchronizacji w adresie webhooka.' });
     }
 
-    const user = await db.get(`SELECT id, birth_year FROM users WHERE sync_token = ?`, [syncToken.trim()]);
+    const user = await db.get(`
+      SELECT id, birth_year,
+        (SELECT 1 FROM oauth_tokens WHERE user_id = users.id AND service = 'oura') AS has_oura
+      FROM users WHERE sync_token = ?
+    `, [syncToken.trim()]);
     if (!user) {
       // Celowo ten sam, generyczny komunikat jak przy braku tokenu - nie chcemy ujawniać,
       // czy podany token kiedykolwiek istniał.
@@ -346,6 +350,58 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
     if (metrics) {
       for (const metric of metrics) {
         const name = metric && typeof metric.name === 'string' ? metric.name.toLowerCase() : '';
+        
+        // Specjalny parser dla analizy snu (sleep_analysis), ponieważ jest to metryka kategorialna (przedziały czasowe)
+        if (name === 'sleep_analysis') {
+          if (!Array.isArray(metric.data)) continue;
+          for (const entry of metric.data) {
+            const startStr = entry.startDate || entry.start_date || entry.date;
+            const endStr = entry.endDate || entry.end_date;
+            if (!startStr || !endStr) continue;
+
+            const start = new Date(startStr);
+            const end = new Date(endStr);
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
+
+            const durationHrs = (end - start) / (1000 * 60 * 60);
+            if (durationHrs <= 0 || durationHrs > 24) continue; // sanity check
+
+            // Tradycyjnie czas snu przypisuje się do dnia, w którym użytkownik się budzi (endDate)
+            const dateStr = dateObjToLocalDateString(end);
+            
+            if (!byDate[dateStr]) {
+              byDate[dateStr] = {
+                steps: null, active_calories: null, basal_calories: null, active_minutes: null,
+                wrist_temperature: null, distance_meters: null, water_ml: null,
+                sleep_duration: null, sleep_deep: null, sleep_rem: null, sleep_score: null,
+                in_bed_duration: 0
+              };
+            }
+            
+            const bucket = byDate[dateStr];
+            if (bucket.sleep_duration === null) {
+              bucket.sleep_duration = 0;
+              bucket.sleep_deep = 0;
+              bucket.sleep_rem = 0;
+            }
+
+            const val = typeof entry.value === 'string' ? entry.value.toLowerCase() : '';
+            if (val.includes('deep')) {
+              bucket.sleep_deep += durationHrs;
+              bucket.sleep_duration += durationHrs;
+            } else if (val.includes('rem')) {
+              bucket.sleep_rem += durationHrs;
+              bucket.sleep_duration += durationHrs;
+            } else if (val.includes('core') || val.includes('asleep') || val.includes('light')) {
+              bucket.sleep_duration += durationHrs;
+            } else if (val.includes('in_bed') || val.includes('inbed')) {
+              bucket.in_bed_duration += durationHrs;
+            }
+            matchedEntries++;
+          }
+          continue;
+        }
+
         const handler = METRIC_FIELD_MAP[name];
         if (!handler || !Array.isArray(metric.data)) continue;
 
@@ -353,13 +409,6 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           const rawQty = entry && entry.qty;
           const qty = typeof rawQty === 'number' ? rawQty : parseFloat(rawQty);
           if (!Number.isFinite(qty)) continue;
-          // Audyt bezpieczeństwa/logiki: kroki/kalorie/dystans/woda to wartości
-          // kumulatywne (sumujemy je do bucketu dnia, a woda dodatkowo addytywnie do
-          // już zapisanej wartości w bazie - patrz zapis do health_metrics niżej) -
-          // ujemna wartość w payloadzie (błąd po stronie apki/zmanipulowane żądanie)
-          // mogłaby bezpowrotnie ZMNIEJSZYĆ dobowy licznik. Odrzucamy takie wpisy
-          // (nie dotyczy wrist_temperature - mode:'last' - tam ujemne/odjemne wartości
-          // są fizycznie sensowne, np. °C poniżej zera).
           if (qty < 0 && handler.mode !== 'last') continue;
 
           const parsedDate = parseHealthAutoExportDate(entry.date);
@@ -367,7 +416,12 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
 
           const dateStr = dateObjToLocalDateString(parsedDate);
           if (!byDate[dateStr]) {
-            byDate[dateStr] = { steps: null, active_calories: null, basal_calories: null, active_minutes: null, wrist_temperature: null, distance_meters: null, water_ml: null };
+            byDate[dateStr] = {
+              steps: null, active_calories: null, basal_calories: null, active_minutes: null,
+              wrist_temperature: null, distance_meters: null, water_ml: null,
+              sleep_duration: null, sleep_deep: null, sleep_rem: null, sleep_score: null,
+              in_bed_duration: 0
+            };
           }
           const bucket = byDate[dateStr];
           const converted = handler.convert(qty, metric.units);
@@ -458,10 +512,37 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           [user.id, dateStr]
         );
         if (!byDate[dateStr]) {
-          byDate[dateStr] = { steps: null, active_calories: null, basal_calories: null, active_minutes: null, wrist_temperature: null, distance_meters: null };
+          byDate[dateStr] = {
+            steps: null, active_calories: null, basal_calories: null, active_minutes: null,
+            wrist_temperature: null, distance_meters: null, water_ml: null,
+            sleep_duration: null, sleep_deep: null, sleep_rem: null, sleep_score: null,
+            in_bed_duration: 0
+          };
         }
         byDate[dateStr].active_calories = sums && sums.total_calories !== null ? sums.total_calories : 0;
         byDate[dateStr].active_minutes = sums && sums.total_minutes !== null ? sums.total_minutes : 0;
+      }
+    }
+
+    // Post-processing danych snu i obliczanie sleep_score na podstawie celu użytkownika
+    const sleepGoalRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'target_sleep_duration'", [user.id]);
+    const targetSleep = sleepGoalRow ? parseFloat(sleepGoalRow.value) : 7.2;
+
+    for (const dateStr of Object.keys(byDate)) {
+      const bucket = byDate[dateStr];
+      if (bucket.sleep_duration !== null) {
+        // Jeśli nie zarejestrowano faz snu, ale mamy czas w łóżku (np. stary zegarek/brak sleep stages)
+        if (bucket.sleep_duration === 0 && bucket.in_bed_duration > 0) {
+          bucket.sleep_duration = bucket.in_bed_duration;
+        }
+        
+        // Zabezpieczenie sanity-check (maksymalnie 24h na dobę)
+        if (bucket.sleep_duration > 24) bucket.sleep_duration = 24;
+        if (bucket.sleep_deep > 24) bucket.sleep_deep = 24;
+        if (bucket.sleep_rem > 24) bucket.sleep_rem = 24;
+        
+        // Obliczanie sleep_score (0-100) na podstawie celu snu
+        bucket.sleep_score = Math.min(100, Math.round((bucket.sleep_duration / targetSleep) * 100));
       }
     }
 
@@ -485,33 +566,37 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       const activeMinutes = m.active_minutes !== null ? Math.round(m.active_minutes) : null;
       const wristTemperature = m.wrist_temperature !== null ? Math.round(m.wrist_temperature * 10) / 10 : null;
       const distanceMeters = m.distance_meters !== null ? Math.round(m.distance_meters) : null;
-      // Górny sanity-limit per dzień (10L) - zabezpieczenie przed błędem konwersji
-      // jednostek (np. nierozpoznana jednostka skutkująca przemnożeniem x1000) albo
-      // zniekształconym payloadem; analogiczny cel do limitu 5000 ml/wpis w ręcznym
-      // /api/water/add (routes/health.js), tu liczony per dzień, bo webhook może
-      // przysyłać wiele zsumowanych próbek z całego dnia naraz.
+      
       const MAX_DAILY_WATER_ML = 10000;
       const waterMl = m.water_ml !== null ? Math.min(Math.round(m.water_ml), MAX_DAILY_WATER_ML) : null;
 
-      // Apple Health jest teraz źródłem autorytatywnym dla aktywności - ZAWSZE
-      // nadpisujemy (bez CASE/warunku), w przeciwieństwie do poprzedniej logiki, która
-      // chroniła dane Oura. Zachowujemy COALESCE per-kolumna, żeby pole, którego ten
-      // konkretny payload nie dotyczy (np. steps z automatyzacji Treningi, która ich
-      // nie wysyła), nie zostało wyzerowane, a zachowało dotychczasową wartość.
-      //
-      // WODA (water_ml) jest WYJĄTKIEM od powyższej zasady "nadpisz" - tu DODAJEMY do
-      // istniejącej wartości (COALESCE(water_ml,0) + COALESCE(excluded.water_ml,0)),
-      // tak jak ręczny licznik w /api/water/add (routes/health.js), żeby synchronizacja
-      // ze smart butelki nie zastępowała, a uzupełniała wodę dodaną ręcznie w aplikacji
-      // (i odwrotnie). Konsekwencja: jeśli automatyzacja Health Auto Export wysyłałaby
-      // WIELOKROTNIE te same, nakładające się próbki wody dla tego samego dnia (np.
-      // ręczne ponowienie żądania albo zmiana ustawień automatyzacji na "wszystkie
-      // dane" zamiast "tylko nowe dane"), woda zostałaby policzona podwójnie - domyślny
-      // tryb automatyzacji Health Auto Export wysyła tylko nowe próbki od czasu
-      // ostatniej synchronizacji, więc w normalnym użyciu nie powinno to wystąpić.
+      const sleepDuration = m.sleep_duration !== null ? Math.round(m.sleep_duration * 10) / 10 : null;
+      const sleepDeep = m.sleep_deep !== null ? Math.round(m.sleep_deep * 10) / 10 : null;
+      const sleepRem = m.sleep_rem !== null ? Math.round(m.sleep_rem * 10) / 10 : null;
+      const sleepScore = m.sleep_score !== null ? Math.round(m.sleep_score) : null;
+
+      // Zabezpieczenie danych Oura Ring: jeśli użytkownik ma połączoną Ourę, dane o śnie z Apple Health
+      // zapisujemy wyłącznie, jeśli w bazie nie ma jeszcze żadnych danych dla tej daty (COALESCE(sleep_duration, excluded.sleep_duration)).
+      // W przeciwnym wypadku (użytkownik bez Oury, np. żona), Apple Health jest źródłem nadrzędnym (COALESCE(excluded.sleep_duration, sleep_duration)).
+      const sleepDurationUpdate = user.has_oura === 1
+        ? 'sleep_duration = COALESCE(sleep_duration, excluded.sleep_duration)'
+        : 'sleep_duration = COALESCE(excluded.sleep_duration, sleep_duration)';
+      const sleepDeepUpdate = user.has_oura === 1
+        ? 'sleep_deep = COALESCE(sleep_deep, excluded.sleep_deep)'
+        : 'sleep_deep = COALESCE(excluded.sleep_deep, sleep_deep)';
+      const sleepRemUpdate = user.has_oura === 1
+        ? 'sleep_rem = COALESCE(sleep_rem, excluded.sleep_rem)'
+        : 'sleep_rem = COALESCE(excluded.sleep_rem, sleep_rem)';
+      const sleepScoreUpdate = user.has_oura === 1
+        ? 'sleep_score = COALESCE(sleep_score, excluded.sleep_score)'
+        : 'sleep_score = COALESCE(excluded.sleep_score, sleep_score)';
+
       await db.run(`
-        INSERT INTO health_metrics (user_id, date, steps, active_calories, total_calories_burned, active_minutes, wrist_temperature, distance_meters, water_ml, activity_source, last_sync)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'apple', ?)
+        INSERT INTO health_metrics (
+          user_id, date, steps, active_calories, total_calories_burned, active_minutes, wrist_temperature,
+          distance_meters, water_ml, sleep_duration, sleep_deep, sleep_rem, sleep_score, activity_source, last_sync
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'apple', ?)
         ON CONFLICT(user_id, date) DO UPDATE SET
           steps = COALESCE(excluded.steps, steps),
           active_calories = COALESCE(excluded.active_calories, active_calories),
@@ -520,9 +605,16 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           wrist_temperature = COALESCE(excluded.wrist_temperature, wrist_temperature),
           distance_meters = COALESCE(excluded.distance_meters, distance_meters),
           water_ml = CASE WHEN excluded.water_ml IS NOT NULL THEN COALESCE(water_ml, 0) + excluded.water_ml ELSE water_ml END,
+          ${sleepDurationUpdate},
+          ${sleepDeepUpdate},
+          ${sleepRemUpdate},
+          ${sleepScoreUpdate},
           activity_source = 'apple',
           last_sync = excluded.last_sync
-      `, [user.id, dateStr, steps, activeCalories, totalCalories, activeMinutes, wristTemperature, distanceMeters, waterMl, lastSyncTime]);
+      `, [
+        user.id, dateStr, steps, activeCalories, totalCalories, activeMinutes, wristTemperature,
+        distanceMeters, waterMl, sleepDuration, sleepDeep, sleepRem, sleepScore, lastSyncTime
+      ]);
 
       savedDates.push(dateStr);
     }

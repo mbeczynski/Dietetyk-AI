@@ -28,6 +28,11 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
   });
 
   test('Obsługa licznika nawodnienia (Dodawanie i Reset wody)', async ({ page }) => {
+    // Automatycznie akceptuj okna dialogowe (np. confirm przy resecie wody)
+    page.on('dialog', async dialog => {
+      await dialog.accept();
+    });
+
     // 1. Zlokalizuj kartę nawodnienia
     const waterCard = page.locator('.premium-card:has-text("💧 Nawodnienie")');
     await expect(waterCard).toBeVisible();

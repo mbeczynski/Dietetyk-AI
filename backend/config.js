@@ -15,11 +15,11 @@ let model = null;
 if (geminiApiKey) {
   try {
     genAI = new GoogleGenerativeAI(geminiApiKey);
-    // Używamy modelu gemini-3.5-flash jako standardu i stabilnej wersji
+    // Używamy modelu gemini-2.5-flash jako standardu i stabilnej wersji
     model = genAI.getGenerativeModel({
-      model: process.env.GEMINI_MODEL || "gemini-3.5-flash"
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash"
     });
-    console.log(`Zainicjalizowano Gemini API z modelem: ${process.env.GEMINI_MODEL || "gemini-3.5-flash"}`);
+    console.log(`Zainicjalizowano Gemini API z modelem: ${process.env.GEMINI_MODEL || "gemini-2.5-flash"}`);
   } catch (err) {
     console.error('Błąd inicjalizacji Gemini API:', err.message);
   }
@@ -38,7 +38,6 @@ async function generateContentWithFallback(promptText, isJson = false, imagePart
 
   const modelsToTry = [
     process.env.GEMINI_MODEL,
-    'gemini-3.5-flash',
     'gemini-2.5-flash'
   ].filter(Boolean);
 

@@ -190,7 +190,7 @@ const getLast7Days = (endDateStr) => {
   return days;
 };
 
-export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDate, onNavigate, onRefresh, onLogout }) {
+export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDate, onNavigate, onRefresh, onLogout, userProfile = {} }) {
   const [historyData, setHistoryData] = useState([]);
   // Centralny sygnał wygaśnięcia sesji dla ~40 insight useEffectów — zamiast
   // wywoływać onLogout() bezpośrednio (co wymagałoby dodania go do dep-array każdego
@@ -1167,6 +1167,33 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
+  // Insight: Hydratacja (water_ml) a jakość snu (sleep_score) — korelacja z ostatnich
+  // 60 dni. Analogiczny wzorzec do hydration-readiness-insight, ale fokus na sen,
+  // nie gotowość. Patrz /api/dashboard/water-sleep-insight.
+  const [waterSleepInsight, setWaterSleepInsight] = useState(null);
+  const [isLoadingWaterSleep, setIsLoadingWaterSleep] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchWaterSleepInsight = async () => {
+      if (!sessionToken) return;
+      setIsLoadingWaterSleep(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/water-sleep-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
+        if (res.ok && !cancelled) setWaterSleepInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania insightu hydratacja-sen:', err);
+      } finally {
+        if (!cancelled) setIsLoadingWaterSleep(false);
+      }
+    };
+    fetchWaterSleepInsight();
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
   // "Tag dnia" - zakresy dat oznaczone kontekstem (choroba/wakacje/późne zaśnięcie),
   // które wybrane insighty powyżej wykluczają z liczenia własnej normy/baseline
   // (patrz backend: routes/dayEvents.js + getExcludedDates w routes/dashboard.js).
@@ -1898,9 +1925,13 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
       <div className="dietetyk-ai-banner">
         <div className="premium-title-row">
           <span className="dietetyk-greeting">
-            {readinessScore >= 80 
-              ? "Dzisiaj wyglądasz na gotowego na pełne obciążenie" 
-              : "Dzisiaj wyglądasz na gotowego do lżejszej pracy"
+            {userProfile?.first_name
+              ? (readinessScore >= 80
+                  ? `Gotowy na pełne obciążenie, ${userProfile.first_name}!`
+                  : `Gotowy na lżejszą pracę, ${userProfile.first_name}!`)
+              : (readinessScore >= 80
+                  ? "Dzisiaj wyglądasz na gotowego na pełne obciążenie"
+                  : "Dzisiaj wyglądasz na gotowego do lżejszej pracy")
             }
           </span>
         </div>
@@ -3719,6 +3750,67 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </p>
           </div>
         )}
+
+        {/* INSIGHT: HYDRATACJA A JAKOŚĆ SNU */}
+        {isLoadingWaterSleep && !waterSleepInsight && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💧😴 Woda a jakość snu</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', padding: '8px 0', marginBottom: 0 }}>Wczytywanie...</p>
+          </div>
+        )}
+        {waterSleepInsight && waterSleepInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💧😴 Woda a jakość snu</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', marginBottom: '8px' }}>
+              Dni z hydratacją ≥{waterSleepInsight.medianWaterMl} ml ({waterSleepInsight.wellHydratedDays} dni) vs &lt;{waterSleepInsight.medianWaterMl} ml ({waterSleepInsight.lessHydratedDays} dni). Ostatnie {waterSleepInsight.totalDays} dni.
+            </p>
+            <div className="premium-grid-2" style={{ gap: '8px' }}>
+              <div style={{ background: 'rgba(56,189,248,0.08)', borderRadius: '8px', padding: '8px 10px' }}>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Dobrze nawodnione ({waterSleepInsight.avgWaterWell} ml)</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: '700', color: '#38bdf8' }}>{waterSleepInsight.avgSleepScoreWellHydrated ?? '–'}</div>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>sleep score</div>
+                {waterSleepInsight.avgSleepDeepWellHydrated != null && (
+                  <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>sen głęboki: {waterSleepInsight.avgSleepDeepWellHydrated} min</div>
+                )}
+              </div>
+              <div style={{ background: 'rgba(248,113,113,0.08)', borderRadius: '8px', padding: '8px 10px' }}>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Słabiej nawodnione ({waterSleepInsight.avgWaterLess} ml)</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: '700', color: '#f87171' }}>{waterSleepInsight.avgSleepScoreLessHydrated ?? '–'}</div>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>sleep score</div>
+                {waterSleepInsight.avgSleepDeepLessHydrated != null && (
+                  <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>sen głęboki: {waterSleepInsight.avgSleepDeepLessHydrated} min</div>
+                )}
+              </div>
+            </div>
+            {waterSleepInsight.sleepScoreDiff != null && (
+              <div style={{ marginTop: '8px', fontSize: '0.82rem' }}>
+                Różnica: <span style={{ fontWeight: '700', color: waterSleepInsight.sleepScoreDiff > 0 ? 'var(--success-light)' : 'var(--danger-light)' }}>
+                  {waterSleepInsight.sleepScoreDiff > 0 ? '+' : ''}{waterSleepInsight.sleepScoreDiff} pkt
+                </span>
+                {waterSleepInsight.sleepScoreDiff > 2
+                  ? ' — lepsze nawodnienie wyraźnie poprawia sen.'
+                  : waterSleepInsight.sleepScoreDiff < -2
+                    ? ' — brak wyraźnego efektu nawodnienia na sen.'
+                    : ' — efekt nawodnienia na sen jest nieznaczny.'}
+              </div>
+            )}
+          </div>
+        )}
+        {!isLoadingWaterSleep && waterSleepInsight && !waterSleepInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💧😴 Woda a jakość snu</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              Za mało dni z danymi o hydratacji i śnie (min. 14 dni).
+            </p>
+          </div>
+        )}
+
           </>
         )}
 
@@ -4203,19 +4295,36 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '24px', margin: '8px 0' }}>
-            <div style={{ position: 'relative', width: 92, height: 92, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              {/* Calories circular gauge */}
-              <RenderProgressCircle size={92} strokeWidth={8} percentage={caloriesPct} color="var(--color-secondary)" />
-              <div style={{ position: 'absolute', textAlign: 'center' }}>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>
-                  {eatenCalories}
-                </div>
-                <div style={{ fontSize: '0.65rem', color: 'rgba(255, 255, 255, 0.4)', textTransform: 'uppercase', marginTop: '2px' }}>
-                  cals
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+              <div style={{ position: 'relative', width: 92, height: 92, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {/* Calories circular gauge */}
+                <RenderProgressCircle size={92} strokeWidth={8} percentage={caloriesPct} color="var(--color-secondary)" />
+                <div style={{ position: 'absolute', textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>
+                    {eatenCalories}
+                  </div>
+                  <div style={{ fontSize: '0.65rem', color: 'rgba(255, 255, 255, 0.4)', textTransform: 'uppercase', marginTop: '2px' }}>
+                    cals
+                  </div>
                 </div>
               </div>
+              {/* Bilans netto kalorii (zjedzone - spalone) — dane z summary.net_calories
+                  wyliczone w dashboard.js. Kolor: czerwony = nadwyżka >200 kcal (masa),
+                  zielony = deficyt < -200 kcal (redukcja), żółty = równowaga (±200 kcal). */}
+              {summary.net_calories != null && (
+                <div style={{ fontSize: '0.7rem', textAlign: 'center', lineHeight: 1.3 }}>
+                  <span style={{ color: 'rgba(255,255,255,0.4)' }}>netto </span>
+                  <strong style={{
+                    color: summary.net_calories > 200 ? '#f87171'
+                      : summary.net_calories < -200 ? '#34d399'
+                      : '#fbbf24'
+                  }}>
+                    {summary.net_calories > 0 ? '+' : ''}{Math.round(summary.net_calories)} kcal
+                  </strong>
+                </div>
+              )}
             </div>
-            
+
             {/* Macronutrients Progress Bars */}
             <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div>

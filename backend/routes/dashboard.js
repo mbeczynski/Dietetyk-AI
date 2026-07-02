@@ -4144,4 +4144,92 @@ router.get('/api/dashboard/sedentary-performance-insight', async (req, res) => {
   }
 });
 
+// Insight: Hydratacja a jakość snu
+// Sprawdza korelację między ilością wypitej wody (water_ml) a sleep_score.
+// Analogiczny wzorzec do hydration-readiness-insight, ale mierzony względem snu
+// (nie gotowości), bo readiness i sleep to różne wymiary regeneracji.
+// Minimalna liczba dni z oboma polami: MIN_WATER_SLEEP_DAYS.
+const MIN_WATER_SLEEP_DAYS = 14;
+const WATER_SLEEP_LOOKBACK_DAYS = 60;
+
+router.get('/api/dashboard/water-sleep-insight', async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -WATER_SLEEP_LOOKBACK_DAYS);
+
+    const rows = await db.all(
+      `SELECT date, water_ml, sleep_score, sleep_deep
+       FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ?
+         AND water_ml IS NOT NULL AND water_ml > 0
+         AND sleep_score IS NOT NULL AND sleep_score > 0`,
+      [req.user.id, startDate, today]
+    );
+
+    if (rows.length < MIN_WATER_SLEEP_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days',
+        totalDays: rows.length,
+        minDaysRequired: MIN_WATER_SLEEP_DAYS
+      });
+    }
+
+    // Podziel na grupy po medianie hydratacji: dobrze nawodnione vs słabiej nawodnione.
+    const waterValues = rows.map(r => r.water_ml).sort((a, b) => a - b);
+    const medianWater = waterValues[Math.floor(waterValues.length / 2)];
+
+    const wellHydrated = rows.filter(r => r.water_ml >= medianWater);
+    const lessHydrated = rows.filter(r => r.water_ml < medianWater);
+
+    if (wellHydrated.length < 5 || lessHydrated.length < 5) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_days_per_group',
+        totalDays: rows.length,
+        minDaysRequired: MIN_WATER_SLEEP_DAYS
+      });
+    }
+
+    const avgOf = (arr, key) => {
+      const vals = arr.filter(x => x[key] != null).map(x => x[key]);
+      return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
+    };
+
+    const avgSleepWell = avgOf(wellHydrated, 'sleep_score');
+    const avgSleepLess = avgOf(lessHydrated, 'sleep_score');
+    // sleep_deep w health_metrics jest w godzinach (sync.js: totalDeepSec / 3600)
+    // — konwertujemy na minuty dla spójności z innymi insightami snu.
+    const avgDeepWell = wellHydrated.filter(r => r.sleep_deep != null).length > 0
+      ? Math.round(avgOf(wellHydrated, 'sleep_deep') * 60 * 10) / 10
+      : null;
+    const avgDeepLess = lessHydrated.filter(r => r.sleep_deep != null).length > 0
+      ? Math.round(avgOf(lessHydrated, 'sleep_deep') * 60 * 10) / 10
+      : null;
+
+    res.json({
+      hasEnoughData: true,
+      totalDays: rows.length,
+      medianWaterMl: Math.round(medianWater),
+      wellHydratedDays: wellHydrated.length,
+      lessHydratedDays: lessHydrated.length,
+      avgWaterWell: Math.round(avgOf(wellHydrated, 'water_ml')),
+      avgWaterLess: Math.round(avgOf(lessHydrated, 'water_ml')),
+      avgSleepScoreWellHydrated: avgSleepWell,
+      avgSleepScoreLessHydrated: avgSleepLess,
+      sleepScoreDiff: avgSleepWell != null && avgSleepLess != null
+        ? Math.round((avgSleepWell - avgSleepLess) * 10) / 10
+        : null,
+      avgSleepDeepWellHydrated: avgDeepWell,
+      avgSleepDeepLessHydrated: avgDeepLess,
+      sleepDeepDiff: avgDeepWell != null && avgDeepLess != null
+        ? Math.round((avgDeepWell - avgDeepLess) * 10) / 10
+        : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu hydratacja-sen.' });
+  }
+});
+
 module.exports = router;

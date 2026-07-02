@@ -1261,7 +1261,7 @@ export default function App() {
       {/* Wyświetlanie aktywnej zakładki */}
       <main>
         {currentTab === 'dashboard' && (
-          <Dashboard summary={dashboardData.summary} aiAdvice={dashboardData.aiAdvice} sessionToken={sessionToken} selectedDate={selectedDate} onNavigate={setCurrentTab} onRefresh={fetchDashboardData} onLogout={handleLogout} />
+          <Dashboard summary={dashboardData.summary} aiAdvice={dashboardData.aiAdvice} sessionToken={sessionToken} selectedDate={selectedDate} onNavigate={setCurrentTab} onRefresh={fetchDashboardData} onLogout={handleLogout} userProfile={userProfile} />
         )}
 
         {currentTab === 'meals' && (

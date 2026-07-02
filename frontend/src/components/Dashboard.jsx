@@ -3834,89 +3834,120 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </>
         )}
 
-        {/* PROGNOZA DATY CELU WAGI - stała karta (wcześniej widoczna tylko w mailach okresowych) */}
-        {weightGoalForecast && weightGoalForecast.hasEnoughData && (
+        {/* PROGNOZA DATY CELU WAGI */}
+        {weightGoalForecast && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">📈 Prognoza celu wagi</span>
             </div>
-            {getDayEventLabelForDate(selectedDate, ['vacation']) && (
-              <p style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', marginBottom: '8px' }}>
-                🏷️ Uwaga: wybrany dzień ({selectedDate}) jest oznaczony jako: {getDayEventLabelForDate(selectedDate, ['vacation'])} - może to wpływać na statystykę z tego okresu
-              </p>
-            )}
-            {weightGoalForecast.status === 'reached' ? (
-              <p style={{ fontSize: '0.85rem', color: 'var(--success-light)', marginBottom: 0 }}>
-                Cel wagi ({weightGoalForecast.targetWeightKg} kg) już osiągnięty - aktualna waga {weightGoalForecast.currentWeight} kg.
-              </p>
-            ) : weightGoalForecast.status === 'wrong_direction' ? (
-              <p style={{ fontSize: '0.85rem', color: 'var(--danger-light)', marginBottom: 0 }}>
-                Waga zmienia się w przeciwnym kierunku niż wymaga cel ({weightGoalForecast.targetWeightKg} kg) -
-                tempo: {weightGoalForecast.weeklyWeightChange > 0 ? '+' : ''}{weightGoalForecast.weeklyWeightChange} kg/tydz.
-              </p>
-            ) : weightGoalForecast.status === 'stalled' ? (
-              <p style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)', marginBottom: 0 }}>
-                Waga jest stabilna (brak wyraźnego trendu) - pozostało {Math.abs(weightGoalForecast.remainingKg)} kg do celu {weightGoalForecast.targetWeightKg} kg.
-              </p>
-            ) : (
+            {weightGoalForecast.hasEnoughData ? (
               <>
-                <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
-                  Tempo z ostatnich {weightGoalForecast.spanDays} dni: {weightGoalForecast.weeklyWeightChange > 0 ? '+' : ''}{weightGoalForecast.weeklyWeightChange} kg/tydz.
-                  Pozostało {Math.abs(weightGoalForecast.remainingKg)} kg do celu {weightGoalForecast.targetWeightKg} kg.
-                </p>
-                {weightGoalForecast.projectedDate && (
-                  <p style={{ fontSize: '0.85rem', fontWeight: '700', color: '#fff', marginBottom: 0 }}>
-                    Prognozowana data osiągnięcia celu: {weightGoalForecast.projectedDate}
+                {getDayEventLabelForDate(selectedDate, ['vacation']) && (
+                  <p style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', marginBottom: '8px' }}>
+                    🏷️ Uwaga: wybrany dzień ({selectedDate}) jest oznaczony jako: {getDayEventLabelForDate(selectedDate, ['vacation'])} - może to wpływać na statystykę z tego okresu
                   </p>
                 )}
+                {weightGoalForecast.status === 'reached' ? (
+                  <p style={{ fontSize: '0.85rem', color: 'var(--success-light)', marginBottom: 0 }}>
+                    Cel wagi ({weightGoalForecast.targetWeightKg} kg) już osiągnięty - aktualna waga {weightGoalForecast.currentWeight} kg.
+                  </p>
+                ) : weightGoalForecast.status === 'wrong_direction' ? (
+                  <p style={{ fontSize: '0.85rem', color: 'var(--danger-light)', marginBottom: 0 }}>
+                    Waga zmienia się w przeciwnym kierunku niż wymaga cel ({weightGoalForecast.targetWeightKg} kg) -
+                    tempo: {weightGoalForecast.weeklyWeightChange > 0 ? '+' : ''}{weightGoalForecast.weeklyWeightChange} kg/tydz.
+                  </p>
+                ) : weightGoalForecast.status === 'stalled' ? (
+                  <p style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)', marginBottom: 0 }}>
+                    Waga jest stabilna (brak wyraźnego trendu) - pozostało {Math.abs(weightGoalForecast.remainingKg)} kg do celu {weightGoalForecast.targetWeightKg} kg.
+                  </p>
+                ) : (
+                  <>
+                    <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+                      Tempo z ostatnich {weightGoalForecast.spanDays} dni: {weightGoalForecast.weeklyWeightChange > 0 ? '+' : ''}{weightGoalForecast.weeklyWeightChange} kg/tydz.
+                      Pozostało {Math.abs(weightGoalForecast.remainingKg)} kg do celu {weightGoalForecast.targetWeightKg} kg.
+                    </p>
+                    {weightGoalForecast.projectedDate && (
+                      <p style={{ fontSize: '0.85rem', fontWeight: '700', color: '#fff', marginBottom: 0 }}>
+                        Prognozowana data osiągnięcia celu: {weightGoalForecast.projectedDate}
+                      </p>
+                    )}
+                  </>
+                )}
+                <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
+                  Prognoza z regresji liniowej Twojej wagi z ostatnich {weightGoalForecast.spanDays} dni, nie gwarancja.
+                </p>
               </>
+            ) : (
+              <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+                {weightGoalForecast.reason === 'no_target_weight_set' ? (
+                  'Ustaw swój cel wagi w Ustawieniach, aby aktywować prognozę.'
+                ) : (
+                  `Za mało pomiarów wagi w ostatnich 60 dniach (zalogowano: ${weightGoalForecast.weightMeasurements || 0} z wymaganych 4 przez co najmniej 14 dni).`
+                )}
+              </p>
             )}
-            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
-              Prognoza z regresji liniowej Twojej wagi z ostatnich {weightGoalForecast.spanDays} dni, nie gwarancja.
-            </p>
           </div>
         )}
 
         {/* ADAPTACYJNA KOREKTA CELU KALORYCZNEGO */}
-        {calorieSuggestion && calorieSuggestion.hasEnoughData && calorieSuggestion.suggestionNeeded && (
+        {calorieSuggestion && (
           <div className="premium-card">
             <div className="premium-title-row">
-              <span className="premium-title">🎯 Adaptacyjna korekta celu kalorycznego</span>
+              <span className="premium-title">🎯 Analiza i korekta kalorii</span>
             </div>
-            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
-              Twój zalogowany bilans i bilans wynikający z realnej zmiany wagi (ostatnie ~3 tygodnie) rozjeżdżają się.
-              To zwykle oznacza niedoszacowane porcje albo nieuwzględnione podjadanie, nie błędnie ustawiony cel.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
-                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Bilans z logów</span>
-                <span style={{ fontWeight: '700', color: '#fff' }}>{calorieSuggestion.loggedDailyBalance > 0 ? '+' : ''}{calorieSuggestion.loggedDailyBalance} kcal/dzień</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
-                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Bilans z realnej wagi</span>
-                <span style={{ fontWeight: '700', color: '#fff' }}>{calorieSuggestion.actualDailyBalance > 0 ? '+' : ''}{calorieSuggestion.actualDailyBalance} kcal/dzień</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginTop: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Obecny cel</span>
-                <span style={{ color: '#fff' }}>{calorieSuggestion.currentTargetCalories} kcal</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
-                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Sugerowany cel</span>
-                <span style={{ fontWeight: '700', color: 'var(--success-light)' }}>{calorieSuggestion.suggestedTargetCalories} kcal</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={handleApplyCalorieSuggestion}
-              disabled={isApplyingCalorieSuggestion}
-              style={{ marginTop: '12px', width: '100%', padding: '8px 14px', fontSize: '0.85rem' }}
-            >
-              {isApplyingCalorieSuggestion ? 'Zapisywanie...' : `Zastosuj cel ${calorieSuggestion.suggestedTargetCalories} kcal`}
-            </button>
-            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
-              Sugestia oparta na Twoich danych z ostatnich tygodni, nie porada medyczna. Zawsze możesz ustawić cel ręcznie w Aktywności.
-            </p>
+            {calorieSuggestion.hasEnoughData ? (
+              calorieSuggestion.suggestionNeeded ? (
+                <>
+                  <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+                    Twój zalogowany bilans i bilans wynikający z realnej zmiany wagi (ostatnie ~3 tygodnie) rozjeżdżają się.
+                    To zwykle oznacza niedoszacowane porcje albo nieuwzględnione podjadanie, nie błędnie ustawiony cel.
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)' }}>Bilans z logów</span>
+                      <span style={{ fontWeight: '700', color: '#fff' }}>{calorieSuggestion.loggedDailyBalance > 0 ? '+' : ''}{calorieSuggestion.loggedDailyBalance} kcal/dzień</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)' }}>Bilans z realnej wagi</span>
+                      <span style={{ fontWeight: '700', color: '#fff' }}>{calorieSuggestion.actualDailyBalance > 0 ? '+' : ''}{calorieSuggestion.actualDailyBalance} kcal/dzień</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginTop: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)' }}>Obecny cel</span>
+                      <span style={{ color: '#fff' }}>{calorieSuggestion.currentTargetCalories} kcal</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)' }}>Sugerowany cel</span>
+                      <span style={{ fontWeight: '700', color: 'var(--success-light)' }}>{calorieSuggestion.suggestedTargetCalories} kcal</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleApplyCalorieSuggestion}
+                    disabled={isApplyingCalorieSuggestion}
+                    style={{ marginTop: '12px', width: '100%', padding: '8px 14px', fontSize: '0.85rem' }}
+                  >
+                    {isApplyingCalorieSuggestion ? 'Zapisywanie...' : `Zastosuj cel ${calorieSuggestion.suggestedTargetCalories} kcal`}
+                  </button>
+                  <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+                    Sugestia oparta na Twoich danych z ostatnich tygodni, nie porada medyczna. Zawsze możesz ustawić cel ręcznie w Aktywności.
+                  </p>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '8px 0' }}>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--success-light)', fontWeight: '700', marginBottom: '6px' }}>
+                    🥗 Bilans pod kontrolą!
+                  </p>
+                  <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', marginBottom: 0 }}>
+                    Twój zalogowany bilans kaloryczny pokrywa się z realnymi zmianami wagi. Jesz dokładnie tyle, ile powinieneś, aby realizować swój cel!
+                  </p>
+                </div>
+              )
+            ) : (
+              <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+                Zaloguj min. 7 dni z kaloriami i wprowadź min. 4 pomiary wagi w ostatnich 21 dniach, aby odblokować analizę kaloryczną.
+              </p>
+            )}
           </div>
         )}
 

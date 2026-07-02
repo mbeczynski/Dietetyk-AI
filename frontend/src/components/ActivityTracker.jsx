@@ -889,9 +889,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
             Zależność wagi ciała w kg (linia ciągła) do procentu tkanki tłuszczowej (linia przerywana).
           </p>
           {isLoadingHistory ? (
-            <div style={{ height: '180px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)' }}>
-              Ładowanie wykresu...
-            </div>
+            <div className="shimmer-placeholder" style={{ height: '180px', width: '100%' }} />
           ) : (
             renderDualAxisChart(historyData, 'weight', 'fat_ratio', '#38bdf8', '#fbbf24', 'Waga ciała', 'Tkanka tłuszczowa')
           )}
@@ -946,9 +944,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
             Trend beztłuszczowej masy mięśniowej w kg z ostatnich 30 dni.
           </p>
           {isLoadingHistory ? (
-            <div style={{ height: '180px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)' }}>
-              Ładowanie wykresu...
-            </div>
+            <div className="shimmer-placeholder" style={{ height: '180px', width: '100%' }} />
           ) : (
             renderLineChart(historyData, 'muscle_mass', 'var(--success-light)', 'Masa mięśniowa (kg)')
           )}
@@ -961,9 +957,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
             Trend długości faz snu w godzinach (Oura) z ostatnich 30 dni.
           </p>
           {isLoadingHistory ? (
-            <div style={{ height: '180px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)' }}>
-              Ładowanie wykresu...
-            </div>
+            <div className="shimmer-placeholder" style={{ height: '180px', width: '100%' }} />
           ) : hasSleepPhaseData ? (
             renderMultiLineChart(sleepPhaseData, [
               { key: 'sleep_deep', color: '#7c3aed', label: 'Głęboki' },
@@ -984,9 +978,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
             Zależność spalonych aktywnych kalorii (linia ciągła) do aktywnych minut (linia przerywana) z ostatnich 30 dni.
           </p>
           {isLoadingHistory ? (
-            <div style={{ height: '180px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)' }}>
-              Ładowanie wykresu...
-            </div>
+            <div className="shimmer-placeholder" style={{ height: '180px', width: '100%' }} />
           ) : (
             renderDualAxisChart(historyData, 'active_calories', 'active_minutes', '#fb923c', '#a78bfa', 'Aktywne kalorie', 'Aktywne minuty', 'kcal', 'min')
           )}
@@ -1195,9 +1187,7 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
               </select>
             </div>
             {isLoadingMeasurements ? (
-              <div style={{ height: '180px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)' }}>
-                Ładowanie wykresu...
-              </div>
+              <div className="shimmer-placeholder" style={{ height: '180px', width: '100%' }} />
             ) : (
               renderLineChart(measurementsData, selectedMeasure, '#c084fc', getMeasureLabel(selectedMeasure))
             )}
@@ -1208,8 +1198,10 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <h3 className="card-title">📜 Historia Pomiarów Obwodów</h3>
           {isLoadingMeasurements ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '20px', color: 'var(--text-dim)' }}>
-              Ładowanie historii...
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '100%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '90%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '95%' }} />
             </div>
           ) : measurementsData.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 10px', color: 'var(--text-dim)', fontSize: '0.9rem' }}>

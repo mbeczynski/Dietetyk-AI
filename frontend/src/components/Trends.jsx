@@ -810,8 +810,20 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
 
   if (isLoading && historyData.length === 0) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px', color: 'var(--text-dim)' }}>
-        Ładowanie trendów zdrowotnych...
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div className="premium-title-row" style={{ padding: '0 4px' }}>
+          <div className="shimmer-placeholder" style={{ height: '24px', width: '150px' }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+          <div className="premium-card" style={{ height: '280px' }}>
+            <div className="shimmer-placeholder" style={{ height: '20px', width: '40%', marginBottom: '16px' }} />
+            <div className="shimmer-placeholder" style={{ height: '180px', width: '100%' }} />
+          </div>
+          <div className="premium-card" style={{ height: '280px' }}>
+            <div className="shimmer-placeholder" style={{ height: '20px', width: '30%', marginBottom: '16px' }} />
+            <div className="shimmer-placeholder" style={{ height: '180px', width: '100%' }} />
+          </div>
+        </div>
       </div>
     );
   }

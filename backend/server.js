@@ -129,7 +129,8 @@ app.use((err, req, res, next) => {
 async function start() {
   await db.initDb();
 
-  // Uruchomienie czyszczenia starych zdjęć i logów przy starcie
+  // Uruchomienie czyszczenia starych zdjęć, logów i wygasłych sesji przy starcie
+  await db.cleanupExpiredSessions();
   await db.cleanupOldImages();
   await db.cleanupOldLogs();
 
@@ -139,7 +140,8 @@ async function start() {
 
   // Uruchomienie czyszczenia i kopii zapasowej co 24 godziny
   setInterval(async () => {
-    console.log('[CRON] Uruchomienie okresowego czyszczenia starych zdjęć i logów...');
+    console.log('[CRON] Uruchomienie okresowego czyszczenia starych zdjęć, logów i wygasłych sesji...');
+    await db.cleanupExpiredSessions();
     await db.cleanupOldImages();
     await db.cleanupOldLogs();
   }, 24 * 60 * 60 * 1000);

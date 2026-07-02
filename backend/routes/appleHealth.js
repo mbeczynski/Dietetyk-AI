@@ -425,9 +425,21 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           }
           const bucket = byDate[dateStr];
           const converted = handler.convert(qty, metric.units);
-          bucket[handler.field] = handler.mode === 'last'
-            ? converted
-            : (bucket[handler.field] || 0) + converted;
+          if (name === 'dietary_water') {
+            // Runda 3 (audyt): Idempotentność wody - zapisz próbkę unikalną po user_id i timestamp
+            const timestamp = entry.date || parsedDate.toISOString();
+            const res = await db.run(`
+              INSERT OR IGNORE INTO apple_health_water_samples (user_id, timestamp, date, qty)
+              VALUES (?, ?, ?, ?)
+            `, [user.id, timestamp, dateStr, converted]);
+            if (res.changes > 0) {
+              bucket[handler.field] = (bucket[handler.field] || 0) + converted;
+            }
+          } else {
+            bucket[handler.field] = handler.mode === 'last'
+              ? converted
+              : (bucket[handler.field] || 0) + converted;
+          }
           matchedEntries++;
         }
       }

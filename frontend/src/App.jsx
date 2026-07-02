@@ -1261,34 +1261,46 @@ export default function App() {
       {/* Wyświetlanie aktywnej zakładki */}
       <main>
         {currentTab === 'dashboard' && (
-          <Dashboard summary={dashboardData.summary} aiAdvice={dashboardData.aiAdvice} sessionToken={sessionToken} selectedDate={selectedDate} onNavigate={setCurrentTab} onRefresh={fetchDashboardData} onLogout={handleLogout} userProfile={userProfile} />
+          <div className="premium-tab-content">
+            <Dashboard summary={dashboardData.summary} aiAdvice={dashboardData.aiAdvice} sessionToken={sessionToken} selectedDate={selectedDate} onNavigate={setCurrentTab} onRefresh={fetchDashboardData} onLogout={handleLogout} userProfile={userProfile} />
+          </div>
         )}
 
         {currentTab === 'meals' && (
-          <MealLogger
-            meals={dashboardData.meals}
-            onAddMeal={handleAddMeal}
-            onDeleteMeal={handleDeleteMeal}
-            isAnalyzing={isAnalyzing}
-            frequentMeals={frequentMeals}
-            onRepeatMeal={handleRepeatMeal}
-          />
+          <div className="premium-tab-content">
+            <MealLogger
+              meals={dashboardData.meals}
+              onAddMeal={handleAddMeal}
+              onDeleteMeal={handleDeleteMeal}
+              isAnalyzing={isAnalyzing}
+              frequentMeals={frequentMeals}
+              onRepeatMeal={handleRepeatMeal}
+            />
+          </div>
         )}
 
         {currentTab === 'activity' && (
-          <ActivityTracker summary={dashboardData.summary} userProfile={userProfile} sessionToken={sessionToken} onGoalsUpdate={fetchDashboardData} onLogout={handleLogout} />
+          <div className="premium-tab-content">
+            <ActivityTracker summary={dashboardData.summary} userProfile={userProfile} sessionToken={sessionToken} onGoalsUpdate={fetchDashboardData} onLogout={handleLogout} />
+          </div>
         )}
 
         {currentTab === 'trends' && (
-          <Trends selectedDate={selectedDate} sessionToken={sessionToken} onLogout={handleLogout} />
+          <div className="premium-tab-content">
+            <Trends selectedDate={selectedDate} sessionToken={sessionToken} onLogout={handleLogout} />
+          </div>
         )}
 
         {currentTab === 'setup' && (
-          <Settings syncToken={syncToken} sessionToken={sessionToken} userProfile={userProfile} onProfileUpdate={() => { fetchUserProfile(); fetchSyncToken(); fetchDashboardData(); }} onLogout={handleLogout} />
+          <div className="premium-tab-content">
+            <Settings syncToken={syncToken} sessionToken={sessionToken} userProfile={userProfile} onProfileUpdate={() => { fetchUserProfile(); fetchSyncToken(); fetchDashboardData(); }} onLogout={handleLogout} />
+          </div>
         )}
 
         {currentTab === 'admin' && userProfile.role === 'admin' && (
-          <AdminPanel sessionToken={sessionToken} onLogout={handleLogout} />
+          <div className="premium-tab-content">
+            <AdminPanel sessionToken={sessionToken} onLogout={handleLogout} />
+          </div>
         )}
       </main>
 

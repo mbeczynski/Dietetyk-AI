@@ -539,6 +539,18 @@ const initDb = async () => {
     )
   `);
 
+  // Runda 3 (audyt): Tabela na próbki nawodnienia z Apple Health (idempotentność)
+  await run(`
+    CREATE TABLE IF NOT EXISTS apple_health_water_samples (
+      user_id INTEGER NOT NULL,
+      timestamp TEXT NOT NULL,
+      date TEXT NOT NULL,
+      qty REAL NOT NULL,
+      PRIMARY KEY(user_id, timestamp),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
   // Migracja: typ treningu (np. "Running", "Functional Strength Training" - pole
   // `name` z payloadu Health Auto Export, patrz routes/appleHealth.js). Dodane po
   // tym, jak audyt funkcjonalny wykazał, że /api/dashboard zawsze zwracał pustą
@@ -670,7 +682,23 @@ const initDb = async () => {
   await run(`CREATE INDEX IF NOT EXISTS idx_meals_user_date ON meals(user_id, date)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_workouts_user_date ON apple_health_workouts(user_id, date)`);
 
+  // Runda 3 (audyt): Czyszczenie wygasłych sesji na starcie bazy
+  await cleanupExpiredSessions();
+
   console.log('Baza danych SQLite została pomyślnie zmigrowana i zainicjalizowana.');
+};
+
+const cleanupExpiredSessions = async () => {
+  try {
+    const result = await run("DELETE FROM sessions WHERE datetime(expires_at) < datetime('now')");
+    if (result.changes > 0) {
+      console.log(`[CLEANUP] Usunięto ${result.changes} przedawnionych sesji.`);
+    } else {
+      console.log('[CLEANUP] Brak przedawnionych sesji do usunięcia.');
+    }
+  } catch (err) {
+    console.error('[CLEANUP ERROR] Błąd podczas czyszczenia sesji:', err);
+  }
 };
 
 const cleanupOldImages = async () => {
@@ -750,6 +778,7 @@ const backupDatabase = async () => {
 
 module.exports = {
   initDb,
+  cleanupExpiredSessions,
   cleanupOldImages,
   cleanupOldLogs,
   backupDatabase,

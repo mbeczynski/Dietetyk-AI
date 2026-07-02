@@ -1918,11 +1918,27 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   };
 
+  const getReadinessColor = () => {
+    const score = summary.readiness_score || (wellnessScore?.hasEnoughData ? wellnessScore.wellnessScore : null);
+    if (!score) return null;
+    if (score >= 85) return '0 0 20px rgba(34, 197, 94, 0.15)';
+    if (score >= 70) return '0 0 20px rgba(234, 179, 8, 0.15)';
+    return '0 0 20px rgba(239, 68, 68, 0.15)';
+  };
+
+  const getReadinessBorder = () => {
+    const score = summary.readiness_score || (wellnessScore?.hasEnoughData ? wellnessScore.wellnessScore : null);
+    if (!score) return '1px solid rgba(255, 255, 255, 0.04)';
+    if (score >= 85) return '1px solid rgba(34, 197, 94, 0.2)';
+    if (score >= 70) return '1px solid rgba(234, 179, 8, 0.2)';
+    return '1px solid rgba(239, 68, 68, 0.2)';
+  };
+
   return (
     <div className="premium-dashboard-container">
       
       {/* NAGŁÓWEK REGENERACJI AI */}
-      <div className="dietetyk-ai-banner">
+      <div className="dietetyk-ai-banner" style={{ boxShadow: getReadinessColor(), border: getReadinessBorder() }}>
         <div className="premium-title-row">
           <span className="dietetyk-greeting">
             {userProfile?.first_name
@@ -2082,8 +2098,9 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <span className="premium-title">📊 Porównanie i bilans</span>
           </div>
           {isLoadingComparison ? (
-            <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)', padding: '10px 0' }}>
-              Wczytywanie...
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '90%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '70%' }} />
             </div>
           ) : (
             <>
@@ -2242,7 +2259,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             )}
 
             <div className="day-event-list">
-              {isLoadingDayEvents && <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)' }}>Wczytywanie...</p>}
+              {isLoadingDayEvents && <div className="shimmer-placeholder" style={{ height: '36px', width: '100%', marginBottom: '10px' }} />}
               {!isLoadingDayEvents && dayEvents.length === 0 && (
                 <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', textAlign: 'center', padding: '10px 0' }}>Brak oznaczonych dni.</p>
               )}
@@ -3096,10 +3113,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div className="premium-title-row">
               <span className="premium-title">🔎 Dlaczego dzisiaj tak jest?</span>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span className="ai-explanation-spinner" aria-hidden="true" />
-              Wczytywanie...
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '85%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '100%' }} />
+            </div>
           </div>
         )}
         {aiExplanationInsight && aiExplanationInsight.hasEnoughData && aiExplanationInsight.hasFinding && (
@@ -3149,10 +3166,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div className="premium-title-row">
               <span className="premium-title">📊 Ty dziś vs Ty w przeszłości</span>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span className="ai-explanation-spinner" aria-hidden="true" />
-              Wczytywanie...
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '80%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '95%' }} />
+            </div>
           </div>
         )}
         {selfBenchmarkInsight && selfBenchmarkInsight.hasEnoughData && (
@@ -3358,10 +3375,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div className="premium-title-row">
               <span className="premium-title">🏋️😴 Typ treningu vs sen tej nocy</span>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span className="ai-explanation-spinner" aria-hidden="true" />
-              Wczytywanie...
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '80%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '95%' }} />
+            </div>
           </div>
         )}
         {workoutTypeSleepInsight && workoutTypeSleepInsight.hasEnoughData && (
@@ -3414,10 +3431,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div className="premium-title-row">
               <span className="premium-title">💪🥩 Masa mięśniowa vs białko</span>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span className="ai-explanation-spinner" aria-hidden="true" />
-              Wczytywanie...
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '80%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '95%' }} />
+            </div>
           </div>
         )}
         {muscleProteinInsight && muscleProteinInsight.hasEnoughData && (
@@ -3468,10 +3485,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div className="premium-title-row">
               <span className="premium-title">🌡️ Rozjazd temperatury Oura/Apple Watch</span>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span className="ai-explanation-spinner" aria-hidden="true" />
-              Wczytywanie...
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '80%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '95%' }} />
+            </div>
           </div>
         )}
         {temperatureDivergenceInsight && temperatureDivergenceInsight.hasEnoughData && (
@@ -3518,10 +3535,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div className="premium-title-row">
               <span className="premium-title">📐 Proporcje obwodów ciała</span>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span className="ai-explanation-spinner" aria-hidden="true" />
-              Wczytywanie...
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '80%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '95%' }} />
+            </div>
           </div>
         )}
         {bodyProportionsInsight && bodyProportionsInsight.hasEnoughData && (
@@ -3571,10 +3588,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div className="premium-title-row">
               <span className="premium-title">🔥🍽️ Aktywność dnia vs apetyt</span>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span className="ai-explanation-spinner" aria-hidden="true" />
-              Wczytywanie...
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '80%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '95%' }} />
+            </div>
           </div>
         )}
         {activityAppetiteInsight && activityAppetiteInsight.hasEnoughData && (
@@ -3612,10 +3629,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div className="premium-title-row">
               <span className="premium-title">🥗⚖️ Jakość diety i tempo zmiany wagi</span>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span className="ai-explanation-spinner" aria-hidden="true" />
-              Wczytywanie...
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '80%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '95%' }} />
+            </div>
           </div>
         )}
         {dietQualityWeightPaceInsight && dietQualityWeightPaceInsight.hasEnoughData && (
@@ -3661,10 +3678,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div className="premium-title-row">
               <span className="premium-title">🔥⚖️ Passa kaloryczna vs efekt na wadze</span>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span className="ai-explanation-spinner" aria-hidden="true" />
-              Wczytywanie...
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '80%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '95%' }} />
+            </div>
           </div>
         )}
         {streakWeightEffectInsight && streakWeightEffectInsight.hasEnoughData && (
@@ -3716,10 +3733,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div className="premium-title-row">
               <span className="premium-title">🪑🏋️ Siedzenie vs wydajność treningu</span>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span className="ai-explanation-spinner" aria-hidden="true" />
-              Wczytywanie...
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '80%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '95%' }} />
+            </div>
           </div>
         )}
         {sedentaryPerformanceInsight && sedentaryPerformanceInsight.hasEnoughData && (
@@ -3757,7 +3774,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <div className="premium-title-row">
               <span className="premium-title">💧😴 Woda a jakość snu</span>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', padding: '8px 0', marginBottom: 0 }}>Wczytywanie...</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '80%' }} />
+              <div className="shimmer-placeholder" style={{ height: '14px', width: '95%' }} />
+            </div>
           </div>
         )}
         {waterSleepInsight && waterSleepInsight.hasEnoughData && (

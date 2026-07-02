@@ -60,8 +60,8 @@ router.get('/api/admin/users', requireAdmin, async (req, res) => {
     const rows = await db.all(`
       SELECT id, username, email, role, status, totp_enabled, force_password_change, force_2fa
       FROM users
-      LIMIT ${limit} OFFSET ${offset}
-    `);
+      LIMIT ? OFFSET ?
+    `, [limit, offset]);
     res.json(rows);
   } catch (err) {
     console.error(err);

@@ -597,11 +597,26 @@ router.post('/api/register-invitation', async (req, res) => {
       WHERE id = ?
     `, [username, passwordHash, secret, user.id]);
 
-    const permanentToken = await createSession(user.id, false);
+    const force2faRow = await db.get(`SELECT value FROM app_config WHERE key = 'force_2fa'`);
+    const isForce2faEnabled = force2faRow && force2faRow.value === '1';
 
-    res.json({
-      token: permanentToken
-    });
+    if (isForce2faEnabled) {
+      const tempToken = await createSession(user.id, false, TEMP_SESSION_TTL_DAYS);
+      const otpauth = authenticator.keyuri(username, 'Dietetyk AI', secret);
+      const qrCodeDataUrl = await QRCode.toDataURL(otpauth);
+
+      res.json({
+        status: 'setup_2fa',
+        tempToken: tempToken,
+        qrCode: qrCodeDataUrl,
+        secret: secret
+      });
+    } else {
+      const permanentToken = await createSession(user.id, false);
+      res.json({
+        token: permanentToken
+      });
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd rejestracji zaproszenia.' });
@@ -671,11 +686,26 @@ router.post('/api/register-public', async (req, res) => {
       await db.run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (?, ?, ?)`, [result.id, s.key, s.value]);
     }
 
-    const permanentToken = await createSession(result.id, false);
+    const force2faRow = await db.get(`SELECT value FROM app_config WHERE key = 'force_2fa'`);
+    const isForce2faEnabled = force2faRow && force2faRow.value === '1';
 
-    res.json({
-      token: permanentToken
-    });
+    if (isForce2faEnabled) {
+      const tempToken = await createSession(result.id, false, TEMP_SESSION_TTL_DAYS);
+      const otpauth = authenticator.keyuri(username, 'Dietetyk AI', secret);
+      const qrCodeDataUrl = await QRCode.toDataURL(otpauth);
+
+      res.json({
+        status: 'setup_2fa',
+        tempToken: tempToken,
+        qrCode: qrCodeDataUrl,
+        secret: secret
+      });
+    } else {
+      const permanentToken = await createSession(result.id, false);
+      res.json({
+        token: permanentToken
+      });
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd rejestracji.' });

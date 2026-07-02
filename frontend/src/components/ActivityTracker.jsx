@@ -344,14 +344,16 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
     const { min: min1, max: max1 } = getMinMax(data1, key1);
     const { min: min2, max: max2 } = getMinMax(data2, key2);
 
-    const points1 = data1.map((d, index) => {
-      const x = padding + (index / (data1.length - 1 || 1)) * (width - 2 * padding);
+    const points1 = data1.map((d) => {
+      const overallIndex = validData.findIndex(item => item.date === d.date);
+      const x = padding + (overallIndex / (validData.length - 1 || 1)) * (width - 2 * padding);
       const y = height - padding - ((d[key1] - min1) / (max1 - min1 || 1)) * (height - 2 * padding);
       return { x, y, val: d[key1], date: d.date };
     });
 
-    const points2 = data2.map((d, index) => {
-      const x = padding + (index / (data2.length - 1 || 1)) * (width - 2 * padding);
+    const points2 = data2.map((d) => {
+      const overallIndex = validData.findIndex(item => item.date === d.date);
+      const x = padding + (overallIndex / (validData.length - 1 || 1)) * (width - 2 * padding);
       const y = height - padding - ((d[key2] - min2) / (max2 - min2 || 1)) * (height - 2 * padding);
       return { x, y, val: d[key2], date: d.date };
     });
@@ -454,8 +456,9 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
 
     const seriesPoints = series.map(s => {
       const seriesData = validData.filter(d => d[s.key] !== null && d[s.key] !== undefined);
-      const points = seriesData.map((d, index) => {
-        const x = padding + (seriesData.length > 1 ? (index / (seriesData.length - 1)) * (width - 2 * padding) : (width - 2 * padding) / 2);
+      const points = seriesData.map((d) => {
+        const overallIndex = validData.findIndex(item => item.date === d.date);
+        const x = padding + (validData.length > 1 ? (overallIndex / (validData.length - 1)) * (width - 2 * padding) : (width - 2 * padding) / 2);
         const y = height - padding - ((d[s.key] - sharedMin) / (sharedMax - sharedMin || 1)) * (height - 2 * padding);
         return { x, y, val: d[s.key] };
       });

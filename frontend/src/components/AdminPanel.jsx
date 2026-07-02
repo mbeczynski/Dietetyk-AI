@@ -8,6 +8,7 @@ export default function AdminPanel({ sessionToken, onLogout }) {
     mailgun_from: '',
     app_url: '',
     force_2fa: '0',
+    allow_public_registration: '0',
     google_client_id: '',
     google_client_secret: ''
   });
@@ -56,6 +57,7 @@ export default function AdminPanel({ sessionToken, onLogout }) {
           mailgun_from: data.mailgun_from || '',
           app_url: data.app_url || '',
           force_2fa: data.force_2fa || '0',
+          allow_public_registration: data.allow_public_registration || '0',
           google_client_id: data.google_client_id || '',
           google_client_secret: data.google_client_secret || ''
         });
@@ -307,6 +309,18 @@ export default function AdminPanel({ sessionToken, onLogout }) {
               />
               <label htmlFor="force_2fa" style={{ color: '#fff', fontSize: '0.9rem', cursor: 'pointer', userSelect: 'none' }}>
                 Wymuszaj konfigurację 2FA dla nowych użytkowników po 24 godzinach od rejestracji
+              </label>
+            </div>
+            <div className="input-group" style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
+              <input
+                type="checkbox"
+                id="allow_public_registration"
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                checked={config.allow_public_registration === '1'}
+                onChange={(e) => setConfig({ ...config, allow_public_registration: e.target.checked ? '1' : '0' })}
+              />
+              <label htmlFor="allow_public_registration" style={{ color: '#fff', fontSize: '0.9rem', cursor: 'pointer', userSelect: 'none' }}>
+                Zezwalaj na publiczną rejestrację bez zaproszeń
               </label>
             </div>
           </div>

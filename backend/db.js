@@ -140,6 +140,10 @@ const initDb = async () => {
   try {
     await run("ALTER TABLE users ADD COLUMN google_id TEXT");
   } catch (e) {}
+  try {
+    await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id) WHERE google_id IS NOT NULL");
+  } catch (e) {}
+
 
   // Migracja: imię i nazwisko - używane do personalizacji zwrotów AI dietetyka
   // ("Cześć Marcin, ..." zamiast bezosobowego tonu) oraz do wyświetlenia w profilu.
@@ -759,8 +763,8 @@ const backupDatabase = async () => {
     // kopiowanie samego pliku poniżej jest z tym journal_mode zgodne.
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupPath = path.join(backupDir, `dietetyk-${timestamp}.db`);
-    await fs.promises.copyFile(dbPath, backupPath);
-    console.log(`[BACKUP] Zapisano kopię zapasową bazy danych: ${backupPath}`);
+    await run('VACUUM INTO ?', [backupPath]);
+    console.log(`[BACKUP] Zapisano spójną kopię zapasową bazy danych: ${backupPath}`);
 
     // Rotacja - usuń najstarsze kopie powyżej limitu
     const files = (await fs.promises.readdir(backupDir))

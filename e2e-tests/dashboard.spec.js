@@ -218,6 +218,7 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
     // Wpisz testowe suplementy (kreatyna i multiwitamina)
     const testSups = 'Kreatyna, Multiwitamina 7Nutrition';
     await textarea.fill(testSups);
+    await expect(textarea).toHaveValue(testSups); // Upewnij się, że wartość została wpisana przed zapisem (uniknięcie race condition w React)
 
     // Zapisz suplementy
     const saveButton = supplementsCard.locator('button:has-text("Zapisz")');

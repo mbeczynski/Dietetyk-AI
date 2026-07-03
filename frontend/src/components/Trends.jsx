@@ -124,21 +124,48 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     return `${names[d.getDay()]} ${dd}.${mm}`;
   };
 
-  // Wspólny komponent podpowiedzi (tooltip) renderowany wewnątrz SVG danego wykresu.
-  // anchorX/anchorY to punkt, do którego "przyklejony" jest dymek (góra słupka/punktu).
-  const renderTooltip = (chartKey, idx, anchorX, anchorY, valueLabel, dateStr, svgWidth) => {
+  // Wspólny komponent podpowiedzi (tooltip) renderowany jako nakładka HTML (div).
+  // anchorX/anchorY to punkt w układzie współrzędnych SVG (viewBox), do którego
+  // "przyklejony" jest dymek (np. góra słupka/punktu).
+  const renderTooltip = (chartKey, idx, anchorX, anchorY, valueLabel, dateStr, svgWidth, customContent = null, svgHeight = 90) => {
     if (!hoverInfo || hoverInfo.chartKey !== chartKey || hoverInfo.idx !== idx) return null;
     const dateLabel = getFullDayLabel(dateStr);
-    const boxWidth = Math.max(46, Math.max(valueLabel.length, dateLabel.length) * 5.5 + 10);
-    const boxHeight = 26;
-    const boxX = Math.min(Math.max(anchorX - boxWidth / 2, 1), svgWidth - boxWidth - 1);
-    const boxY = Math.max(anchorY - boxHeight - 6, 1);
+    const tooltipLeft = `${(anchorX / svgWidth) * 100}%`;
+    const tooltipTop = `${(anchorY / svgHeight) * 100}%`;
     return (
-      <g pointerEvents="none">
-        <rect x={boxX} y={boxY} width={boxWidth} height={boxHeight} rx="5" fill="rgba(25,25,28,0.97)" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
-        <text x={boxX + boxWidth / 2} y={boxY + 11} fill="#ffffff" fontSize="8px" fontWeight="700" textAnchor="middle">{valueLabel}</text>
-        <text x={boxX + boxWidth / 2} y={boxY + 21} fill="rgba(255,255,255,0.55)" fontSize="7px" textAnchor="middle">{dateLabel}</text>
-      </g>
+      <div
+        style={{
+          position: 'absolute',
+          left: tooltipLeft,
+          top: tooltipTop,
+          transform: 'translate(-50%, -100%) translateY(-10px)',
+          pointerEvents: 'none',
+          background: 'rgba(20, 21, 23, 0.96)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid var(--border-glass)',
+          borderRadius: '8px',
+          padding: '8px 12px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+          zIndex: 100,
+          minWidth: '100px',
+          textAlign: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '3px',
+          transition: 'all 0.1s ease-out',
+        }}
+      >
+        <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>
+          {dateLabel}
+        </span>
+        {customContent ? (
+          customContent
+        ) : (
+          <span style={{ fontSize: '0.88rem', color: '#fff', fontWeight: '800', whiteSpace: 'nowrap' }}>
+            {valueLabel}
+          </span>
+        )}
+      </div>
     );
   };
 
@@ -237,7 +264,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px', position: 'relative', width: '100%' }}>
           {/* Wykres SVG */}
           <svg width="100%" height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={{ overflow: 'visible' }}>
             {/* Tło siatki - poziome linie pomocnicze */}
@@ -310,17 +337,18 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
               );
             })}
 
-            {/* Podpowiedź (tooltip) dla aktywnego słupka */}
-            {hoverInfo && hoverInfo.chartKey === key && (() => {
-              const idx = hoverInfo.idx;
-              const day = currentWeekDays[idx];
-              const val = currentWeekVals[idx] || 0;
-              const h = (val / maxVal) * (svgHeight - topMargin - 15);
-              const x = leftMargin + idx * (barWidth + gap) + barWidth / 2;
-              const y = svgHeight - topMargin - h;
-              return renderTooltip(key, idx, x, y, `${formatFn(val)} ${unit}`, day, svgWidth);
-            })()}
           </svg>
+
+          {/* Podpowiedź (tooltip) dla aktywnego słupka */}
+          {hoverInfo && hoverInfo.chartKey === key && (() => {
+            const idx = hoverInfo.idx;
+            const day = currentWeekDays[idx];
+            const val = currentWeekVals[idx] || 0;
+            const h = (val / maxVal) * (svgHeight - topMargin - 15);
+            const x = leftMargin + idx * (barWidth + gap) + barWidth / 2;
+            const y = svgHeight - topMargin - h;
+            return renderTooltip(key, idx, x, y, `${formatFn(val)} ${unit}`, day, svgWidth, null, svgHeight);
+          })()}
         </div>
       </div>
     );
@@ -399,7 +427,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px', position: 'relative', width: '100%' }}>
           <svg width="100%" height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={{ overflow: 'visible' }}>
             <defs>
               <linearGradient id={`gradient-${key}`} x1="0" y1="0" x2="0" y2="1">
@@ -510,12 +538,13 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
               );
             })}
 
-            {/* Podpowiedź (tooltip) dla aktywnego punktu */}
-            {hoverInfo && hoverInfo.chartKey === key && points[hoverInfo.idx] && (() => {
-              const p = points[hoverInfo.idx];
-              return renderTooltip(key, hoverInfo.idx, p.x, p.y, `${formatFn(p.val)} ${unit}`, p.day, svgWidth);
-            })()}
           </svg>
+
+          {/* Podpowiedź (tooltip) dla aktywnego punktu */}
+          {hoverInfo && hoverInfo.chartKey === key && points[hoverInfo.idx] && (() => {
+            const p = points[hoverInfo.idx];
+            return renderTooltip(key, hoverInfo.idx, p.x, p.y, `${formatFn(p.val)} ${unit}`, p.day, svgWidth, null, svgHeight);
+          })()}
         </div>
       </div>
     );
@@ -699,7 +728,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px', position: 'relative', width: '100%' }}>
           <svg width="100%" height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={{ overflow: 'visible' }}>
             {[0, 4, 8].map((t, idx) => {
               const y = svgHeight - topMargin - ((t / maxVal) * plotHeight);
@@ -776,27 +805,39 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
               );
             })}
 
-            {/* Podpowiedź (tooltip) - rozbicie godzin głęboki/REM/lekki dla aktywnego dnia */}
-            {hoverInfo && hoverInfo.chartKey === chartKey && dayBreakdowns[hoverInfo.idx] && (() => {
-              const idx = hoverInfo.idx;
-              const b = dayBreakdowns[idx];
-              const x = leftMargin + idx * (barWidth + gap) + barWidth / 2;
-              const boxWidth = 76;
-              const boxHeight = 40;
-              const boxX = Math.min(Math.max(x - boxWidth / 2, 1), svgWidth - boxWidth - 1);
-              const boxY = 1;
-              const dateLabel = getFullDayLabel(b.day);
-              return (
-                <g pointerEvents="none">
-                  <rect x={boxX} y={boxY} width={boxWidth} height={boxHeight} rx="5" fill="rgba(25,25,28,0.97)" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
-                  <text x={boxX + boxWidth / 2} y={boxY + 10} fill="rgba(255,255,255,0.55)" fontSize="7px" textAnchor="middle">{dateLabel}</text>
-                  <text x={boxX + boxWidth / 2} y={boxY + 20} fill="#ffffff" fontSize="7px" textAnchor="middle">Głęb. {formatDuration(b.deep)}</text>
-                  <text x={boxX + boxWidth / 2} y={boxY + 29} fill="#ffffff" fontSize="7px" textAnchor="middle">REM {formatDuration(b.rem)}</text>
-                  <text x={boxX + boxWidth / 2} y={boxY + 38} fill="#ffffff" fontSize="7px" textAnchor="middle">Lekki {formatDuration(b.light)}</text>
-                </g>
-              );
-            })()}
           </svg>
+
+          {/* Podpowiedź (tooltip) - rozbicie godzin głęboki/REM/lekki dla aktywnego dnia */}
+          {hoverInfo && hoverInfo.chartKey === chartKey && dayBreakdowns[hoverInfo.idx] && (() => {
+            const idx = hoverInfo.idx;
+            const b = dayBreakdowns[idx];
+            const x = leftMargin + idx * (barWidth + gap) + barWidth / 2;
+            const y = 10;
+            return renderTooltip(
+              chartKey,
+              idx,
+              x,
+              y,
+              null,
+              b.day,
+              svgWidth,
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'flex-start', fontSize: '0.78rem', color: '#fff', marginTop: '2px' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: colors.deep }} />
+                  Głęboki: <strong>{formatDuration(b.deep)}</strong>
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: colors.rem }} />
+                  REM: <strong>{formatDuration(b.rem)}</strong>
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: colors.light }} />
+                  Lekki: <strong>{formatDuration(b.light)}</strong>
+                </span>
+              </div>,
+              svgHeight
+            );
+          })()}
         </div>
         {!hasData && (
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>

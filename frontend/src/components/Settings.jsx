@@ -9,6 +9,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     bmr: 1800,
     target_water_ml: 2500,
     height_cm: '',
+    target_weight_kg: '',
     oura_client_id: '',
     oura_client_secret: '',
     withings_client_id: '',
@@ -278,7 +279,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    const numericFields = ['target_calories', 'target_protein', 'target_carbs', 'target_fat', 'bmr', 'target_water_ml', 'height_cm'];
+    const numericFields = ['target_calories', 'target_protein', 'target_carbs', 'target_fat', 'bmr', 'target_water_ml', 'height_cm', 'target_weight_kg'];
     // POPRAWKA (runda 4 audytu): Number('') === 0, więc wyczyszczenie pola liczbowego
     // (np. żeby zostawić je puste do późniejszego wypełnienia) zapisywało w stanie
     // formularza realne 0 - np. dla "Wzrost" trwale wyłączało liczenie BMI, mimo że
@@ -1125,13 +1126,31 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                   title="Potrzebny do wyliczenia rzeczywistego BMI na Pulpicie."
                 />
               </div>
+
+              <div className="input-group">
+                <label className="input-label">Waga docelowa (kg)***</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  name="target_weight_kg"
+                  className="input-field"
+                  value={settings.target_weight_kg}
+                  onChange={handleInputChange}
+                  min="0"
+                  placeholder="np. 75"
+                  title="Cel wagowy do wykresów i prognozy celu wagi."
+                />
+              </div>
             </div>
 
             <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
               * BMR (Podstawowa przemiana materii) służy do wyliczania całkowitego dziennego spalania: Całkowite spalanie = BMR + Aktywne kalorie ze zintegrowanych sensorów.
             </p>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '16px' }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
               ** Wzrost jest opcjonalny, ale bez niego BMI na Pulpicie nie będzie wyliczane (nie zgadujemy go za Ciebie).
+            </p>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '16px' }}>
+              *** Waga docelowa jest opcjonalna, służy do prognozowania daty osiągnięcia celu wagi na Pulpicie.
             </p>
 
             <button type="submit" className="btn-primary" disabled={isSaving}>

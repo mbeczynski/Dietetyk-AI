@@ -44,6 +44,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
+  const [is2faOpen, setIs2faOpen] = useState(false);
   const [isDietGoalsOpen, setIsDietGoalsOpen] = useState(false);
 
   // Stan eksportu danych i usuwania konta (RODO/GDPR)
@@ -1501,36 +1502,34 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                <div className="input-group" style={{ margin: 0 }}>
-                  <label className="input-label">Waga docelowa (kg)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    name="target_weight_kg"
-                    className="input-field"
-                    value={settings.target_weight_kg}
-                    onChange={handleInputChange}
-                    min="0"
-                    placeholder="np. 75"
-                    title="Cel wagowy używany do prognozy daty osiągnięcia celu na Pulpicie."
-                  />
-                </div>
-                <div className="input-group" style={{ margin: 0 }}>
-                  <label className="input-label">Docelowy % tkanki tłuszczowej</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    name="target_body_fat_pct"
-                    className="input-field"
-                    value={settings.target_body_fat_pct}
-                    onChange={handleInputChange}
-                    min="0"
-                    max="60"
-                    placeholder="np. 15"
-                    title="Docelowy procent tkanki tłuszczowej — używany przez algorytmy analiz."
-                  />
-                </div>
+              <div className="input-group">
+                <label className="input-label">Waga docelowa (kg)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  name="target_weight_kg"
+                  className="input-field"
+                  value={settings.target_weight_kg}
+                  onChange={handleInputChange}
+                  min="0"
+                  placeholder="np. 75"
+                  title="Cel wagowy używany do prognozy daty osiągnięcia celu na Pulpicie."
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Docelowy % tkanki tłuszczowej</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  name="target_body_fat_pct"
+                  className="input-field"
+                  value={settings.target_body_fat_pct}
+                  onChange={handleInputChange}
+                  min="0"
+                  max="60"
+                  placeholder="np. 15"
+                  title="Docelowy procent tkanki tłuszczowej — używany przez algorytmy analiz."
+                />
               </div>
 
               <div className="input-group">
@@ -1623,100 +1622,118 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
             )}
 
             {/* Panel 2FA (MFA) */}
-            <div className="glass-card">
-              <h3 className="card-title">🛡️ Dwuetapowa Weryfikacja (2FA)</h3>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
-                Zabezpiecz dodatkowo swoje konto za pomocą kodu z aplikacji Google Authenticator lub Authy.
-              </p>
-
-              {totpMessage.text && (
-                <div className={`alert alert-${totpMessage.type}`} style={{ marginBottom: '16px' }}>
-                  {totpMessage.text}
-                </div>
-              )}
-
-              {userProfile.totp_enabled ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', color: 'var(--success-light)', fontSize: '0.9rem' }}>
-                    <span>🛡️</span>
-                    <strong>Weryfikacja 2FA jest aktywna.</strong>
-                  </div>
-                  <button 
-                    type="button" 
-                    className="btn-danger"
-                    onClick={handleDisable2FA}
-                    disabled={isDisabling2fa}
-                    style={{ width: '100%', padding: '10px' }}
-                  >
-                    {isDisabling2fa ? 'Wyłączanie...' : 'Wyłącz 2FA'}
-                  </button>
-                </div>
-              ) : !isSettingUp2fa ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '8px', color: '#fbbf24', fontSize: '0.9rem' }}>
-                    <span>🔓</span>
-                    <strong>Weryfikacja 2FA jest nieaktywna.</strong>
-                  </div>
-                  <button 
-                    type="button" 
-                    className="btn-primary" 
-                    onClick={handleSetup2FA}
-                    style={{ width: '100%', padding: '10px' }}
-                  >
-                    Skonfiguruj i Włącz 2FA
-                  </button>
-                </div>
-              ) : (
-                <form onSubmit={handleVerify2FASetup} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                    Zeskanuj ten kod w aplikacji autoryzacyjnej i podaj 6-cyfrowy kod, aby włączyć zabezpieczenie.
-                  </p>
-                  
-                  <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0' }}>
-                    <img 
-                      src={totpSetupData.qrCode} 
-                      alt="QR Code" 
-                      style={{ borderRadius: '12px', border: '1px solid var(--border-glass)', padding: '6px', background: '#fff', width: '150px', height: '150px' }} 
-                    />
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label">Kod z aplikacji (6 cyfr)</label>
-                    <input
-                      type="text"
-                      pattern="[0-9]*"
-                      inputMode="numeric"
-                      maxLength="6"
-                      className="input-field"
-                      value={totpSetupCode}
-                      onChange={(e) => setTotpSetupCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="000 000"
-                      required
-                      autoFocus
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <button 
-                      type="button" 
-                      className="btn-secondary" 
-                      onClick={() => setIsSettingUp2fa(false)}
-                      style={{ flex: 1, padding: '8px' }}
-                    >
-                      Anuluj
-                    </button>
-                    <button 
-                      type="submit" 
-                      className="btn-primary" 
-                      disabled={isVerifying2fa}
-                      style={{ flex: 2, padding: '8px' }}
-                    >
-                      {isVerifying2fa ? 'Weryfikacja...' : 'Aktywuj 2FA'}
-                    </button>
-                  </div>
-                </form>
-              )}
+            <div
+              className="glass-card"
+              role="button"
+              tabIndex={0}
+              aria-expanded={is2faOpen}
+              onClick={() => setIs2faOpen(o => !o)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIs2faOpen(o => !o); } }}
+              style={{ cursor: 'pointer' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 className="card-title" style={{ margin: 0 }}>🛡️ Dwuetapowa Weryfikacja (2FA)</h3>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  {is2faOpen ? 'Zwiń ▲' : 'Pokaż ▼'}
+                </span>
+              </div>
             </div>
+
+            {(is2faOpen || isSettingUp2fa) && (
+              <div className="glass-card">
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+                  Zabezpiecz dodatkowo swoje konto za pomocą kodu z aplikacji Google Authenticator lub Authy.
+                </p>
+
+                {totpMessage.text && (
+                  <div className={`alert alert-${totpMessage.type}`} style={{ marginBottom: '16px' }}>
+                    {totpMessage.text}
+                  </div>
+                )}
+
+                {userProfile.totp_enabled ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', color: 'var(--success-light)', fontSize: '0.9rem' }}>
+                      <span>🛡️</span>
+                      <strong>Weryfikacja 2FA jest aktywna.</strong>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-danger"
+                      onClick={handleDisable2FA}
+                      disabled={isDisabling2fa}
+                      style={{ width: '100%', padding: '10px' }}
+                    >
+                      {isDisabling2fa ? 'Wyłączanie...' : 'Wyłącz 2FA'}
+                    </button>
+                  </div>
+                ) : !isSettingUp2fa ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '8px', color: '#fbbf24', fontSize: '0.9rem' }}>
+                      <span>🔓</span>
+                      <strong>Weryfikacja 2FA jest nieaktywna.</strong>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={handleSetup2FA}
+                      style={{ width: '100%', padding: '10px' }}
+                    >
+                      Skonfiguruj i Włącz 2FA
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleVerify2FASetup} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                      Zeskanuj ten kod w aplikacji autoryzacyjnej i podaj 6-cyfrowy kod, aby włączyć zabezpieczenie.
+                    </p>
+
+                    <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0' }}>
+                      <img
+                        src={totpSetupData.qrCode}
+                        alt="QR Code"
+                        style={{ borderRadius: '12px', border: '1px solid var(--border-glass)', padding: '6px', background: '#fff', width: '150px', height: '150px' }}
+                      />
+                    </div>
+
+                    <div className="input-group">
+                      <label className="input-label">Kod z aplikacji (6 cyfr)</label>
+                      <input
+                        type="text"
+                        pattern="[0-9]*"
+                        inputMode="numeric"
+                        maxLength="6"
+                        className="input-field"
+                        value={totpSetupCode}
+                        onChange={(e) => setTotpSetupCode(e.target.value.replace(/\D/g, ''))}
+                        placeholder="000 000"
+                        required
+                        autoFocus
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => setIsSettingUp2fa(false)}
+                        style={{ flex: 1, padding: '8px' }}
+                      >
+                        Anuluj
+                      </button>
+                      <button
+                        type="submit"
+                        className="btn-primary"
+                        disabled={isVerifying2fa}
+                        style={{ flex: 2, padding: '8px' }}
+                      >
+                        {isVerifying2fa ? 'Weryfikacja...' : 'Aktywuj 2FA'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>

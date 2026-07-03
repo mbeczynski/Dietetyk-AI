@@ -591,18 +591,20 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       // zapisujemy, o ile Oura jeszcze nie dostarczyła swoich danych (identyfikowane przez brak readiness_score).
       // W przeciwnym wypadku (użytkownik bez Oury, np. żona), Apple Health jest źródłem nadrzędnym.
       // Aby zapobiec nadpisywaniu kompletnego snu przez cząstkowe/mniejsze paczki w ciągu dnia, zachowujemy maksymalną wartość (MAX).
+      // NULLIF(..., 0) zamienia wynikowe 0 z powrotem na NULL, gdy obie strony były NULL —
+      // bez tego MAX(COALESCE(NULL,0), COALESCE(NULL,0)) = 0, które insighty traktują jako "śpiał 0h".
       const sleepDurationUpdate = user.has_oura === 1
-        ? 'sleep_duration = CASE WHEN readiness_score IS NOT NULL THEN sleep_duration ELSE MAX(COALESCE(sleep_duration, 0), COALESCE(excluded.sleep_duration, 0)) END'
-        : 'sleep_duration = MAX(COALESCE(sleep_duration, 0), COALESCE(excluded.sleep_duration, 0))';
+        ? 'sleep_duration = CASE WHEN readiness_score IS NOT NULL THEN sleep_duration ELSE NULLIF(MAX(COALESCE(sleep_duration, 0), COALESCE(excluded.sleep_duration, 0)), 0) END'
+        : 'sleep_duration = NULLIF(MAX(COALESCE(sleep_duration, 0), COALESCE(excluded.sleep_duration, 0)), 0)';
       const sleepDeepUpdate = user.has_oura === 1
-        ? 'sleep_deep = CASE WHEN readiness_score IS NOT NULL THEN sleep_deep ELSE MAX(COALESCE(sleep_deep, 0), COALESCE(excluded.sleep_deep, 0)) END'
-        : 'sleep_deep = MAX(COALESCE(sleep_deep, 0), COALESCE(excluded.sleep_deep, 0))';
+        ? 'sleep_deep = CASE WHEN readiness_score IS NOT NULL THEN sleep_deep ELSE NULLIF(MAX(COALESCE(sleep_deep, 0), COALESCE(excluded.sleep_deep, 0)), 0) END'
+        : 'sleep_deep = NULLIF(MAX(COALESCE(sleep_deep, 0), COALESCE(excluded.sleep_deep, 0)), 0)';
       const sleepRemUpdate = user.has_oura === 1
-        ? 'sleep_rem = CASE WHEN readiness_score IS NOT NULL THEN sleep_rem ELSE MAX(COALESCE(sleep_rem, 0), COALESCE(excluded.sleep_rem, 0)) END'
-        : 'sleep_rem = MAX(COALESCE(sleep_rem, 0), COALESCE(excluded.sleep_rem, 0))';
+        ? 'sleep_rem = CASE WHEN readiness_score IS NOT NULL THEN sleep_rem ELSE NULLIF(MAX(COALESCE(sleep_rem, 0), COALESCE(excluded.sleep_rem, 0)), 0) END'
+        : 'sleep_rem = NULLIF(MAX(COALESCE(sleep_rem, 0), COALESCE(excluded.sleep_rem, 0)), 0)';
       const sleepScoreUpdate = user.has_oura === 1
-        ? 'sleep_score = CASE WHEN readiness_score IS NOT NULL THEN sleep_score ELSE MAX(COALESCE(sleep_score, 0), COALESCE(excluded.sleep_score, 0)) END'
-        : 'sleep_score = MAX(COALESCE(sleep_score, 0), COALESCE(excluded.sleep_score, 0))';
+        ? 'sleep_score = CASE WHEN readiness_score IS NOT NULL THEN sleep_score ELSE NULLIF(MAX(COALESCE(sleep_score, 0), COALESCE(excluded.sleep_score, 0)), 0) END'
+        : 'sleep_score = NULLIF(MAX(COALESCE(sleep_score, 0), COALESCE(excluded.sleep_score, 0)), 0)';
 
       await db.run(`
         INSERT INTO health_metrics (

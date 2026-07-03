@@ -10,6 +10,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
     target_water_ml: 2500,
     height_cm: '',
     target_weight_kg: '',
+    target_body_fat_pct: '',
     oura_client_id: '',
     oura_client_secret: '',
     withings_client_id: '',
@@ -279,7 +280,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    const numericFields = ['target_calories', 'target_protein', 'target_carbs', 'target_fat', 'bmr', 'target_water_ml', 'height_cm', 'target_weight_kg'];
+    const numericFields = ['target_calories', 'target_protein', 'target_carbs', 'target_fat', 'bmr', 'target_water_ml', 'height_cm', 'target_weight_kg', 'target_body_fat_pct'];
     // POPRAWKA (runda 4 audytu): Number('') === 0, więc wyczyszczenie pola liczbowego
     // (np. żeby zostawić je puste do późniejszego wypełnienia) zapisywało w stanie
     // formularza realne 0 - np. dla "Wzrost" trwale wyłączało liczenie BMI, mimo że
@@ -1127,30 +1128,13 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 />
               </div>
 
-              <div className="input-group">
-                <label className="input-label">Waga docelowa (kg)***</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  name="target_weight_kg"
-                  className="input-field"
-                  value={settings.target_weight_kg}
-                  onChange={handleInputChange}
-                  min="0"
-                  placeholder="np. 75"
-                  title="Cel wagowy do wykresów i prognozy celu wagi."
-                />
-              </div>
             </div>
 
             <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
               * BMR (Podstawowa przemiana materii) służy do wyliczania całkowitego dziennego spalania: Całkowite spalanie = BMR + Aktywne kalorie ze zintegrowanych sensorów.
             </p>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
-              ** Wzrost jest opcjonalny, ale bez niego BMI na Pulpicie nie będzie wyliczane (nie zgadujemy go za Ciebie).
-            </p>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '16px' }}>
-              *** Waga docelowa jest opcjonalna, służy do prognozowania daty osiągnięcia celu wagi na Pulpicie.
+              ** Wzrost jest opcjonalny, ale bez niego BMI na Pulpicie nie będzie wyliczane (nie zgadujemy go za Ciebie).
             </p>
 
             <button type="submit" className="btn-primary" disabled={isSaving}>
@@ -1517,6 +1501,38 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 </div>
               </div>
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                <div className="input-group" style={{ margin: 0 }}>
+                  <label className="input-label">Waga docelowa (kg)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    name="target_weight_kg"
+                    className="input-field"
+                    value={settings.target_weight_kg}
+                    onChange={handleInputChange}
+                    min="0"
+                    placeholder="np. 75"
+                    title="Cel wagowy używany do prognozy daty osiągnięcia celu na Pulpicie."
+                  />
+                </div>
+                <div className="input-group" style={{ margin: 0 }}>
+                  <label className="input-label">Docelowy % tkanki tłuszczowej</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    name="target_body_fat_pct"
+                    className="input-field"
+                    value={settings.target_body_fat_pct}
+                    onChange={handleInputChange}
+                    min="0"
+                    max="60"
+                    placeholder="np. 15"
+                    title="Docelowy procent tkanki tłuszczowej — używany przez algorytmy analiz."
+                  />
+                </div>
+              </div>
+
               <div className="input-group">
                 <label className="input-label">Opis celu sylwetki</label>
                 <textarea
@@ -1530,7 +1546,7 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
                 />
               </div>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '8px 0 16px' }}>
-                Opis zapisuje się razem z przyciskiem &quot;Zapisz profil&quot; powyżej. Zdjęcie zapisuje się od razu po wybraniu pliku.
+                Waga i % tłuszczu zapisują się przyciskiem &quot;Zapisz cele&quot; (sekcja Cele powyżej). Opis i zdjęcie — przyciskiem &quot;Zapisz profil&quot;.
               </p>
             </div>
 

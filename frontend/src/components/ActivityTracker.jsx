@@ -850,22 +850,6 @@ export default function ActivityTracker({ summary, userProfile, sessionToken, on
                       required
                     />
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Waga docelowa (kg, opcjonalnie)</label>
-                    {/* Pole opcjonalne (0 = brak celu) - używane do wyliczenia szacowanej
-                        daty osiągnięcia celu na podstawie regresji liniowej z wykresu
-                        "Spalanie Tłuszczu" poniżej (patrz computeWeightForecast). */}
-                    <input
-                      type="number"
-                      step="0.1"
-                      className="input-field"
-                      style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                      value={goals.target_weight_kg}
-                      onChange={(e) => { setGoalsDirty(true); setGoals({...goals, target_weight_kg: Number(e.target.value)}); }}
-                      min="0"
-                      placeholder="np. 75"
-                    />
-                  </div>
                   <button type="submit" className="btn-primary" style={{ padding: '6px 12px', fontSize: '0.85rem', marginTop: '6px', height: '34px' }} disabled={isSavingGoals}>
                     {isSavingGoals ? 'Zapisywanie...' : 'Zapisz cele'}
                   </button>

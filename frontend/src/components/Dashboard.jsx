@@ -4345,70 +4345,6 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
         </div>
 
-        {/* SEN DETAILS */}
-        <div className="premium-card">
-          <div className="premium-title-row">
-            <span className="premium-title">Sen</span>
-            <span className="premium-title-info">▶</span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '24px', margin: '8px 0' }}>
-            {/* Main sleep ring */}
-            <div style={{ position: 'relative', width: 104, height: 104, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <RenderProgressCircle size={104} strokeWidth={8} percentage={sleepScore} color="#3b82f6" />
-              <div style={{ position: 'absolute', textAlign: 'center' }}>
-                <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>
-                  {formatHoursMins(sleepDurationHours)}
-                </div>
-                <div style={{ fontSize: '0.6rem', color: 'rgba(255, 255, 255, 0.4)', textTransform: 'uppercase', marginTop: '4px' }}>
-                  Typowy zakres
-                </div>
-              </div>
-            </div>
-
-            {/* Sleep Stages */}
-            <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <SleepStageBar 
-                label="Sen głęboki" 
-                durationText={formatHoursMins(sleepDeepHours)} 
-                percentage={Math.min((sleepDeepHours / 2.5) * 100, 100)} 
-                typicalStart={35} 
-                typicalEnd={65} 
-                colorClass="deep" 
-              />
-              <SleepStageBar 
-                label="REM" 
-                durationText={formatHoursMins(sleepRemHours)} 
-                percentage={Math.min((sleepRemHours / 3.0) * 100, 100)} 
-                typicalStart={40} 
-                typicalEnd={75} 
-                colorClass="rem" 
-              />
-              <SleepStageBar 
-                label="Sen lekki" 
-                durationText={formatHoursMins(sleepLightHours)} 
-                percentage={Math.min((sleepLightHours / 5.5) * 100, 100)} 
-                typicalStart={50} 
-                typicalEnd={85} 
-                colorClass="light" 
-              />
-              {/* "Czas czuwania" ukryty, gdy sleepAwakeMins jest hardcoded na 0
-                  (backend jeszcze nie liczy tej wartości z Oura) - pokazywanie
-                  fałszywego "0 m" sugerowałoby realny pomiar, którego nie mamy. */}
-              {sleepAwakeMins > 0 && (
-                <SleepStageBar
-                  label="Czas czuwania"
-                  durationText={`${sleepAwakeMins} m`}
-                  percentage={Math.min((sleepAwakeMins / 90) * 100, 100)}
-                  typicalStart={10}
-                  typicalEnd={45}
-                  colorClass="awake"
-                />
-              )}
-            </div>
-          </div>
-        </div>
-
         {/* WAGA I SKŁAD CIAŁA */}
         <div className="premium-card">
           <div className="premium-title-row">
@@ -4516,6 +4452,70 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             )}
           </div>
           {renderWeightCompositionChart(historyData)}
+        </div>
+
+        {/* SEN DETAILS */}
+        <div className="premium-card">
+          <div className="premium-title-row">
+            <span className="premium-title">Sen</span>
+            <span className="premium-title-info">▶</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px', margin: '8px 0' }}>
+            {/* Main sleep ring */}
+            <div style={{ position: 'relative', width: 104, height: 104, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <RenderProgressCircle size={104} strokeWidth={8} percentage={sleepScore} color="#3b82f6" />
+              <div style={{ position: 'absolute', textAlign: 'center' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>
+                  {formatHoursMins(sleepDurationHours)}
+                </div>
+                <div style={{ fontSize: '0.6rem', color: 'rgba(255, 255, 255, 0.4)', textTransform: 'uppercase', marginTop: '4px' }}>
+                  Typowy zakres
+                </div>
+              </div>
+            </div>
+
+            {/* Sleep Stages */}
+            <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <SleepStageBar 
+                label="Sen głęboki" 
+                durationText={formatHoursMins(sleepDeepHours)} 
+                percentage={Math.min((sleepDeepHours / 2.5) * 100, 100)} 
+                typicalStart={35} 
+                typicalEnd={65} 
+                colorClass="deep" 
+              />
+              <SleepStageBar 
+                label="REM" 
+                durationText={formatHoursMins(sleepRemHours)} 
+                percentage={Math.min((sleepRemHours / 3.0) * 100, 100)} 
+                typicalStart={40} 
+                typicalEnd={75} 
+                colorClass="rem" 
+              />
+              <SleepStageBar 
+                label="Sen lekki" 
+                durationText={formatHoursMins(sleepLightHours)} 
+                percentage={Math.min((sleepLightHours / 5.5) * 100, 100)} 
+                typicalStart={50} 
+                typicalEnd={85} 
+                colorClass="light" 
+              />
+              {/* "Czas czuwania" ukryty, gdy sleepAwakeMins jest hardcoded na 0
+                  (backend jeszcze nie liczy tej wartości z Oura) - pokazywanie
+                  fałszywego "0 m" sugerowałoby realny pomiar, którego nie mamy. */}
+              {sleepAwakeMins > 0 && (
+                <SleepStageBar
+                  label="Czas czuwania"
+                  durationText={`${sleepAwakeMins} m`}
+                  percentage={Math.min((sleepAwakeMins / 90) * 100, 100)}
+                  typicalStart={10}
+                  typicalEnd={45}
+                  colorClass="awake"
+                />
+              )}
+            </div>
+          </div>
         </div>
 
         {/* ENERGIA I AKTYWNOŚĆ DNIA - połączone z dawnej karty "Dystans i aktywność dnia"

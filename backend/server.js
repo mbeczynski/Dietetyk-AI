@@ -15,7 +15,7 @@ const app = express();
 // Ufaj nagłówkowi X-Forwarded-For z nginx (reverse proxy przed backendem w docker-compose),
 // żeby req.ip pokazywał prawdziwy adres klienta, a nie adres kontenera nginx.
 // Wymagane do poprawnego działania blokady brute-force per adres IP.
-app.set('trust proxy', 1);
+app.set('trust proxy', true);
 
 // Middleware
 // CORS ograniczony do skonfigurowanego adresu aplikacji (APP_URL) - wcześniej

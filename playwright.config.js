@@ -24,5 +24,8 @@ module.exports = defineConfig({
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 15000,
+    env: {
+      NODE_ENV: 'test',
+    },
   },
 });

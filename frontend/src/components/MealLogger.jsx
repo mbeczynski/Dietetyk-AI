@@ -25,7 +25,7 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
   const [repeatingMealId, setRepeatingMealId] = useState(null);
 
   const handleRepeatClick = async (mealId) => {
-    if (repeatingMealId) return;
+    if (repeatingMealId || isAnalyzing) return;
     setRepeatingMealId(mealId);
     setSuccessMessage('');
     const ok = await onRepeatMeal(mealId);
@@ -82,6 +82,7 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isAnalyzing || isCompressing) return;
     if (!mealText.trim() && !imageSrc) return;
     setSuccessMessage('');
     // onAddMeal (handleAddMeal w App.jsx) zwraca boolean - pokazujemy komunikat

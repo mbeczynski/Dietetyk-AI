@@ -1,5 +1,6 @@
 const PDFDocument = require('pdfkit');
 const db = require('../db');
+const path = require('path');
 const { getUserSettings, aggregateNutritionAndHealth } = require('./summaries');
 
 // Eksport PDF dla lekarza/dietetyka - dokument do samodzielnego pobrania i pokazania
@@ -63,6 +64,10 @@ async function buildHealthReportPdf(userId, requestedDays) {
     let doc;
     try {
       doc = new PDFDocument({ margin: 50, size: 'A4' });
+      doc.registerFont('Roboto', path.join(__dirname, '../assets/fonts/Roboto-Regular.ttf'));
+      doc.registerFont('Roboto-Bold', path.join(__dirname, '../assets/fonts/Roboto-Bold.ttf'));
+      doc.font('Roboto');
+
       const chunks = [];
       doc.on('data', (chunk) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -70,18 +75,18 @@ async function buildHealthReportPdf(userId, requestedDays) {
 
       const sectionTitle = (text) => {
         doc.moveDown(0.8);
-        doc.fontSize(13).fillColor('#1e293b').font('Helvetica-Bold').text(text);
+        doc.fontSize(13).fillColor('#1e293b').font('Roboto-Bold').text(text);
         doc.moveDown(0.3);
-        doc.fontSize(10).fillColor('#0f172a').font('Helvetica');
+        doc.fontSize(10).fillColor('#0f172a').font('Roboto');
       };
       const row = (label, value) => {
         doc.text(`${label}: ${value}`);
       };
 
       // --- Nagłówek ---
-      doc.fontSize(20).fillColor('#1e293b').font('Helvetica-Bold').text('Dietetyk AI - Raport zdrowotno-żywieniowy');
+      doc.fontSize(20).fillColor('#1e293b').font('Roboto-Bold').text('Dietetyk AI - Raport zdrowotno-żywieniowy');
       doc.moveDown(0.4);
-      doc.fontSize(10).fillColor('#64748b').font('Helvetica');
+      doc.fontSize(10).fillColor('#64748b').font('Roboto');
       doc.text(`Pacjent: ${[user.first_name, user.last_name].filter(Boolean).join(' ') || user.username} (login: ${user.username})`);
       doc.text(`Okres raportu: ${startDate} - ${today} (${days} dni)`);
       doc.text(`Wygenerowano: ${new Date().toLocaleString('pl-PL')}`);

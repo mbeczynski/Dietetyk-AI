@@ -23,17 +23,21 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
   // tylko ten jeden chip podczas zapisu, nie cały formularz (w przeciwieństwie do
   // isAnalyzing, które dotyczy analizy AI nowego posiłku).
   const [repeatingMealId, setRepeatingMealId] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleRepeatClick = async (mealId) => {
-    if (repeatingMealId || isAnalyzing) return;
+    if (repeatingMealId || isAnalyzing || isSubmitting) return;
     setRepeatingMealId(mealId);
     setSuccessMessage('');
-    const ok = await onRepeatMeal(mealId);
-    setRepeatingMealId(null);
-    if (ok) {
-      setSuccessMessage('Posiłek zapisany!');
-      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
-      successTimeoutRef.current = setTimeout(() => setSuccessMessage(''), 4000);
+    try {
+      const ok = await onRepeatMeal(mealId);
+      if (ok) {
+        setSuccessMessage('Posiłek zapisany!');
+        if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+        successTimeoutRef.current = setTimeout(() => setSuccessMessage(''), 4000);
+      }
+    } finally {
+      setRepeatingMealId(null);
     }
   };
 
@@ -82,22 +86,24 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (isAnalyzing || isCompressing) return;
+    if (isAnalyzing || isCompressing || isSubmitting) return;
     if (!mealText.trim() && !imageSrc) return;
+    setIsSubmitting(true);
     setSuccessMessage('');
-    // onAddMeal (handleAddMeal w App.jsx) zwraca boolean - pokazujemy komunikat
-    // sukcesu tylko gdy zapis w backendzie faktycznie się powiódł (nie optymistycznie
-    // od razu po kliknięciu), żeby nie potwierdzać czegoś, co mogło się nie udać.
-    const ok = await onAddMeal(mealText, imageSrc);
-    if (ok) {
-      setMealText('');
-      setImageSrc(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+    try {
+      const ok = await onAddMeal(mealText, imageSrc);
+      if (ok) {
+        setMealText('');
+        setImageSrc(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        setSuccessMessage('Posiłek zapisany!');
+        if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+        successTimeoutRef.current = setTimeout(() => setSuccessMessage(''), 4000);
       }
-      setSuccessMessage('Posiłek zapisany!');
-      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
-      successTimeoutRef.current = setTimeout(() => setSuccessMessage(''), 4000);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -177,7 +183,7 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
               value={mealText}
               onChange={(e) => setMealText(e.target.value)}
               placeholder="Opisz swój posiłek (np. 'Kurczak z ryżem i warzywami') lub zostaw puste, jeśli wgrywasz tylko zdjęcie..."
-              disabled={isAnalyzing}
+                disabled={isAnalyzing || isSubmitting}
             />
           </div>
 
@@ -196,7 +202,7 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
                   padding: '10px 16px',
                   fontSize: '0.9rem'
                 }}
-                disabled={isAnalyzing || isCompressing}
+                disabled={isAnalyzing || isCompressing || isSubmitting}
               >
                 📷 {imageSrc ? 'Zmień zdjęcie' : 'Zrób/Dodaj zdjęcie'}
               </button>
@@ -254,9 +260,9 @@ export default function MealLogger({ meals, onAddMeal, onDeleteMeal, isAnalyzing
           <button
             type="submit"
             className="btn-primary"
-            disabled={isAnalyzing || isCompressing || (!mealText.trim() && !imageSrc)}
+            disabled={isAnalyzing || isCompressing || isSubmitting || (!mealText.trim() && !imageSrc)}
           >
-            {isAnalyzing ? (
+            {isAnalyzing || isSubmitting ? (
               <>
                 <span className="loading-pulse"></span>
                 <span>Analizowanie przez AI...</span>

@@ -74,17 +74,21 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     return new Date(date.getTime() - tzOffset).toISOString().slice(0, 10);
   };
 
-  // Generowanie dni dla aktualnego tygodnia (ostatnie 7 dni kończące się na selectedDate)
+  const [timeframe, setTimeframe] = useState('7d');
+
+  const periodDaysCount = timeframe === '90d' ? 90 : (timeframe === '30d' ? 30 : 7);
+
+  // Generowanie dni dla aktualnego okresu (ostatnie N dni kończące się na selectedDate)
   const currentWeekDays = [];
-  for (let i = 6; i >= 0; i--) {
+  for (let i = periodDaysCount - 1; i >= 0; i--) {
     const d = new Date(selectedDateObj);
     d.setDate(d.getDate() - i);
     currentWeekDays.push(toDateStr(d));
   }
 
-  // Generowanie dni dla poprzedniego tygodnia (7 dni przed aktualnym tygodniem)
+  // Generowanie dni dla poprzedniego okresu (N dni przed aktualnym okresem)
   const prevWeekDays = [];
-  for (let i = 13; i >= 7; i--) {
+  for (let i = (periodDaysCount * 2) - 1; i >= periodDaysCount; i--) {
     const d = new Date(selectedDateObj);
     d.setDate(d.getDate() - i);
     prevWeekDays.push(toDateStr(d));
@@ -101,6 +105,11 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
 
   const getDayLabel = (dateStr) => {
     const d = parseLocalDate(dateStr);
+    if (timeframe !== '7d') {
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      return `${dd}.${mm}`;
+    }
     const day = d.getDay(); // 0: niedziela, 1: poniedziałek...
     const labels = ['n', 'p', 'w', 'ś', 'c', 'p', 's'];
     return labels[day];
@@ -204,8 +213,8 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
 
     const svgWidth = 240;
     const svgHeight = 90;
-    const barWidth = 14;
-    const gap = 16;
+    const barWidth = currentWeekDays.length === 7 ? 14 : (currentWeekDays.length === 30 ? 3.5 : 1);
+    const gap = currentWeekDays.length === 7 ? 16 : (currentWeekDays.length === 30 ? 3.3 : 1.15);
     const leftMargin = 15;
     const topMargin = 10;
 
@@ -279,16 +288,24 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
                     fill={val > 0 ? (isActive ? '#a3e6ff' : '#ffffff') : 'rgba(255,255,255,0.08)'}
                   />
                   {/* Etykieta dnia tygodnia */}
-                  <text
-                    x={x + barWidth / 2}
-                    y={svgHeight - 1}
-                    fill={day === selectedDate ? '#ffffff' : 'rgba(255,255,255,0.35)'}
-                    fontSize="9px"
-                    fontWeight={day === selectedDate ? 'bold' : 'normal'}
-                    textAnchor="middle"
-                  >
-                    {getDayLabel(day)}
-                  </text>
+                  {(() => {
+                    const shouldShowLabel = 
+                      currentWeekDays.length <= 7 
+                      || (currentWeekDays.length === 30 && idx % 5 === 0) 
+                      || (currentWeekDays.length === 90 && idx % 15 === 0);
+                    return shouldShowLabel ? (
+                      <text
+                        x={x + barWidth / 2}
+                        y={svgHeight - 1}
+                        fill={day === selectedDate ? '#ffffff' : 'rgba(255,255,255,0.35)'}
+                        fontSize="9px"
+                        fontWeight={day === selectedDate ? 'bold' : 'normal'}
+                        textAnchor="middle"
+                      >
+                        {getDayLabel(day)}
+                      </text>
+                    ) : null;
+                  })()}
                 </g>
               );
             })}
@@ -337,7 +354,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     const points = currentWeekDays.map((day, idx) => {
       const val = currentWeekVals[idx];
       if (val === null || val === undefined) return null;
-      const x = leftMargin + (idx / 6) * chartWidth;
+      const x = leftMargin + (idx / (currentWeekDays.length - 1 || 1)) * chartWidth;
       const y = svgHeight - topMargin - ((val - minVal) / range) * chartHeight;
       return { x, y, val, day };
     });
@@ -472,7 +489,12 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
 
             {/* Dni tygodnia */}
             {currentWeekDays.map((day, idx) => {
-              const x = leftMargin + (idx / 6) * chartWidth;
+              const shouldShowLabel = 
+                currentWeekDays.length <= 7 
+                || (currentWeekDays.length === 30 && idx % 5 === 0) 
+                || (currentWeekDays.length === 90 && idx % 15 === 0);
+              if (!shouldShowLabel) return null;
+              const x = leftMargin + (idx / (currentWeekDays.length - 1 || 1)) * chartWidth;
               return (
                 <text
                   key={idx}
@@ -526,7 +548,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     const buildPoints = (vals) => currentWeekDays.map((day, idx) => {
       const val = vals[idx];
       if (val === null || val === undefined) return null;
-      const x = leftMargin + (idx / 6) * chartWidth;
+      const x = leftMargin + (idx / (currentWeekDays.length - 1 || 1)) * chartWidth;
       const y = svgHeight - topMargin - ((val - minVal) / range) * chartHeight;
       return { x, y, val, day };
     }).filter(p => p !== null);
@@ -592,7 +614,12 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
             {lastDia && <circle cx={lastDia.x} cy={lastDia.y} r="3.5" fill="#38bdf8" stroke="#121314" strokeWidth="1.5" />}
 
             {currentWeekDays.map((day, idx) => {
-              const x = leftMargin + (idx / 6) * chartWidth;
+              const shouldShowLabel = 
+                currentWeekDays.length <= 7 
+                || (currentWeekDays.length === 30 && idx % 5 === 0) 
+                || (currentWeekDays.length === 90 && idx % 15 === 0);
+              if (!shouldShowLabel) return null;
+              const x = leftMargin + (idx / (currentWeekDays.length - 1 || 1)) * chartWidth;
               return (
                 <text
                   key={idx}
@@ -644,8 +671,8 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
 
     const svgWidth = 240;
     const svgHeight = 90;
-    const barWidth = 14;
-    const gap = 16;
+    const barWidth = currentWeekDays.length === 7 ? 14 : (currentWeekDays.length === 30 ? 3.5 : 1);
+    const gap = currentWeekDays.length === 7 ? 16 : (currentWeekDays.length === 30 ? 3.3 : 1.15);
     const leftMargin = 15;
     const topMargin = 10;
     const plotHeight = svgHeight - topMargin - 15;
@@ -655,7 +682,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     return (
       <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
-          <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '600' }}>Fazy snu (7 dni)</span>
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '600' }}>Fazy snu ({timeframe === '90d' ? '90 dni' : (timeframe === '30d' ? '30 dni' : '7 dni')})</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.68rem' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'rgba(255,255,255,0.5)' }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.deep, display: 'inline-block' }}></span>
@@ -694,14 +721,21 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
                   : { chartKey, idx });
               };
 
+              const shouldShowLabel = 
+                currentWeekDays.length <= 7 
+                || (currentWeekDays.length === 30 && idx % 5 === 0) 
+                || (currentWeekDays.length === 90 && idx % 15 === 0);
+
               if (!b) {
                 return (
                   <g key={idx} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoverInfo({ chartKey, idx })} onMouseLeave={() => setHoverInfo(prev => (prev && prev.chartKey === chartKey && prev.idx === idx) ? null : prev)} onClick={toggleHover}>
                     <rect x={x - gap / 2} y={0} width={barWidth + gap} height={svgHeight} fill="transparent" />
                     <rect x={x} y={svgHeight - topMargin - 2} width={barWidth} height={2} rx="1" fill="rgba(255,255,255,0.08)" />
-                    <text x={x + barWidth / 2} y={svgHeight - 1} fill={day === selectedDate ? '#ffffff' : 'rgba(255,255,255,0.35)'} fontSize="9px" fontWeight={day === selectedDate ? 'bold' : 'normal'} textAnchor="middle">
-                      {getDayLabel(day)}
-                    </text>
+                    {shouldShowLabel && (
+                      <text x={x + barWidth / 2} y={svgHeight - 1} fill={day === selectedDate ? '#ffffff' : 'rgba(255,255,255,0.35)'} fontSize="9px" fontWeight={day === selectedDate ? 'bold' : 'normal'} textAnchor="middle">
+                        {getDayLabel(day)}
+                      </text>
+                    )}
                   </g>
                 );
               }
@@ -726,16 +760,18 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
                   <rect x={x} y={yLightTop} width={barWidth} height={Math.max(lightH, 0)} fill={isActive ? 'rgba(255,255,255,0.3)' : colors.light} />
                   <rect x={x} y={yRemTop} width={barWidth} height={Math.max(remH, 0)} fill={colors.rem} opacity={isActive ? 1 : 0.85} />
                   <rect x={x} y={yDeepTop} width={barWidth} height={Math.max(deepH, 0)} rx="2" ry="2" fill={colors.deep} opacity={isActive ? 1 : 0.85} />
-                  <text
-                    x={x + barWidth / 2}
-                    y={svgHeight - 1}
-                    fill={day === selectedDate ? '#ffffff' : 'rgba(255,255,255,0.35)'}
-                    fontSize="9px"
-                    fontWeight={day === selectedDate ? 'bold' : 'normal'}
-                    textAnchor="middle"
-                  >
-                    {getDayLabel(day)}
-                  </text>
+                  {shouldShowLabel && (
+                    <text
+                      x={x + barWidth / 2}
+                      y={svgHeight - 1}
+                      fill={day === selectedDate ? '#ffffff' : 'rgba(255,255,255,0.35)'}
+                      fontSize="9px"
+                      fontWeight={day === selectedDate ? 'bold' : 'normal'}
+                      textAnchor="middle"
+                    >
+                      {getDayLabel(day)}
+                    </text>
+                  )}
                 </g>
               );
             })}
@@ -831,8 +867,33 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       
-      <div className="premium-title-row" style={{ padding: '0 4px' }}>
+      <div className="premium-title-row" style={{ padding: '0 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#fff' }}>Twoje wykresy</h2>
+        <div style={{ display: 'flex', gap: '4px', background: 'rgba(255, 255, 255, 0.03)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
+          {[
+            { key: '7d', label: '7 dni' },
+            { key: '30d', label: '30 dni' },
+            { key: '90d', label: '90 dni' }
+          ].map((item) => (
+            <button
+              key={item.key}
+              onClick={() => setTimeframe(item.key)}
+              style={{
+                background: timeframe === item.key ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                border: 'none',
+                borderRadius: '6px',
+                color: timeframe === item.key ? '#fff' : 'var(--text-dim)',
+                padding: '6px 12px',
+                fontSize: '0.75rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

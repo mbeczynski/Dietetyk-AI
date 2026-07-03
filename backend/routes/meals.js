@@ -45,6 +45,9 @@ function sanitizeNullableNumber(val, min, max) {
 // bo jest współdzielona z routes/dashboard.js (lista posiłków dnia w /api/dashboard,
 // z którego faktycznie korzysta MealLogger.jsx po stronie frontendu).
 
+// Cache na zduplikowane żądania wysyłane w krótkim czasie (np. szybki double-click)
+const recentRequests = new Map();
+
 router.post('/api/meals', async (req, res) => {
   const { rawText, date, image } = req.body;
   const targetDate = date || getLocalDateString();
@@ -53,6 +56,26 @@ router.post('/api/meals', async (req, res) => {
 
   if ((!rawText || rawText.trim() === '') && !image) {
     return res.status(400).json({ error: 'Opis posiłku lub zdjęcie nie może być puste.' });
+  }
+
+  const userId = req.user.id;
+  const now = Date.now();
+  const requestKey = {
+    rawText: safeRawText,
+    date: targetDate,
+    imageLength: image ? image.length : 0,
+    imageSample: image ? image.slice(-100) : ''
+  };
+
+  const lastRequest = recentRequests.get(userId);
+  if (lastRequest &&
+      (now - lastRequest.timestamp < 15000) &&
+      lastRequest.key.rawText === requestKey.rawText &&
+      lastRequest.key.date === requestKey.date &&
+      lastRequest.key.imageLength === requestKey.imageLength &&
+      lastRequest.key.imageSample === requestKey.imageSample) {
+    console.log(`[API LOG] Wykryto zduplikowane żądanie w ciągu 15s dla użytkownika ${userId}. Zwracanie poprzedniego wyniku.`);
+    return res.status(200).json(lastRequest.response);
   }
 
   try {
@@ -268,10 +291,18 @@ Struktura JSON:
     // przyczynę odchylenia, którą AI miało już wyjaśnione i zapisane w cache'u.
     await invalidateAiExplanationCache(req.user.id, targetDate);
 
-    res.status(201).json({
+    const responsePayload = {
       count: insertedMeals.length,
       meals: insertedMeals
+    };
+
+    recentRequests.set(userId, {
+      timestamp: Date.now(),
+      key: requestKey,
+      response: responsePayload
     });
+
+    res.status(201).json(responsePayload);
 
   } catch (err) {
     console.error('[API ERROR] Błąd analizy posiłku przez AI:', err);

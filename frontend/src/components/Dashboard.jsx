@@ -1194,6 +1194,72 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
+  // Gotowość do treningu dziś (deterministyczny composite score z Oury + Apple Health).
+  // Nie wymaga AI — szybkie, bez kosztu tokenów. Patrz /api/dashboard/training-readiness.
+  const [trainingReadiness, setTrainingReadiness] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchTrainingReadiness = async () => {
+      if (!sessionToken) return;
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/training-readiness${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
+        if (res.ok && !cancelled) setTrainingReadiness(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania gotowości do treningu:', err);
+      }
+    };
+    fetchTrainingReadiness();
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Analiza planu treningowego AI (Gemini, cache 7 dni). ?refresh=1 wymusza regenerację.
+  // Dane: 4 tygodnie treningów + cel sylwetki + skład ciała + 7d avg regeneracji.
+  // Patrz /api/dashboard/training-plan-insight.
+  const [trainingPlanInsight, setTrainingPlanInsight] = useState(null);
+  const [isLoadingTrainingPlan, setIsLoadingTrainingPlan] = useState(false);
+  const fetchTrainingPlanInsight = async (refresh = false) => {
+    if (!sessionToken) return;
+    setIsLoadingTrainingPlan(true);
+    try {
+      const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+      const refreshParam = refresh ? (dateParam ? '&refresh=1' : '?refresh=1') : '';
+      const res = await fetch(`/api/dashboard/training-plan-insight${dateParam}${refreshParam}`, {
+        headers: { 'Authorization': `Bearer ${sessionToken}` }
+      });
+      if (res.status === 401) { setSessionExpired(true); return; }
+      if (res.ok) setTrainingPlanInsight(await res.json());
+    } catch (err) {
+      console.error('Błąd pobierania analizy planu treningowego AI:', err);
+    } finally {
+      setIsLoadingTrainingPlan(false);
+    }
+  };
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!sessionToken) return;
+      setIsLoadingTrainingPlan(true);
+      try {
+        const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+        const res = await fetch(`/api/dashboard/training-plan-insight${dateParam}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` }
+        });
+        if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
+        if (res.ok && !cancelled) setTrainingPlanInsight(await res.json());
+      } catch (err) {
+        console.error('Błąd pobierania analizy planu treningowego AI:', err);
+      } finally {
+        if (!cancelled) setIsLoadingTrainingPlan(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
   // "Tag dnia" - zakresy dat oznaczone kontekstem (choroba/wakacje/późne zaśnięcie),
   // które wybrane insighty powyżej wykluczają z liczenia własnej normy/baseline
   // (patrz backend: routes/dayEvents.js + getExcludedDates w routes/dashboard.js).
@@ -2176,6 +2242,131 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
               Ważona synteza Twoich danych, nie kliniczny pomiar zdrowia.
             </p>
+          </div>
+        )}
+
+        {/* GOTOWOŚĆ DO TRENINGU DZIŚ (deterministyczny composite score — bez AI,
+            na podstawie Oury + Apple Health). Wyniesiona poza sekcję "Analizy"
+            jako karta akcjonowalna ("co robić dziś?"), analogicznie do Wellness Score. */}
+        {trainingReadiness && trainingReadiness.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🏋️ Gotowość do treningu</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '10px' }}>
+              <span style={{ fontSize: '2.2rem' }}>{trainingReadiness.emoji}</span>
+              <div>
+                <div style={{ fontSize: '1.1rem', fontWeight: '700', color: trainingReadiness.status === 'TRAIN_HARD' ? 'var(--success-light)' : trainingReadiness.status === 'TRAIN_LIGHT' ? '#fbbf24' : 'var(--danger-light)' }}>
+                  {trainingReadiness.label}
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>
+                  Score: {trainingReadiness.compositeScore}/100
+                </div>
+              </div>
+            </div>
+            <p style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.75)', margin: '0 0 10px' }}>
+              {trainingReadiness.advice}
+            </p>
+            {trainingReadiness.signals && trainingReadiness.signals.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {trainingReadiness.signals.map((sig, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.55)' }}>
+                    <span>{sig.status === 'ok' ? '✅' : sig.status === 'warn' ? '⚠️' : '🔴'}</span>
+                    <span>{sig.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Na podstawie Oury ({trainingReadiness.weekWorkoutDays ?? '–'} treningów w tym tygodniu, {trainingReadiness.recentWorkoutDays ?? '–'} ostatnie 3 dni).
+            </p>
+          </div>
+        )}
+        {trainingReadiness && !trainingReadiness.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🏋️ Gotowość do treningu</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)', marginTop: '4px', marginBottom: 0 }}>
+              Potrzeba co najmniej 14 dni danych z Oury (gotowość lub HRV) aby ocenić gotowość do treningu.
+            </p>
+          </div>
+        )}
+
+        {/* ANALIZA PLANU TRENINGOWEGO AI (Gemini, cache 7 dni). Ocenia, czy Twój plan
+            jest optymalny pod cel sylwetki. "Odśwież" → ?refresh=1 → nowa analiza. */}
+        {(trainingPlanInsight || isLoadingTrainingPlan) && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🤖 Analiza planu treningowego AI</span>
+              <button
+                onClick={() => fetchTrainingPlanInsight(true)}
+                disabled={isLoadingTrainingPlan}
+                style={{ fontSize: '0.72rem', padding: '3px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', cursor: isLoadingTrainingPlan ? 'not-allowed' : 'pointer', opacity: isLoadingTrainingPlan ? 0.5 : 1 }}
+                aria-label="Odśwież analizę planu treningowego"
+              >
+                {isLoadingTrainingPlan ? 'Generuję…' : 'Odśwież'}
+              </button>
+            </div>
+            {isLoadingTrainingPlan && !trainingPlanInsight && (
+              <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)', marginTop: '8px', marginBottom: 0 }}>
+                AI analizuje Twój plan treningowy…
+              </p>
+            )}
+            {trainingPlanInsight && !trainingPlanInsight.hasEnoughData && (
+              <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)', marginTop: '8px', marginBottom: 0 }}>
+                Potrzeba co najmniej 7 treningów z ostatnich 4 tygodni, aby AI mogło ocenić plan.
+              </p>
+            )}
+            {trainingPlanInsight && trainingPlanInsight.hasEnoughData && (
+              <>
+                {trainingPlanInsight.cached && trainingPlanInsight.generatedAt && (
+                  <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '4px', marginBottom: '8px' }}>
+                    Analiza z {new Date(trainingPlanInsight.generatedAt).toLocaleDateString('pl-PL')} · cache 7 dni
+                  </p>
+                )}
+                {trainingPlanInsight.overallRating != null && (
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '1.6rem', fontWeight: '800', color: trainingPlanInsight.overallRating >= 8 ? 'var(--success-light)' : trainingPlanInsight.overallRating >= 5 ? '#fbbf24' : 'var(--danger-light)' }}>
+                      {trainingPlanInsight.overallRating}
+                    </span>
+                    <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)' }}>/10</span>
+                  </div>
+                )}
+                {trainingPlanInsight.assessment && (
+                  <p style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.8)', margin: '0 0 10px', lineHeight: '1.5' }}>
+                    {trainingPlanInsight.assessment}
+                  </p>
+                )}
+                {trainingPlanInsight.missing && trainingPlanInsight.missing.length > 0 && (
+                  <div style={{ marginBottom: '10px' }}>
+                    <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.4)', marginBottom: '5px' }}>Braki w danych:</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                      {trainingPlanInsight.missing.map((m, i) => (
+                        <span key={i} style={{ fontSize: '0.7rem', background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.25)', borderRadius: '5px', padding: '2px 7px' }}>
+                          {m}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {trainingPlanInsight.suggestions && trainingPlanInsight.suggestions.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.4)' }}>Sugestie AI:</div>
+                    {trainingPlanInsight.suggestions.map((sug, i) => (
+                      <div key={i} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '8px 10px' }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: '600', color: '#fff', marginBottom: '3px' }}>
+                          {sug.title}
+                        </div>
+                        <div style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.6)', lineHeight: '1.45' }}>
+                          {sug.description}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 

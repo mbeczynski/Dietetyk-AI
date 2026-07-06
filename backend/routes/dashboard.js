@@ -4232,4 +4232,382 @@ router.get('/api/dashboard/water-sleep-insight', async (req, res) => {
   }
 });
 
+// ============================================================================
+// Runda 23: Training Readiness + Training Plan Analysis
+// Dane z własnej bazy (apple_health_workouts, health_metrics, users, settings)
+// — bez zewnętrznych API. Pierwszy endpoint jest deterministyczny (brak AI,
+// brak kosztu tokenów, odpowiedź natychmiastowa). Drugi używa Gemini z cache
+// 7-dniowym w tabeli settings (key-value), żeby nie wysyłać promptu przy każdym
+// wejściu na dashboard.
+// ============================================================================
+
+const READINESS_LOOKBACK_HRV_RHR = 30;   // dni do baseline HRV/RHR
+const READINESS_RECENT_WORKOUTS_DAYS = 3; // okno "dużo treningów ostatnio"
+
+// Wyznacza czytelny sygnał gotowości do treningu bez AI — na podstawie:
+// 1) readiness_score z Oury (najlepszy sygnał, gdy dostępny)
+// 2) HRV dziś vs 30d średnia (odchylenie procentowe)
+// 3) RHR dziś vs 30d średnia
+// 4) sleep_score Oury
+// 5) liczba treningów w ostatnich READINESS_RECENT_WORKOUTS_DAYS dniach
+//
+// Logika: każdy sygnał głosuje "za" lub "przeciw" twardemu treningowi.
+// readinessScore Oury (0-100) to gotowy composite — gdy go mamy, stanowi 60%
+// wagi. Gdy brak (user bez Oury), fallback na własny composite z HRV/RHR/snu.
+router.get('/api/dashboard/training-readiness', async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const baselineStart = shiftDate(today, -READINESS_LOOKBACK_HRV_RHR);
+
+    const health = await db.get(
+      `SELECT readiness_score, hrv, rhr, sleep_score, sleep_duration FROM health_metrics
+       WHERE user_id = ? AND date = ?`,
+      [req.user.id, today]
+    );
+
+    // Baseline HRV/RHR z ostatnich 30 dni (bez dzisiaj)
+    const baselineRows = await db.all(
+      `SELECT hrv, rhr FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date < ?
+         AND hrv IS NOT NULL AND hrv > 0 AND rhr IS NOT NULL AND rhr > 0`,
+      [req.user.id, baselineStart, today]
+    );
+    const avgBaselineHrv = baselineRows.length > 0
+      ? baselineRows.reduce((s, r) => s + r.hrv, 0) / baselineRows.length
+      : null;
+    const avgBaselineRhr = baselineRows.length > 0
+      ? baselineRows.reduce((s, r) => s + r.rhr, 0) / baselineRows.length
+      : null;
+
+    // Treningi z ostatnich READINESS_RECENT_WORKOUTS_DAYS dni
+    const recentWorkoutRows = await db.all(
+      `SELECT date, SUM(duration_minutes) AS total_minutes FROM apple_health_workouts
+       WHERE user_id = ? AND date >= ? AND date < ?
+       GROUP BY date HAVING total_minutes >= 20`,
+      [req.user.id, shiftDate(today, -READINESS_RECENT_WORKOUTS_DAYS), today]
+    );
+    const recentWorkoutDays = recentWorkoutRows.length;
+
+    // Treningi z ostatnich 7 dni (obciążenie tygodniowe)
+    const weekWorkoutRows = await db.all(
+      `SELECT COUNT(DISTINCT date) AS cnt FROM apple_health_workouts
+       WHERE user_id = ? AND date >= ? AND date < ?`,
+      [req.user.id, shiftDate(today, -7), today]
+    );
+    const weekWorkoutDays = weekWorkoutRows[0]?.cnt || 0;
+
+    // Budujemy composite score 0-100:
+    // Baza: jeśli mamy readiness_score Oury → weight 60%; reszta 40%.
+    // Bez Oury: HRV 40%, RHR 30%, sen 30%.
+    const signals = [];
+    let compositeScore = 50; // neutral start
+
+    if (health?.readiness_score != null && health.readiness_score > 0) {
+      // Oura readiness: 0-100, mapujemy bezpośrednio jako 60% wagi
+      compositeScore = health.readiness_score * 0.6 + 20; // skala 0-80 → 20-80 po przesunięciu
+      signals.push({
+        label: 'Gotowość Oura',
+        value: health.readiness_score,
+        unit: 'pkt',
+        status: health.readiness_score >= 70 ? 'good' : health.readiness_score >= 50 ? 'ok' : 'low'
+      });
+    }
+
+    // HRV vs baseline
+    if (health?.hrv != null && health.hrv > 0 && avgBaselineHrv != null) {
+      const hrvPct = (health.hrv / avgBaselineHrv - 1) * 100;
+      const hrvScore = health.readiness_score != null
+        ? hrvPct * 0.2  // mniejsza waga gdy mamy Ourę
+        : hrvPct * 0.4;
+      compositeScore += hrvScore;
+      signals.push({
+        label: 'HRV dziś',
+        value: Math.round(health.hrv),
+        unit: 'ms',
+        baseline: Math.round(avgBaselineHrv),
+        diff: Math.round(hrvPct),
+        status: hrvPct >= 5 ? 'good' : hrvPct >= -5 ? 'ok' : 'low'
+      });
+    }
+
+    // RHR vs baseline
+    if (health?.rhr != null && health.rhr > 0 && avgBaselineRhr != null) {
+      const rhrPct = (avgBaselineRhr / health.rhr - 1) * 100; // wyższy RHR = gorszy → odwracamy
+      const rhrScore = health.readiness_score != null
+        ? rhrPct * 0.1
+        : rhrPct * 0.3;
+      compositeScore += rhrScore;
+      signals.push({
+        label: 'Tętno spoczynkowe',
+        value: Math.round(health.rhr),
+        unit: 'bpm',
+        baseline: Math.round(avgBaselineRhr),
+        diff: Math.round((health.rhr - avgBaselineRhr) * 10) / 10,
+        status: health.rhr <= avgBaselineRhr + 2 ? 'good' : health.rhr <= avgBaselineRhr + 5 ? 'ok' : 'low'
+      });
+    }
+
+    // Sen
+    if (health?.sleep_score != null && health.sleep_score > 0) {
+      const sleepScore = health.readiness_score != null ? 0 : (health.sleep_score - 50) * 0.3;
+      compositeScore += sleepScore;
+      signals.push({
+        label: 'Jakość snu',
+        value: health.sleep_score,
+        unit: 'pkt',
+        status: health.sleep_score >= 75 ? 'good' : health.sleep_score >= 60 ? 'ok' : 'low'
+      });
+    }
+
+    // Kara za przeciążenie treningami w ostatnich 3 dniach
+    const overloadPenalty = Math.min(recentWorkoutDays * 8, 20);
+    compositeScore -= overloadPenalty;
+    if (recentWorkoutDays >= 2) {
+      signals.push({
+        label: `Treningi (ostatnie ${READINESS_RECENT_WORKOUTS_DAYS} dni)`,
+        value: recentWorkoutDays,
+        unit: 'dni',
+        status: recentWorkoutDays >= 3 ? 'low' : recentWorkoutDays >= 2 ? 'ok' : 'good'
+      });
+    }
+
+    compositeScore = Math.max(0, Math.min(100, compositeScore));
+
+    let status, label, emoji, advice;
+    if (compositeScore >= 67) {
+      status = 'TRAIN_HARD';
+      label = 'Trenuj mocno';
+      emoji = '🟢';
+      advice = 'Twoje sygnały wskazują na dobrą gotowość. Dobry dzień na intensywny trening.';
+    } else if (compositeScore >= 34) {
+      status = 'TRAIN_LIGHT';
+      label = 'Lekki trening';
+      emoji = '🟡';
+      advice = 'Umiarkowana gotowość. Sprawdzi się lżejszy trening lub technika zamiast maksymalnego wysiłku.';
+    } else {
+      status = 'RECOVER';
+      label = 'Odpoczynek';
+      emoji = '🔴';
+      advice = 'Niskie sygnały regeneracji. Rozważ dzień odpoczynku lub aktywną regenerację (spacer, stretching).';
+    }
+
+    const hasSignificantData = health != null && (
+      health.readiness_score != null || health.hrv != null || health.sleep_score != null
+    );
+
+    res.json({
+      hasEnoughData: hasSignificantData,
+      status,
+      label,
+      emoji,
+      compositeScore: Math.round(compositeScore),
+      advice,
+      signals,
+      weekWorkoutDays,
+      recentWorkoutDays
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania gotowości do treningu.' });
+  }
+});
+
+const TRAINING_PLAN_LOOKBACK_WEEKS = 4;
+const TRAINING_PLAN_CACHE_DAYS = 7;
+
+// AI analiza planu treningowego — ocenia czy historia treningów użytkownika
+// jest dopasowana do jego celu sylwetki i sugeruje co dodać. Cache 7 dni
+// w settings (klucz training_plan_insight_json / training_plan_insight_at),
+// wymuszenie odświeżenia: ?refresh=1.
+//
+// Dane wejściowe dla AI: 4 tygodnie treningów (typ/czas), cel sylwetki
+// (body_goal_text, target_weight_kg, target_body_fat_pct), sygnały regeneracji
+// (HRV, RHR, readiness — 7d avg), aktualny skład ciała (waga, % tłuszczu,
+// masa mięśniowa). Odpowiedź: JSON z oceną, brakującymi elementami i sugestiami.
+router.get('/api/dashboard/training-plan-insight', async (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === '1';
+
+    // Cache z settings
+    const cachedJsonRow = await db.get(
+      `SELECT value FROM settings WHERE user_id = ? AND key = 'training_plan_insight_json'`,
+      [req.user.id]
+    );
+    const cachedAtRow = await db.get(
+      `SELECT value FROM settings WHERE user_id = ? AND key = 'training_plan_insight_at'`,
+      [req.user.id]
+    );
+
+    const cachedAt = cachedAtRow ? new Date(cachedAtRow.value).getTime() : 0;
+    const cacheAgeDays = (Date.now() - cachedAt) / (1000 * 60 * 60 * 24);
+    const isCacheFresh = !!cachedJsonRow && cacheAgeDays < TRAINING_PLAN_CACHE_DAYS;
+
+    if (isCacheFresh && !forceRefresh) {
+      let parsed;
+      try { parsed = JSON.parse(cachedJsonRow.value); } catch (e) { parsed = null; }
+      if (parsed) {
+        return res.json({ hasEnoughData: true, cached: true, generatedAt: cachedAtRow.value, ...parsed });
+      }
+    }
+
+    // Zbieramy dane
+    const today = resolveQueryDate(req);
+    const lookbackStart = shiftDate(today, -(TRAINING_PLAN_LOOKBACK_WEEKS * 7));
+
+    // Treningi z ostatnich 4 tygodni
+    const workoutRows = await db.all(
+      `SELECT date, workout_type, duration_minutes, calories_burned
+       FROM apple_health_workouts
+       WHERE user_id = ? AND date >= ? AND date <= ?
+       ORDER BY date DESC`,
+      [req.user.id, lookbackStart, today]
+    );
+
+    // Agregat per typ treningu
+    const byType = {};
+    workoutRows.forEach(w => {
+      const t = (w.workout_type || 'Nieznany').trim();
+      if (!byType[t]) byType[t] = { count: 0, totalMinutes: 0, totalCalories: 0 };
+      byType[t].count++;
+      byType[t].totalMinutes += w.duration_minutes || 0;
+      byType[t].totalCalories += w.calories_burned || 0;
+    });
+
+    // Cel sylwetki i dane ciała
+    const userRow = await db.get(
+      `SELECT body_goal_text FROM users WHERE id = ?`,
+      [req.user.id]
+    );
+    const settingsRows = await db.all(`SELECT key, value FROM settings WHERE user_id = ?`, [req.user.id]);
+    const settings = {};
+    settingsRows.forEach(r => { settings[r.key] = r.value; });
+    const targetBodyFatPct = settings.target_body_fat_pct ? parseFloat(settings.target_body_fat_pct) : null;
+    const targetWeightKg = settings.target_weight_kg ? parseFloat(settings.target_weight_kg) : null;
+
+    // Aktualny skład ciała (ostatni pomiar)
+    const latestBody = await db.get(
+      `SELECT weight, fat_ratio, muscle_mass FROM health_metrics
+       WHERE user_id = ? AND date <= ? AND (weight IS NOT NULL OR fat_ratio IS NOT NULL)
+       ORDER BY date DESC LIMIT 1`,
+      [req.user.id, today]
+    );
+
+    // 7d average regeneracji
+    const recoveryRows = await db.all(
+      `SELECT hrv, rhr, readiness_score FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ?
+         AND (hrv IS NOT NULL OR rhr IS NOT NULL OR readiness_score IS NOT NULL)`,
+      [req.user.id, shiftDate(today, -7), today]
+    );
+    const avgOf7d = (key) => {
+      const vals = recoveryRows.map(r => r[key]).filter(v => v != null && v > 0);
+      return vals.length > 0 ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length * 10) / 10 : null;
+    };
+    const avg7dHrv = avgOf7d('hrv');
+    const avg7dRhr = avgOf7d('rhr');
+    const avg7dReadiness = avgOf7d('readiness_score');
+
+    // Sprawdzamy dostęp do AI
+    const apiKeyRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'gemini_api_key'", [req.user.id]);
+    const userApiKey = apiKeyRow ? apiKeyRow.value : null;
+    const forceCustomKeyOnly = req.user.role !== 'admin';
+    const canUseAI = userApiKey || (!forceCustomKeyOnly && (genAI || process.env.GEMINI_API_KEY));
+
+    if (!canUseAI) {
+      return res.json({ hasEnoughData: false, reason: 'no_ai_key' });
+    }
+
+    // Budujemy opis treningów dla promptu
+    const workoutSummaryLines = Object.entries(byType).map(([type, stats]) => {
+      const avgMin = stats.count > 0 ? Math.round(stats.totalMinutes / stats.count) : 0;
+      return `- ${type}: ${stats.count}x, śr. ${avgMin} min/sesja${stats.totalCalories > 0 ? `, łącznie ~${stats.totalCalories} kcal` : ''}`;
+    });
+    const totalWorkouts = workoutRows.length;
+    const avgPerWeek = Math.round(totalWorkouts / TRAINING_PLAN_LOOKBACK_WEEKS * 10) / 10;
+
+    const bodyLines = [];
+    if (latestBody?.weight) bodyLines.push(`Waga: ${latestBody.weight} kg`);
+    if (latestBody?.fat_ratio) bodyLines.push(`Tkanka tłuszczowa: ${Math.round(latestBody.fat_ratio * 10) / 10}%`);
+    if (latestBody?.muscle_mass) bodyLines.push(`Masa mięśniowa: ${Math.round(latestBody.muscle_mass * 10) / 10} kg`);
+
+    const goalLines = [];
+    if (userRow?.body_goal_text) goalLines.push(`Cel sylwetki: ${userRow.body_goal_text}`);
+    if (targetWeightKg) goalLines.push(`Cel wagowy: ${targetWeightKg} kg`);
+    if (targetBodyFatPct) goalLines.push(`Docelowy % tkanki tłuszczowej: ${targetBodyFatPct}%`);
+
+    const recoveryLines = [];
+    if (avg7dReadiness != null) recoveryLines.push(`Gotowość Oura (7d śr.): ${avg7dReadiness} pkt`);
+    if (avg7dHrv != null) recoveryLines.push(`HRV (7d śr.): ${avg7dHrv} ms`);
+    if (avg7dRhr != null) recoveryLines.push(`Tętno spoczynkowe (7d śr.): ${avg7dRhr} bpm`);
+
+    const prompt = `Jesteś doświadczonym trenerem personalnym specjalizującym się w rekomozycji ciała i redukcji tkanki tłuszczowej. Przeanalizuj poniższe dane i oceń plan treningowy użytkownika.
+
+=== CEL ===
+${goalLines.length > 0 ? goalLines.join('\n') : 'Brak danych o celu'}
+
+=== SKŁAD CIAŁA ===
+${bodyLines.length > 0 ? bodyLines.join('\n') : 'Brak danych'}
+
+=== TRENINGI (ostatnie ${TRAINING_PLAN_LOOKBACK_WEEKS} tygodnie) ===
+Łącznie: ${totalWorkouts} treningów (śr. ${avgPerWeek}/tydzień)
+${workoutSummaryLines.length > 0 ? workoutSummaryLines.join('\n') : '- Brak treningów w tym okresie'}
+
+=== SYGNAŁY REGENERACJI ===
+${recoveryLines.length > 0 ? recoveryLines.join('\n') : 'Brak danych regeneracji'}
+
+Odpowiedz WYŁĄCZNIE w formacie JSON (bez markdown, bez objaśnień poza JSON):
+{
+  "assessment": "Krótka ocena obecnego planu (1-2 zdania po polsku)",
+  "missing": ["Element1 którego brakuje", "Element2"],
+  "suggestions": [
+    {"title": "Tytuł sugestii", "description": "Konkretny opis co zrobić i dlaczego (po polsku)"},
+    {"title": "Tytuł", "description": "Opis"}
+  ],
+  "overallRating": "good|needs_improvement|poor"
+}
+
+Bądź konkretny i praktyczny. Maks. 3 sugestie. Odpowiadaj tylko po polsku.`;
+
+    let insightJson = null;
+    try {
+      const rawText = await generateContentWithFallback(prompt, false, null, userApiKey, forceCustomKeyOnly);
+      // Wycinamy JSON z odpowiedzi (AI może dodać markdown ```json ... ```)
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        insightJson = JSON.parse(jsonMatch[0]);
+      }
+    } catch (aiErr) {
+      console.error('[TRAINING PLAN] Błąd Gemini:', aiErr);
+      return res.status(500).json({ error: 'Błąd generowania analizy AI.' });
+    }
+
+    if (!insightJson) {
+      return res.status(500).json({ error: 'Nieprawidłowa odpowiedź AI.' });
+    }
+
+    // Zapisz cache
+    const nowStr = new Date().toISOString();
+    await db.run(
+      `INSERT INTO settings (user_id, key, value) VALUES (?, 'training_plan_insight_json', ?)
+       ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value`,
+      [req.user.id, JSON.stringify(insightJson)]
+    );
+    await db.run(
+      `INSERT INTO settings (user_id, key, value) VALUES (?, 'training_plan_insight_at', ?)
+       ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value`,
+      [req.user.id, nowStr]
+    );
+
+    res.json({
+      hasEnoughData: true,
+      cached: false,
+      generatedAt: nowStr,
+      ...insightJson
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania analizy planu treningowego.' });
+  }
+});
+
 module.exports = router;

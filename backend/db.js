@@ -223,9 +223,21 @@ const initDb = async () => {
     console.log('========================================================');
   }
 
-  // Dla istniejących instalacji: zaktualizuj nazwę na admin, ustaw email oraz rolę 'admin'
+  // Dla istniejących instalacji: zaktualizuj nazwę na admin, ustaw rolę 'admin'
+  // oraz e-mail (ale tylko jeśli obecny e-mail jest pusty lub jest domyślnym admin@dietetyk-ai.local
+  // i w env zdefiniowano inny adres).
   try {
-    await run(`UPDATE users SET username = 'admin', email = ?, role = 'admin' WHERE id = 1`, [adminEmail]);
+    const currentAdmin = await get(`SELECT email FROM users WHERE id = 1`);
+    if (currentAdmin) {
+      const currentEmail = currentAdmin.email || '';
+      const shouldUpdateEmail = !currentEmail || (process.env.ADMIN_EMAIL && currentEmail === 'admin@dietetyk-ai.local' && currentEmail !== process.env.ADMIN_EMAIL);
+      
+      if (shouldUpdateEmail) {
+        await run(`UPDATE users SET username = 'admin', email = ?, role = 'admin' WHERE id = 1`, [adminEmail]);
+      } else {
+        await run(`UPDATE users SET username = 'admin', role = 'admin' WHERE id = 1`);
+      }
+    }
   } catch (e) {}
 
 

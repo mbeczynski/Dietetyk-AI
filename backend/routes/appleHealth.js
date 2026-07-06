@@ -244,7 +244,9 @@ const METRIC_FIELD_MAP = {
   // ogólną, a nie pełną listę nazw pól). Jeśli po włączeniu synchronizacji w logach
   // serwera "Dietetyk" nie pojawią się wpisy dla wody, sprawdź w logu webhooka, jaka
   // nazwa faktycznie przychodzi w payloadzie, i popraw klucz w tej mapie.
-  dietary_water: { field: 'water_ml', convert: toMilliliters }
+  dietary_water: { field: 'water_ml', convert: toMilliliters },
+  resting_heart_rate: { field: 'rhr', convert: (qty) => qty, mode: 'last' },
+  heart_rate_variability_sdnn: { field: 'hrv', convert: (qty) => qty, mode: 'last' }
 };
 
 router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
@@ -374,7 +376,7 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
                 steps: null, active_calories: null, basal_calories: null, active_minutes: null,
                 wrist_temperature: null, distance_meters: null, water_ml: null,
                 sleep_duration: null, sleep_deep: null, sleep_rem: null, sleep_score: null,
-                in_bed_duration: 0
+                in_bed_duration: 0, rhr: null, hrv: null
               };
             }
             
@@ -420,7 +422,7 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
               steps: null, active_calories: null, basal_calories: null, active_minutes: null,
               wrist_temperature: null, distance_meters: null, water_ml: null,
               sleep_duration: null, sleep_deep: null, sleep_rem: null, sleep_score: null,
-              in_bed_duration: 0
+              in_bed_duration: 0, rhr: null, hrv: null
             };
           }
           const bucket = byDate[dateStr];
@@ -528,7 +530,7 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
             steps: null, active_calories: null, basal_calories: null, active_minutes: null,
             wrist_temperature: null, distance_meters: null, water_ml: null,
             sleep_duration: null, sleep_deep: null, sleep_rem: null, sleep_score: null,
-            in_bed_duration: 0
+            in_bed_duration: 0, rhr: null, hrv: null
           };
         }
         byDate[dateStr].active_calories = sums && sums.total_calories !== null ? sums.total_calories : 0;
@@ -586,6 +588,8 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       const sleepDeep = m.sleep_deep !== null ? Math.round(m.sleep_deep * 10) / 10 : null;
       const sleepRem = m.sleep_rem !== null ? Math.round(m.sleep_rem * 10) / 10 : null;
       const sleepScore = m.sleep_score !== null ? Math.round(m.sleep_score) : null;
+      const rhr = m.rhr !== null ? Math.round(m.rhr) : null;
+      const hrv = m.hrv !== null ? Math.round(m.hrv) : null;
 
       // Zabezpieczenie danych Oura Ring: jeśli użytkownik ma połączoną Ourę, dane o śnie z Apple Health
       // zapisujemy, o ile Oura jeszcze nie dostarczyła swoich danych (identyfikowane przez brak readiness_score).
@@ -606,12 +610,19 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
         ? 'sleep_score = CASE WHEN readiness_score IS NOT NULL THEN sleep_score ELSE NULLIF(MAX(COALESCE(sleep_score, 0), COALESCE(excluded.sleep_score, 0)), 0) END'
         : 'sleep_score = NULLIF(MAX(COALESCE(sleep_score, 0), COALESCE(excluded.sleep_score, 0)), 0)';
 
+      const rhrUpdate = user.has_oura === 1
+        ? 'rhr = CASE WHEN readiness_score IS NOT NULL THEN rhr ELSE COALESCE(excluded.rhr, rhr) END'
+        : 'rhr = COALESCE(excluded.rhr, rhr)';
+      const hrvUpdate = user.has_oura === 1
+        ? 'hrv = CASE WHEN readiness_score IS NOT NULL THEN hrv ELSE COALESCE(excluded.hrv, hrv) END'
+        : 'hrv = COALESCE(excluded.hrv, hrv)';
+
       await db.run(`
         INSERT INTO health_metrics (
           user_id, date, steps, active_calories, total_calories_burned, active_minutes, wrist_temperature,
-          distance_meters, water_ml, sleep_duration, sleep_deep, sleep_rem, sleep_score, activity_source, last_sync
+          distance_meters, water_ml, sleep_duration, sleep_deep, sleep_rem, sleep_score, rhr, hrv, activity_source, last_sync
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'apple', ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'apple', ?)
         ON CONFLICT(user_id, date) DO UPDATE SET
           steps = COALESCE(excluded.steps, steps),
           active_calories = COALESCE(excluded.active_calories, active_calories),
@@ -624,11 +635,13 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           ${sleepDeepUpdate},
           ${sleepRemUpdate},
           ${sleepScoreUpdate},
+          ${rhrUpdate},
+          ${hrvUpdate},
           activity_source = 'apple',
           last_sync = excluded.last_sync
       `, [
         user.id, dateStr, steps, activeCalories, totalCalories, activeMinutes, wristTemperature,
-        distanceMeters, waterMl, sleepDuration, sleepDeep, sleepRem, sleepScore, lastSyncTime
+        distanceMeters, waterMl, sleepDuration, sleepDeep, sleepRem, sleepScore, rhr, hrv, lastSyncTime
       ]);
 
       savedDates.push(dateStr);

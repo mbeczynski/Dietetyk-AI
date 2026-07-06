@@ -4415,6 +4415,20 @@ router.get('/api/dashboard/training-readiness', async (req, res) => {
 const TRAINING_PLAN_LOOKBACK_WEEKS = 4;
 const TRAINING_PLAN_CACHE_DAYS = 7;
 
+// Normalizuje overallRating do liczby 1-10 — stare cache'owane wartości mogły
+// przechowywać string ("good"/"needs_improvement"/"poor") z poprzedniej wersji promptu.
+function sanitizeTrainingRating(obj) {
+  if (!obj || obj.overallRating == null) return obj;
+  const stringMap = { good: 8, needs_improvement: 5, poor: 2 };
+  if (typeof obj.overallRating === 'string') {
+    obj.overallRating = stringMap[obj.overallRating] ?? 5;
+  } else {
+    const n = Math.round(Number(obj.overallRating));
+    obj.overallRating = Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : null;
+  }
+  return obj;
+}
+
 // AI analiza planu treningowego — ocenia czy historia treningów użytkownika
 // jest dopasowana do jego celu sylwetki i sugeruje co dodać. Cache 7 dni
 // w settings (klucz training_plan_insight_json / training_plan_insight_at),
@@ -4446,6 +4460,8 @@ router.get('/api/dashboard/training-plan-insight', async (req, res) => {
       let parsed;
       try { parsed = JSON.parse(cachedJsonRow.value); } catch (e) { parsed = null; }
       if (parsed) {
+        // Sanityzacja overallRating - stary cache mógł mieć string ("good"/"needs_improvement"/"poor")
+        parsed = sanitizeTrainingRating(parsed);
         return res.json({ hasEnoughData: true, cached: true, generatedAt: cachedAtRow.value, ...parsed });
       }
     }
@@ -4563,9 +4579,10 @@ Odpowiedz WYŁĄCZNIE w formacie JSON (bez markdown, bez objaśnień poza JSON):
     {"title": "Tytuł sugestii", "description": "Konkretny opis co zrobić i dlaczego (po polsku)"},
     {"title": "Tytuł", "description": "Opis"}
   ],
-  "overallRating": "good|needs_improvement|poor"
+  "overallRating": 7
 }
 
+overallRating to liczba całkowita od 1 do 10 (1=bardzo zły plan, 10=idealny). NIE używaj stringów jak "good" - tylko liczba.
 Bądź konkretny i praktyczny. Maks. 3 sugestie. Odpowiadaj tylko po polsku.`;
 
     let insightJson = null;
@@ -4584,6 +4601,9 @@ Bądź konkretny i praktyczny. Maks. 3 sugestie. Odpowiadaj tylko po polsku.`;
     if (!insightJson) {
       return res.status(500).json({ error: 'Nieprawidłowa odpowiedź AI.' });
     }
+
+    // Normalizacja overallRating (AI może zwrócić string mimo instrukcji)
+    insightJson = sanitizeTrainingRating(insightJson);
 
     // Zapisz cache
     const nowStr = new Date().toISOString();

@@ -1245,10 +1245,18 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
       setIsLoadingTrainingPlan(false);
     }
   };
+  // Auto-fetch ograniczony do 1×/godzinę przez localStorage, żeby nie bić
+  // w endpoint przy każdym odświeżeniu strony (backend ma 7-dniowy cache AI,
+  // ale samo zapytanie HTTP też jest zbędne gdy danych nie ma zmienionych).
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       if (!sessionToken) return;
+      // Sprawdź timestamp ostatniego auto-fetch w localStorage
+      const CACHE_KEY = 'training_plan_last_auto_fetch';
+      const ONE_HOUR_MS = 60 * 60 * 1000;
+      const lastFetch = Number(localStorage.getItem(CACHE_KEY) || 0);
+      if (Date.now() - lastFetch < ONE_HOUR_MS) return; // pomijamy - za wcześnie
       setIsLoadingTrainingPlan(true);
       try {
         const dateParam = selectedDate ? `?date=${selectedDate}` : '';
@@ -1256,7 +1264,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
         if (!cancelled && res.status === 401) { setSessionExpired(true); return; }
-        if (res.ok && !cancelled) setTrainingPlanInsight(await res.json());
+        if (res.ok && !cancelled) {
+          setTrainingPlanInsight(await res.json());
+          localStorage.setItem(CACHE_KEY, String(Date.now()));
+        }
       } catch (err) {
         console.error('Błąd pobierania analizy planu treningowego AI:', err);
       } finally {
@@ -2683,98 +2694,6 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
         )}
 
-        {/* SUPLEMENTY VS SEN/REGENERACJA */}
-        {supplementsSleepInsight && supplementsSleepInsight.hasEnoughData && (
-          <div className="premium-card">
-            <div className="premium-title-row">
-              <span className="premium-title">💊 Suplementy vs sen i regeneracja</span>
-            </div>
-            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
-              Dni z danym suplementem vs bez niego, ten sam dzień - ostatnie {supplementsSleepInsight.lookbackDays} dni.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {supplementsSleepInsight.findings.map((f) => (
-                <div key={f.supplement} style={{ paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#fff', marginBottom: '4px', overflowWrap: 'break-word' }}>
-                    {f.supplement} <span style={{ fontWeight: '400', color: 'rgba(255,255,255,0.4)' }}>({f.daysWith} vs {f.daysWithout} dni)</span>
-                  </div>
-                  {f.sleepScoreDiff != null && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
-                      <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
-                        Sen: {f.avgSleepScoreWith} vs {f.avgSleepScoreWithout}
-                      </span>
-                      <span style={{ fontWeight: '700', color: f.sleepScoreDiff < 0 ? 'var(--danger-light)' : f.sleepScoreDiff > 0 ? 'var(--success-light)' : '#fff' }}>
-                        {f.sleepScoreDiff > 0 ? '+' : ''}{f.sleepScoreDiff}
-                      </span>
-                    </div>
-                  )}
-                  {f.readinessScoreDiff != null && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
-                      <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
-                        Gotowość: {f.avgReadinessScoreWith} vs {f.avgReadinessScoreWithout}
-                      </span>
-                      <span style={{ fontWeight: '700', color: f.readinessScoreDiff < 0 ? 'var(--danger-light)' : f.readinessScoreDiff > 0 ? 'var(--success-light)' : '#fff' }}>
-                        {f.readinessScoreDiff > 0 ? '+' : ''}{f.readinessScoreDiff}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
-              Porównanie dwóch średnich z Twoich danych, nie dowód skuteczności suplementu.
-            </p>
-          </div>
-        )}
-
-        {/* INSIGHT: NAWODNIENIE -> GOTOWOŚĆ/HRV/RHR */}
-        {hydrationInsight && hydrationInsight.hasEnoughData && (
-          <div className="premium-card">
-            <div className="premium-title-row">
-              <span className="premium-title">💧 Nawodnienie → regeneracja</span>
-            </div>
-            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
-              Dni z nawodnieniem ≥ Twojego celu ({hydrationInsight.targetWaterMl} ml) vs dni poniżej celu - ostatnie 90 dni
-              ({hydrationInsight.hydratedDays} vs {hydrationInsight.underHydratedDays} dni z danymi).
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {hydrationInsight.readinessDiff != null && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
-                    Gotowość: {hydrationInsight.avgReadinessHydrated} vs {hydrationInsight.avgReadinessUnderHydrated}
-                  </span>
-                  <span style={{ fontWeight: '700', color: hydrationInsight.readinessDiff < 0 ? 'var(--danger-light)' : hydrationInsight.readinessDiff > 0 ? 'var(--success-light)' : '#fff' }}>
-                    {hydrationInsight.readinessDiff > 0 ? '+' : ''}{hydrationInsight.readinessDiff}
-                  </span>
-                </div>
-              )}
-              {hydrationInsight.hrvDiff != null && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
-                    HRV: {hydrationInsight.avgHrvHydrated} vs {hydrationInsight.avgHrvUnderHydrated} ms
-                  </span>
-                  <span style={{ fontWeight: '700', color: hydrationInsight.hrvDiff < 0 ? 'var(--danger-light)' : hydrationInsight.hrvDiff > 0 ? 'var(--success-light)' : '#fff' }}>
-                    {hydrationInsight.hrvDiff > 0 ? '+' : ''}{hydrationInsight.hrvDiff} ms
-                  </span>
-                </div>
-              )}
-              {hydrationInsight.nextDayRhrDiff != null && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
-                    RHR (następny dzień): {hydrationInsight.avgNextDayRhrHydrated} vs {hydrationInsight.avgNextDayRhrUnderHydrated} bpm
-                  </span>
-                  <span style={{ fontWeight: '700', color: hydrationInsight.nextDayRhrDiff > 0 ? 'var(--danger-light)' : hydrationInsight.nextDayRhrDiff < 0 ? 'var(--success-light)' : '#fff' }}>
-                    {hydrationInsight.nextDayRhrDiff > 0 ? '+' : ''}{hydrationInsight.nextDayRhrDiff} bpm
-                  </span>
-                </div>
-              )}
-            </div>
-            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
-              Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
-            </p>
-          </div>
-        )}
-
         {/* INSIGHT: SIEDZENIE -> SEN TEJ SAMEJ NOCY */}
         {sedentaryInsight && sedentaryInsight.hasEnoughData && (
           <div className="premium-card">
@@ -3125,6 +3044,98 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             )}
             <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
               Porównanie dwóch średnich z Twoich danych, nie diagnoza medyczna. Skonsultuj się z lekarzem przy niepokojących odczytach.
+            </p>
+          </div>
+        )}
+
+        {/* SUPLEMENTY VS SEN/REGENERACJA */}
+        {supplementsSleepInsight && supplementsSleepInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💊 Suplementy vs sen i regeneracja</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Dni z danym suplementem vs bez niego, ten sam dzień - ostatnie {supplementsSleepInsight.lookbackDays} dni.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {supplementsSleepInsight.findings.map((f) => (
+                <div key={f.supplement} style={{ paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#fff', marginBottom: '4px', overflowWrap: 'break-word' }}>
+                    {f.supplement} <span style={{ fontWeight: '400', color: 'rgba(255,255,255,0.4)' }}>({f.daysWith} vs {f.daysWithout} dni)</span>
+                  </div>
+                  {f.sleepScoreDiff != null && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                        Sen: {f.avgSleepScoreWith} vs {f.avgSleepScoreWithout}
+                      </span>
+                      <span style={{ fontWeight: '700', color: f.sleepScoreDiff < 0 ? 'var(--danger-light)' : f.sleepScoreDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                        {f.sleepScoreDiff > 0 ? '+' : ''}{f.sleepScoreDiff}
+                      </span>
+                    </div>
+                  )}
+                  {f.readinessScoreDiff != null && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                        Gotowość: {f.avgReadinessScoreWith} vs {f.avgReadinessScoreWithout}
+                      </span>
+                      <span style={{ fontWeight: '700', color: f.readinessScoreDiff < 0 ? 'var(--danger-light)' : f.readinessScoreDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                        {f.readinessScoreDiff > 0 ? '+' : ''}{f.readinessScoreDiff}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie dowód skuteczności suplementu.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT: NAWODNIENIE -> GOTOWOŚĆ/HRV/RHR */}
+        {hydrationInsight && hydrationInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💧 Nawodnienie → regeneracja</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: '2px', marginBottom: '10px' }}>
+              Dni z nawodnieniem ≥ Twojego celu ({hydrationInsight.targetWaterMl} ml) vs dni poniżej celu - ostatnie 90 dni
+              ({hydrationInsight.hydratedDays} vs {hydrationInsight.underHydratedDays} dni z danymi).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {hydrationInsight.readinessDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    Gotowość: {hydrationInsight.avgReadinessHydrated} vs {hydrationInsight.avgReadinessUnderHydrated}
+                  </span>
+                  <span style={{ fontWeight: '700', color: hydrationInsight.readinessDiff < 0 ? 'var(--danger-light)' : hydrationInsight.readinessDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {hydrationInsight.readinessDiff > 0 ? '+' : ''}{hydrationInsight.readinessDiff}
+                  </span>
+                </div>
+              )}
+              {hydrationInsight.hrvDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    HRV: {hydrationInsight.avgHrvHydrated} vs {hydrationInsight.avgHrvUnderHydrated} ms
+                  </span>
+                  <span style={{ fontWeight: '700', color: hydrationInsight.hrvDiff < 0 ? 'var(--danger-light)' : hydrationInsight.hrvDiff > 0 ? 'var(--success-light)' : '#fff' }}>
+                    {hydrationInsight.hrvDiff > 0 ? '+' : ''}{hydrationInsight.hrvDiff} ms
+                  </span>
+                </div>
+              )}
+              {hydrationInsight.nextDayRhrDiff != null && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)', minWidth: 0 }}>
+                    RHR (następny dzień): {hydrationInsight.avgNextDayRhrHydrated} vs {hydrationInsight.avgNextDayRhrUnderHydrated} bpm
+                  </span>
+                  <span style={{ fontWeight: '700', color: hydrationInsight.nextDayRhrDiff > 0 ? 'var(--danger-light)' : hydrationInsight.nextDayRhrDiff < 0 ? 'var(--success-light)' : '#fff' }}>
+                    {hydrationInsight.nextDayRhrDiff > 0 ? '+' : ''}{hydrationInsight.nextDayRhrDiff} bpm
+                  </span>
+                </div>
+              )}
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Porównanie dwóch średnich z Twoich danych, nie dowód naukowy.
             </p>
           </div>
         )}

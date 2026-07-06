@@ -175,7 +175,10 @@ const getSupplementIconsForText = (text) => {
 
 const getLast7Days = (endDateStr) => {
   const days = [];
-  const endDate = new Date(endDateStr);
+  // Parsujemy lokalnie, nie jako UTC (new Date("YYYY-MM-DD") traktuje jako UTC
+  // i w strefach zachodnich może dać dzień -1)
+  const [ey, em, ed] = endDateStr.split('-').map(Number);
+  const endDate = new Date(ey, em - 1, ed);
   for (let i = 6; i >= 0; i--) {
     const d = new Date(endDate);
     d.setDate(d.getDate() - i);
@@ -1223,6 +1226,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const [isLoadingTrainingPlan, setIsLoadingTrainingPlan] = useState(false);
   const fetchTrainingPlanInsight = async (refresh = false) => {
     if (!sessionToken) return;
+    // Guard: nie wysyłaj kolejnego żądania gdy poprzednie jeszcze trwa
+    // (kliknięcie "Odśwież" w trakcie ładowania). Bez tego setIsLoadingTrainingPlan(true)
+    // jest wywoływane ponownie i finallyBlock może zresetować stan zbyt wcześnie.
+    if (isLoadingTrainingPlan && !refresh) return;
     setIsLoadingTrainingPlan(true);
     try {
       const dateParam = selectedDate ? `?date=${selectedDate}` : '';

@@ -438,6 +438,10 @@ router.post('/api/meals/repeat', async (req, res) => {
 
     const calorieBaseline = await getCalorieBaseline(req.user.id, targetDate);
 
+    // Nie kopiujemy image_base64 - jest to dane duże (base64 zdjęcia), a przy
+    // powtarzaniu posiłku nie ma potrzeby duplikowania go w bazie (baza rosłaby
+    // liniowo z każdym powtórzeniem). Zdjęcie jest cechą konkretnego wpisu,
+    // nie samego przepisu/posiłku.
     const result = await db.run(`
       INSERT INTO meals (user_id, date, raw_text, calories, protein, carbs, fat, fiber, sugar, sodium, analysis_json, image_base64)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -453,7 +457,7 @@ router.post('/api/meals/repeat', async (req, res) => {
       original.sugar,
       original.sodium,
       original.analysis_json,
-      original.image_base64
+      null
     ]);
 
     let analysis = {};
@@ -471,7 +475,7 @@ router.post('/api/meals/repeat', async (req, res) => {
         id: result.id,
         date: targetDate,
         raw_text: original.raw_text,
-        image_base64: original.image_base64,
+        image_base64: null,
         ...analysis,
         calories: original.calories,
         protein: original.protein,

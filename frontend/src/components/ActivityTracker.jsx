@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-export default function ActivityTracker({ summary, userProfile, sessionToken, onGoalsUpdate, onLogout }) {
+export default function ActivityTracker({ summary = {}, userProfile, sessionToken, onGoalsUpdate, onLogout }) {
   const [historyData, setHistoryData] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 

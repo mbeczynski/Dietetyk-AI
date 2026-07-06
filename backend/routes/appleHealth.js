@@ -428,11 +428,11 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           if (name === 'dietary_water') {
             // Runda 3 (audyt): Idempotentność wody - zapisz próbkę unikalną po user_id i timestamp
             const timestamp = entry.date || parsedDate.toISOString();
-            const res = await db.run(`
+            const insertResult = await db.run(`
               INSERT OR IGNORE INTO apple_health_water_samples (user_id, timestamp, date, qty)
               VALUES (?, ?, ?, ?)
             `, [user.id, timestamp, dateStr, converted]);
-            if (res.changes > 0) {
+            if (insertResult.changes > 0) {
               bucket[handler.field] = (bucket[handler.field] || 0) + converted;
             }
           } else {

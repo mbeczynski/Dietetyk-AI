@@ -261,7 +261,7 @@ router.post('/api/user/profile', async (req, res) => {
         INSERT INTO settings (user_id, key, value)
         VALUES (?, 'weekly_summary_enabled', ?)
         ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
-      `, [req.user.id, weekly_summary_enabled]);
+      `, [req.user.id, weekly_summary_enabled ? '1' : '0']);
     }
     if (weekly_summary_day !== undefined) {
       // scheduler.js interpretuje weekly_summary_day jako dzień tygodnia 1-7
@@ -296,7 +296,7 @@ router.post('/api/user/profile', async (req, res) => {
         INSERT INTO settings (user_id, key, value)
         VALUES (?, 'monthly_summary_enabled', ?)
         ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
-      `, [req.user.id, monthly_summary_enabled]);
+      `, [req.user.id, monthly_summary_enabled ? '1' : '0']);
     }
     if (monthly_summary_day !== undefined) {
       // scheduler.js i tak przycina wartość do liczby dni w danym miesiącu

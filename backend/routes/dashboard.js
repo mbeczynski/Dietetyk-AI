@@ -777,7 +777,7 @@ router.get('/api/dashboard/sleep-insight', async (req, res) => {
     const settingsRows = await db.all(`SELECT * FROM settings WHERE user_id = ?`, [req.user.id]);
     const settings = {};
     settingsRows.forEach(r => { settings[r.key] = Number(r.value); });
-    const sleepThreshold = isNaN(settings.target_sleep_duration) || !settings.target_sleep_duration
+    const sleepThreshold = settings.target_sleep_duration === undefined || isNaN(settings.target_sleep_duration)
       ? 7.2
       : settings.target_sleep_duration;
 
@@ -4456,7 +4456,7 @@ router.get('/api/dashboard/training-plan-insight', async (req, res) => {
 
     // Treningi z ostatnich 4 tygodni
     const workoutRows = await db.all(
-      `SELECT date, workout_type, duration_minutes, calories_burned
+      `SELECT date, workout_type, duration_minutes, active_calories
        FROM apple_health_workouts
        WHERE user_id = ? AND date >= ? AND date <= ?
        ORDER BY date DESC`,
@@ -4470,7 +4470,7 @@ router.get('/api/dashboard/training-plan-insight', async (req, res) => {
       if (!byType[t]) byType[t] = { count: 0, totalMinutes: 0, totalCalories: 0 };
       byType[t].count++;
       byType[t].totalMinutes += w.duration_minutes || 0;
-      byType[t].totalCalories += w.calories_burned || 0;
+      byType[t].totalCalories += w.active_calories || 0;
     });
 
     // Cel sylwetki i dane ciała

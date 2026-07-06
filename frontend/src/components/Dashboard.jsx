@@ -2158,6 +2158,53 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
         </div>
 
+        {/* GOTOWOŚĆ DO TRENINGU DZIŚ — pod celami dziennymi, jako bezpośrednia
+            odpowiedź na pytanie "co robić dziś z aktywnością?". */}
+        {trainingReadiness && trainingReadiness.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🏋️ Gotowość do treningu</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '10px' }}>
+              <span style={{ fontSize: '2.2rem' }}>{trainingReadiness.emoji}</span>
+              <div>
+                <div style={{ fontSize: '1.1rem', fontWeight: '700', color: trainingReadiness.status === 'TRAIN_HARD' ? 'var(--success-light)' : trainingReadiness.status === 'TRAIN_LIGHT' ? '#fbbf24' : 'var(--danger-light)' }}>
+                  {trainingReadiness.label}
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>
+                  Score: {trainingReadiness.compositeScore}/100
+                </div>
+              </div>
+            </div>
+            <p style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.75)', margin: '0 0 10px' }}>
+              {trainingReadiness.advice}
+            </p>
+            {trainingReadiness.signals && trainingReadiness.signals.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {trainingReadiness.signals.map((sig, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.55)' }}>
+                    <span>{sig.status === 'ok' ? '✅' : sig.status === 'warn' ? '⚠️' : '🔴'}</span>
+                    <span>{sig.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
+              Na podstawie Oury ({trainingReadiness.weekWorkoutDays ?? '–'} treningów w tym tygodniu, {trainingReadiness.recentWorkoutDays ?? '–'} ostatnie 3 dni).
+            </p>
+          </div>
+        )}
+        {trainingReadiness && !trainingReadiness.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🏋️ Gotowość do treningu</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)', marginTop: '4px', marginBottom: 0 }}>
+              Potrzeba co najmniej 14 dni danych z Oury (gotowość lub HRV) aby ocenić gotowość do treningu.
+            </p>
+          </div>
+        )}
+
         {/* PORÓWNANIE TYDZIEŃ/MIESIĄC I BILANS KALORYCZNY NARASTAJĄCO */}
         <div className="premium-card">
           <div className="premium-title-row">
@@ -2241,54 +2288,6 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
             <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
               Ważona synteza Twoich danych, nie kliniczny pomiar zdrowia.
-            </p>
-          </div>
-        )}
-
-        {/* GOTOWOŚĆ DO TRENINGU DZIŚ (deterministyczny composite score — bez AI,
-            na podstawie Oury + Apple Health). Wyniesiona poza sekcję "Analizy"
-            jako karta akcjonowalna ("co robić dziś?"), analogicznie do Wellness Score. */}
-        {trainingReadiness && trainingReadiness.hasEnoughData && (
-          <div className="premium-card">
-            <div className="premium-title-row">
-              <span className="premium-title">🏋️ Gotowość do treningu</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '10px' }}>
-              <span style={{ fontSize: '2.2rem' }}>{trainingReadiness.emoji}</span>
-              <div>
-                <div style={{ fontSize: '1.1rem', fontWeight: '700', color: trainingReadiness.status === 'TRAIN_HARD' ? 'var(--success-light)' : trainingReadiness.status === 'TRAIN_LIGHT' ? '#fbbf24' : 'var(--danger-light)' }}>
-                  {trainingReadiness.label}
-                </div>
-                <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>
-                  Score: {trainingReadiness.compositeScore}/100
-                </div>
-              </div>
-            </div>
-            <p style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.75)', margin: '0 0 10px' }}>
-              {trainingReadiness.advice}
-            </p>
-            {trainingReadiness.signals && trainingReadiness.signals.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {trainingReadiness.signals.map((sig, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.55)' }}>
-                    <span>{sig.status === 'ok' ? '✅' : sig.status === 'warn' ? '⚠️' : '🔴'}</span>
-                    <span>{sig.label}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '10px', marginBottom: 0 }}>
-              Na podstawie Oury ({trainingReadiness.weekWorkoutDays ?? '–'} treningów w tym tygodniu, {trainingReadiness.recentWorkoutDays ?? '–'} ostatnie 3 dni).
-            </p>
-          </div>
-        )}
-        {trainingReadiness && !trainingReadiness.hasEnoughData && (
-          <div className="premium-card">
-            <div className="premium-title-row">
-              <span className="premium-title">🏋️ Gotowość do treningu</span>
-            </div>
-            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)', marginTop: '4px', marginBottom: 0 }}>
-              Potrzeba co najmniej 14 dni danych z Oury (gotowość lub HRV) aby ocenić gotowość do treningu.
             </p>
           </div>
         )}

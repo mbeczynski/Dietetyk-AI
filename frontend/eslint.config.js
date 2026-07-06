@@ -33,7 +33,11 @@ export default [
         FormData: 'readonly',
         FileReader: 'readonly',
         Image: 'readonly',
-        URL: 'readonly'
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        Blob: 'readonly',
+        atob: 'readonly',
+        btoa: 'readonly'
       }
     },
     settings: { react: { version: 'detect' } },

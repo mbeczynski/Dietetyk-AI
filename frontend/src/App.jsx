@@ -927,7 +927,7 @@ export default function App() {
                   className="input-field"
                   value={registerEmailInput}
                   onChange={(e) => setRegisterEmailInput(e.target.value)}
-                  placeholder="np. mbeczynski@gmail.com"
+                  placeholder="np. jan.kowalski@example.com"
                 />
               </div>
 

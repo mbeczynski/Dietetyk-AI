@@ -53,7 +53,7 @@ async function sendMailgunEmail({ to, subject, html }) {
 
 async function runTest() {
   await db.initDb();
-  const targetEmail = process.argv[2] || 'mbeczynski@gmail.com';
+  const targetEmail = process.argv[2] || process.env.ADMIN_EMAIL || 'admin@dietetyk-ai.local';
   console.log(`[TEST-MAILGUN] Starting test mail to: ${targetEmail}`);
   try {
     await sendMailgunEmail({

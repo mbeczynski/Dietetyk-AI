@@ -3,7 +3,7 @@ replicaCount: 1
 backend:
   image:
     repository: ghcr.io/mbeczynski/dietetyk-ai-backend
-    tag: "sha-e60cfb5"
+    tag: "sha-2be7cf8"
     pullPolicy: Always
   secretName: dietetyk-backend-secret
   resources:
@@ -17,7 +17,7 @@ backend:
 frontend:
   image:
     repository: ghcr.io/mbeczynski/dietetyk-ai-frontend
-    tag: "sha-bb0a337"
+    tag: "sha-2be7cf8"
     pullPolicy: Always
   resources:
     limits:

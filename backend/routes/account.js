@@ -164,7 +164,7 @@ router.get('/api/user/profile', async (req, res) => {
 
 // 6b. Aktualizacja profilu użytkownika (avatar, email, syncToken)
 router.post('/api/user/profile', async (req, res) => {
-  const { avatar, email, syncToken, first_name, last_name, birth_year, weekly_summary_enabled, weekly_summary_day, weekly_summary_time, monthly_summary_enabled, monthly_summary_day, monthly_summary_time, body_goal_text, body_goal_photo } = req.body;
+  const { avatar, email, syncToken, first_name, last_name, birth_year, weekly_summary_enabled, weekly_summary_day, weekly_summary_time, monthly_summary_enabled, monthly_summary_day, monthly_summary_time, body_goal_text, body_goal_photo, target_weight_kg, target_body_fat_pct } = req.body;
   try {
     if (syncToken !== undefined) {
       const trimmedToken = syncToken.trim();
@@ -322,6 +322,30 @@ router.post('/api/user/profile', async (req, res) => {
         VALUES (?, 'monthly_summary_time', ?)
         ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
       `, [req.user.id, monthly_summary_time]);
+    }
+
+    if (target_weight_kg !== undefined) {
+      const numWeight = target_weight_kg === '' ? null : Number(target_weight_kg);
+      if (numWeight !== null && (isNaN(numWeight) || numWeight < 30 || numWeight > 200)) {
+        return res.status(400).json({ error: 'Waga docelowa musi być liczbą w zakresie 30-200 kg.' });
+      }
+      await db.run(`
+        INSERT INTO settings (user_id, key, value)
+        VALUES (?, 'target_weight_kg', ?)
+        ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
+      `, [req.user.id, numWeight !== null ? String(numWeight) : '']);
+    }
+
+    if (target_body_fat_pct !== undefined) {
+      const numFat = target_body_fat_pct === '' ? null : Number(target_body_fat_pct);
+      if (numFat !== null && (isNaN(numFat) || numFat < 0 || numFat > 60)) {
+        return res.status(400).json({ error: 'Docelowy % tłuszczu musi być liczbą w zakresie 0-60%.' });
+      }
+      await db.run(`
+        INSERT INTO settings (user_id, key, value)
+        VALUES (?, 'target_body_fat_pct', ?)
+        ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
+      `, [req.user.id, numFat !== null ? String(numFat) : '']);
     }
 
     res.json({ success: true, message: 'Profil został zaktualizowany.' });

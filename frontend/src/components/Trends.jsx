@@ -124,6 +124,22 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     return `${names[d.getDay()]} ${dd}.${mm}`;
   };
 
+  const getMetricColor = (key) => {
+    switch (key) {
+      case 'sleep_score': return '#a78bfa';
+      case 'readiness_score': return '#10b981';
+      case 'rhr': return '#ef4444';
+      case 'hrv': return '#f43f5e';
+      case 'weight': return '#3b82f6';
+      case 'sleep_duration': return '#8b5cf6';
+      case 'steps': return '#10b981';
+      case 'total_calories_burned': return '#f59e0b';
+      case 'sleep_stages': return '#c084fc';
+      case 'blood_pressure': return '#38bdf8';
+      default: return '#ffffff';
+    }
+  };
+
   // Wspólny komponent podpowiedzi (tooltip) renderowany jako nakładka HTML (div).
   // anchorX/anchorY to punkt w układzie współrzędnych SVG (viewBox), do którego
   // "przyklejony" jest dymek (np. góra słupka/punktu).
@@ -132,6 +148,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     const dateLabel = getFullDayLabel(dateStr);
     const tooltipLeft = `${(anchorX / svgWidth) * 100}%`;
     const tooltipTop = `${(anchorY / svgHeight) * 100}%`;
+    const color = getMetricColor(chartKey);
     return (
       <div
         style={{
@@ -140,28 +157,29 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
           top: tooltipTop,
           transform: 'translate(-50%, -100%) translateY(-10px)',
           pointerEvents: 'none',
-          background: 'rgba(20, 21, 23, 0.96)',
-          backdropFilter: 'blur(10px)',
+          background: 'rgba(20, 21, 23, 0.98)',
+          backdropFilter: 'blur(12px)',
           border: '1px solid var(--border-glass)',
-          borderRadius: '8px',
-          padding: '8px 12px',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+          borderLeft: `4px solid ${color}`,
+          borderRadius: '12px',
+          padding: '10px 16px',
+          boxShadow: '0 12px 32px rgba(0,0,0,0.7)',
           zIndex: 100,
-          minWidth: '100px',
-          textAlign: 'center',
+          minWidth: '120px',
+          textAlign: 'left',
           display: 'flex',
           flexDirection: 'column',
-          gap: '3px',
+          gap: '4px',
           transition: 'all 0.1s ease-out',
         }}
       >
-        <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
           {dateLabel}
         </span>
         {customContent ? (
           customContent
         ) : (
-          <span style={{ fontSize: '0.88rem', color: '#fff', fontWeight: '800', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: '1.05rem', color: '#fff', fontWeight: '800', whiteSpace: 'nowrap' }}>
             {valueLabel}
           </span>
         )}
@@ -639,8 +657,50 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
             {hasData && sysPath && <path d={sysPath} stroke="#ffffff" strokeWidth="2" fill="none" strokeLinecap="round" />}
             {hasData && diaPath && <path d={diaPath} stroke="#38bdf8" strokeWidth="2" fill="none" strokeLinecap="round" />}
 
-            {lastSys && <circle cx={lastSys.x} cy={lastSys.y} r="3.5" fill="#ffffff" stroke="#121314" strokeWidth="1.5" />}
-            {lastDia && <circle cx={lastDia.x} cy={lastDia.y} r="3.5" fill="#38bdf8" stroke="#121314" strokeWidth="1.5" />}
+            {/* Interaktywne punkty - hover/klik pokazuje podpowiedź z dokładną wartością i dniem */}
+            {sysPoints.map((p, idx) => {
+              const isActive = hoverInfo && hoverInfo.chartKey === chartKey && hoverInfo.idx === idx;
+              const diaP = diaPoints.find(dp => dp.day === p.day);
+              const toggleHover = () => {
+                setHoverInfo(prev => (prev && prev.chartKey === chartKey && prev.idx === idx)
+                  ? null
+                  : { chartKey, idx });
+              };
+              return (
+                <g
+                  key={idx}
+                  style={{ cursor: 'pointer' }}
+                  onMouseEnter={() => setHoverInfo({ chartKey, idx })}
+                  onMouseLeave={() => setHoverInfo(prev => (prev && prev.chartKey === chartKey && prev.idx === idx) ? null : prev)}
+                  onClick={toggleHover}
+                >
+                  {/* Niewidoczne, szersze pole interakcji */}
+                  <line x1={p.x} y1={topMargin} x2={p.x} y2={svgHeight - 15} stroke="transparent" strokeWidth="12" />
+                  
+                  {/* Skurczowe kropka */}
+                  <circle
+                    cx={p.x}
+                    cy={p.y}
+                    r={isActive ? '4.5' : '2.5'}
+                    fill={isActive ? '#a3e6ff' : '#ffffff'}
+                    stroke="#121314"
+                    strokeWidth="1.5"
+                  />
+                  
+                  {/* Rozkurczowe kropka */}
+                  {diaP && (
+                    <circle
+                      cx={diaP.x}
+                      cy={diaP.y}
+                      r={isActive ? '4.5' : '2.5'}
+                      fill={isActive ? '#a3e6ff' : '#38bdf8'}
+                      stroke="#121314"
+                      strokeWidth="1.5"
+                    />
+                  )}
+                </g>
+              );
+            })}
 
             {currentWeekDays.map((day, idx) => {
               const shouldShowLabel = 
@@ -670,6 +730,34 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
             Brak danych - zsynchronizuj ciśnieniomierz Withings
           </div>
         )}
+
+        {/* Podpowiedź (tooltip) dla ciśnienia tętniczego */}
+        {hoverInfo && hoverInfo.chartKey === chartKey && sysPoints[hoverInfo.idx] && (() => {
+          const p = sysPoints[hoverInfo.idx];
+          const diaP = diaPoints.find(dp => dp.day === p.day);
+          return renderTooltip(
+            chartKey,
+            hoverInfo.idx,
+            p.x,
+            Math.min(p.y, diaP ? diaP.y : p.y),
+            null,
+            p.day,
+            svgWidth,
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '0.8rem', color: '#fff', marginTop: '2px' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ffffff' }} />
+                Skurczowe: <strong>{Math.round(p.val)} mmHg</strong>
+              </span>
+              {diaP && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#38bdf8' }} />
+                  Rozkurczowe: <strong>{Math.round(diaP.val)} mmHg</strong>
+                </span>
+              )}
+            </div>,
+            svgHeight
+          );
+        })()}
       </div>
     );
   };

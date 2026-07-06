@@ -733,7 +733,9 @@ export default function Settings({ syncToken, sessionToken, userProfile = { user
           weekly_summary_time: weeklySummaryTime,
           monthly_summary_enabled: monthlySummaryEnabled ? '1' : '0',
           monthly_summary_day: String(monthlySummaryDay),
-          monthly_summary_time: monthlySummaryTime
+          monthly_summary_time: monthlySummaryTime,
+          target_weight_kg: settings.target_weight_kg,
+          target_body_fat_pct: settings.target_body_fat_pct
         })
       });
 

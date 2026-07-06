@@ -48,6 +48,16 @@ function sanitizeNullableNumber(val, min, max) {
 // Cache na zduplikowane żądania wysyłane w krótkim czasie (np. szybki double-click)
 const recentRequests = new Map();
 
+// Okresowe czyszczenie starych wpisów cache, aby zapobiec wyciekowi pamięci (Runda 6)
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, rec] of recentRequests.entries()) {
+    if (now - rec.timestamp > 15000) {
+      recentRequests.delete(userId);
+    }
+  }
+}, 5 * 60 * 1000); // co 5 minut
+
 router.post('/api/meals', async (req, res) => {
   const { rawText, date, image } = req.body;
   const targetDate = date || getLocalDateString();
@@ -75,7 +85,19 @@ router.post('/api/meals', async (req, res) => {
       lastRequest.key.imageLength === requestKey.imageLength &&
       lastRequest.key.imageSample === requestKey.imageSample) {
     console.log(`[API LOG] Wykryto zduplikowane żądanie w ciągu 15s dla użytkownika ${userId}. Zwracanie poprzedniego wyniku.`);
-    return res.status(200).json(lastRequest.response);
+    
+    // Odtwórz pełną odpowiedź z obrazkiem przesłanym w tym żądaniu, aby nie trzymać go w cache RAM
+    const restoredResponse = {
+      count: lastRequest.response.count,
+      meals: lastRequest.response.meals.map(m => {
+        const copy = { ...m };
+        if (copy.image_base64 === '__HAS_IMAGE__') {
+          copy.image_base64 = image || null;
+        }
+        return copy;
+      })
+    };
+    return res.status(200).json(restoredResponse);
   }
 
   try {
@@ -296,10 +318,22 @@ Struktura JSON:
       meals: insertedMeals
     };
 
+    // Zapisujemy w cache kopię bez dużego Base64 obrazka (Runda 6), aby zapobiec wyciekowi RAM
+    const cachedResponse = {
+      count: responsePayload.count,
+      meals: responsePayload.meals.map(m => {
+        const copy = { ...m };
+        if (copy.image_base64) {
+          copy.image_base64 = '__HAS_IMAGE__';
+        }
+        return copy;
+      })
+    };
+
     recentRequests.set(userId, {
       timestamp: Date.now(),
       key: requestKey,
-      response: responsePayload
+      response: cachedResponse
     });
 
     res.status(201).json(responsePayload);

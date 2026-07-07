@@ -360,6 +360,9 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
         // Specjalny parser dla analizy snu (sleep_analysis), ponieważ jest to metryka kategorialna (przedziały czasowe)
         if (name === 'sleep_analysis') {
           if (!Array.isArray(metric.data)) continue;
+          if (metric.data.length > 0) {
+            console.log(`[APPLE HEALTH DEBUG SLEEP] Pierwszy wpis: ${JSON.stringify(metric.data[0])}`);
+          }
           for (const entry of metric.data) {
             const startStr = entry.startDate || entry.start_date || entry.date;
             const endStr = entry.endDate || entry.end_date;

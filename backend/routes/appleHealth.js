@@ -325,6 +325,10 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       return res.status(400).json({ error: 'Nieprawidłowy format danych - oczekiwano pola data.metrics[] lub data.workouts[].' });
     }
 
+    if (metrics) {
+      console.log(`[APPLE HEALTH DEBUG] Użytkownik ${user.id} wysłał metryki: [${metrics.filter(m => m && m.name).map(m => m.name).join(', ')}]`);
+    }
+
     // Audyt bezpieczeństwa (Runda 12): ten webhook NIE ma autentykacji sesyjnej (tylko
     // sync_token w URL, patrz komentarz na początku pliku) i przed tą zmianą nie miał
     // ŻADNEGO górnego limitu liczby wpisów w payloadzie. Każdy trening robi sekwencyjne

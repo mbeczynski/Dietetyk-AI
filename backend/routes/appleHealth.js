@@ -246,6 +246,7 @@ const METRIC_FIELD_MAP = {
   // nazwa faktycznie przychodzi w payloadzie, i popraw klucz w tej mapie.
   dietary_water: { field: 'water_ml', convert: toMilliliters },
   resting_heart_rate: { field: 'rhr', convert: (qty) => qty, mode: 'last' },
+  heart_rate_variability: { field: 'hrv', convert: (qty) => qty, mode: 'last' },
   heart_rate_variability_sdnn: { field: 'hrv', convert: (qty) => qty, mode: 'last' }
 };
 
@@ -364,19 +365,16 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
             console.log(`[APPLE HEALTH DEBUG SLEEP] Pierwszy wpis: ${JSON.stringify(metric.data[0])}`);
           }
           for (const entry of metric.data) {
-            const startStr = entry.startDate || entry.start_date || entry.date;
-            const endStr = entry.endDate || entry.end_date;
+            const startStr = entry.startDate || entry.start_date || entry.sleepStart || entry.sleep_start || entry.inBedStart || entry.date;
+            const endStr = entry.endDate || entry.end_date || entry.sleepEnd || entry.sleep_end || entry.inBedEnd;
             if (!startStr || !endStr) continue;
 
-            const start = new Date(startStr);
-            const end = new Date(endStr);
-            if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
-
-            const durationHrs = (end - start) / (1000 * 60 * 60);
-            if (durationHrs <= 0 || durationHrs > 24) continue; // sanity check
+            const startParsed = parseHealthAutoExportDate(startStr);
+            const endParsed = parseHealthAutoExportDate(endStr);
+            if (!startParsed || !endParsed) continue;
 
             // Tradycyjnie czas snu przypisuje się do dnia, w którym użytkownik się budzi (endDate)
-            const dateStr = dateObjToLocalDateString(end);
+            const dateStr = dateObjToLocalDateString(endParsed);
             
             if (!byDate[dateStr]) {
               byDate[dateStr] = {
@@ -394,19 +392,43 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
               bucket.sleep_rem = 0;
             }
 
-            const val = typeof entry.value === 'string' ? entry.value.toLowerCase() : '';
-            if (val.includes('deep')) {
-              bucket.sleep_deep += durationHrs;
-              bucket.sleep_duration += durationHrs;
-            } else if (val.includes('rem')) {
-              bucket.sleep_rem += durationHrs;
-              bucket.sleep_duration += durationHrs;
-            } else if (val.includes('core') || val.includes('asleep') || val.includes('light')) {
-              bucket.sleep_duration += durationHrs;
-            } else if (val.includes('in_bed') || val.includes('inbed')) {
-              bucket.in_bed_duration += durationHrs;
+            const hasAggregatedFields = entry.totalSleep !== undefined || entry.total_sleep !== undefined || entry.core !== undefined;
+            if (hasAggregatedFields) {
+              const coreVal = numOrNull(entry.core) || 0;
+              const deepVal = numOrNull(entry.deep) || 0;
+              const remVal = numOrNull(entry.rem) || 0;
+              const asleepVal = numOrNull(entry.asleep || entry.asleep_duration) || 0;
+              const totalSleepVal = numOrNull(entry.totalSleep || entry.total_sleep);
+              
+              const calculatedInBed = (endParsed - startParsed) / (1000 * 60 * 60);
+              const inBedVal = numOrNull(entry.inBed || entry.in_bed || entry.in_bed_duration || entry.inBedDuration) 
+                || (Number.isFinite(calculatedInBed) && calculatedInBed > 0 ? calculatedInBed : 0);
+
+              const computedSleep = totalSleepVal !== null ? totalSleepVal : (coreVal + deepVal + remVal + asleepVal);
+              
+              bucket.sleep_duration += computedSleep;
+              bucket.sleep_deep += deepVal;
+              bucket.sleep_rem += remVal;
+              bucket.in_bed_duration += inBedVal;
+              matchedEntries++;
+            } else {
+              const durationHrs = (endParsed - startParsed) / (1000 * 60 * 60);
+              if (durationHrs <= 0 || durationHrs > 24) continue; // sanity check
+
+              const val = typeof entry.value === 'string' ? entry.value.toLowerCase() : '';
+              if (val.includes('deep')) {
+                bucket.sleep_deep += durationHrs;
+                bucket.sleep_duration += durationHrs;
+              } else if (val.includes('rem')) {
+                bucket.sleep_rem += durationHrs;
+                bucket.sleep_duration += durationHrs;
+              } else if (val.includes('core') || val.includes('asleep') || val.includes('light')) {
+                bucket.sleep_duration += durationHrs;
+              } else if (val.includes('in_bed') || val.includes('inbed')) {
+                bucket.in_bed_duration += durationHrs;
+              }
+              matchedEntries++;
             }
-            matchedEntries++;
           }
           continue;
         }

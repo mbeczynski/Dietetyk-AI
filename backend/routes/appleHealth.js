@@ -120,6 +120,13 @@ function numOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+const shiftDate = (dateStr, deltaDays) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + deltaDays);
+  return dt.toISOString().split('T')[0];
+};
+
 // Klasyfikuje pojedynczy odczyt tętna do strefy 1-5 (Karvonen). Zwraca null, gdy nie da
 // się tego policzyć (brak HRmax - użytkownik nie podał roku urodzenia w profilu - albo
 // rezerwa tętna wychodzi <= 0, np. błędnie wpisany rok urodzenia dający HRmax <= RHR).
@@ -620,6 +627,74 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       const rhr = m.rhr !== null ? Math.round(m.rhr) : null;
       const hrv = m.hrv !== null ? Math.round(m.hrv) : null;
 
+      let readinessScore = null;
+      if (user.has_oura !== 1) {
+        // Oblicz syntetyczny readiness_score na bazie Apple Health (sen + HRV + RHR) dla użytkowników bez Oury.
+        // Jeśli jakieś parametry nie dotarły w tej konkretnej paczce, pobieramy je z bazy (logowanie progresywne).
+        let sleepScoreForReadiness = sleepScore;
+        let hrvForReadiness = hrv;
+        let rhrForReadiness = rhr;
+
+        const existingToday = await db.get(
+          'SELECT sleep_score, hrv, rhr FROM health_metrics WHERE user_id = ? AND date = ?',
+          [user.id, dateStr]
+        );
+        if (existingToday) {
+          if (sleepScoreForReadiness === null) sleepScoreForReadiness = existingToday.sleep_score;
+          if (hrvForReadiness === null) hrvForReadiness = existingToday.hrv;
+          if (rhrForReadiness === null) rhrForReadiness = existingToday.rhr;
+        }
+
+        if (sleepScoreForReadiness !== null || hrvForReadiness !== null || rhrForReadiness !== null) {
+          // Pobierz baselines dla HRV i RHR z ostatnich 30 dni (bez dzisiaj)
+          const baselineStart = shiftDate(dateStr, -30);
+          const baselineRows = await db.all(
+            `SELECT hrv, rhr FROM health_metrics
+             WHERE user_id = ? AND date >= ? AND date < ?
+               AND (hrv IS NOT NULL AND hrv > 0 OR rhr IS NOT NULL AND rhr > 0)`,
+            [user.id, baselineStart, dateStr]
+          );
+
+          let avgBaselineHrv = null;
+          let avgBaselineRhr = null;
+          if (baselineRows.length > 0) {
+            const validHrvs = baselineRows.filter(r => r.hrv != null && r.hrv > 0);
+            const validRhrs = baselineRows.filter(r => r.rhr != null && r.rhr > 0);
+            if (validHrvs.length > 0) {
+              avgBaselineHrv = validHrvs.reduce((s, r) => s + r.hrv, 0) / validHrvs.length;
+            }
+            if (validRhrs.length > 0) {
+              avgBaselineRhr = validRhrs.reduce((s, r) => s + r.rhr, 0) / validRhrs.length;
+            }
+          }
+
+          let scoreComp = 50; // stan neutralny
+          if (sleepScoreForReadiness !== null && sleepScoreForReadiness > 0) {
+            scoreComp += (sleepScoreForReadiness - 70) * 0.67;
+          }
+          if (hrvForReadiness !== null && hrvForReadiness > 0) {
+            if (avgBaselineHrv !== null && avgBaselineHrv > 0) {
+              const hrvPct = (hrvForReadiness / avgBaselineHrv - 1) * 100;
+              scoreComp += hrvPct * 0.4;
+            } else {
+              const hrvPct = (hrvForReadiness / 50 - 1) * 100;
+              scoreComp += Math.max(-20, Math.min(20, hrvPct * 0.3));
+            }
+          }
+          if (rhrForReadiness !== null && rhrForReadiness > 0) {
+            if (avgBaselineRhr !== null && avgBaselineRhr > 0) {
+              const rhrPct = (avgBaselineRhr / rhrForReadiness - 1) * 100;
+              scoreComp += rhrPct * 0.3;
+            } else {
+              const rhrPct = (65 / rhrForReadiness - 1) * 100;
+              scoreComp += Math.max(-15, Math.min(15, rhrPct * 0.25));
+            }
+          }
+
+          readinessScore = Math.max(30, Math.min(100, Math.round(scoreComp)));
+        }
+      }
+
       // Zabezpieczenie danych Oura Ring: jeśli użytkownik ma połączoną Ourę, dane o śnie z Apple Health
       // zapisujemy, o ile Oura jeszcze nie dostarczyła swoich danych (identyfikowane przez brak readiness_score).
       // W przeciwnym wypadku (użytkownik bez Oury, np. żona), Apple Health jest źródłem nadrzędnym.
@@ -645,13 +720,16 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
       const hrvUpdate = user.has_oura === 1
         ? 'hrv = CASE WHEN readiness_score IS NOT NULL THEN hrv ELSE COALESCE(excluded.hrv, hrv) END'
         : 'hrv = COALESCE(excluded.hrv, hrv)';
+      const readinessScoreUpdate = user.has_oura === 1
+        ? 'readiness_score = readiness_score'
+        : 'readiness_score = COALESCE(excluded.readiness_score, readiness_score)';
 
       await db.run(`
         INSERT INTO health_metrics (
           user_id, date, steps, active_calories, total_calories_burned, active_minutes, wrist_temperature,
-          distance_meters, water_ml, sleep_duration, sleep_deep, sleep_rem, sleep_score, rhr, hrv, activity_source, last_sync
+          distance_meters, water_ml, sleep_duration, sleep_deep, sleep_rem, sleep_score, rhr, hrv, readiness_score, activity_source, last_sync
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'apple', ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'apple', ?)
         ON CONFLICT(user_id, date) DO UPDATE SET
           steps = COALESCE(excluded.steps, steps),
           active_calories = COALESCE(excluded.active_calories, active_calories),
@@ -666,11 +744,12 @@ router.post('/api/integrations/apple-health/:syncToken', async (req, res) => {
           ${sleepScoreUpdate},
           ${rhrUpdate},
           ${hrvUpdate},
+          ${readinessScoreUpdate},
           activity_source = 'apple',
           last_sync = excluded.last_sync
       `, [
         user.id, dateStr, steps, activeCalories, totalCalories, activeMinutes, wristTemperature,
-        distanceMeters, waterMl, sleepDuration, sleepDeep, sleepRem, sleepScore, rhr, hrv, lastSyncTime
+        distanceMeters, waterMl, sleepDuration, sleepDeep, sleepRem, sleepScore, rhr, hrv, readinessScore, lastSyncTime
       ]);
 
       savedDates.push(dateStr);

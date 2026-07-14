@@ -239,12 +239,15 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     return sup.match.some(keyword => lowerText.includes(keyword));
   };
 
-  // Inicjalizacja tekstu suplementów przy zmianie summary (np. zmiana daty)
+  // Inicjalizacja tekstu suplementów przy zmianie daty lub wartości z backendu
+  // Celowo NIE używamy [summary] — summary to nowy obiekt na każdy re-render parenta,
+  // co resetowałoby tekst wpisany przez użytkownika przy niezwiązanych odświeżeniach.
   useEffect(() => {
     if (summary) {
       setSupplementsText(summary.supplements || '');
     }
-  }, [summary]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary?.supplements, summary?.date]);
 
   const handleSaveSupplements = async () => {
     if (!sessionToken) return;

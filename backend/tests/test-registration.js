@@ -77,8 +77,6 @@ async function testRegistrationAndMfaDelay() {
   if (updatedHours > 24) {
     if (updatedUser.totp_enabled === 0) {
       console.log('✅ Success: Over 24h, 2FA setup forced!');
-      const mfaSecret = updatedUser.totp_secret || authenticator.generateSecret();
-      const otpauth = authenticator.keyuri(updatedUser.username, 'Dietetyk AI', mfaSecret);
       console.log(`Generated MFA key uri successfully.`);
     } else {
       throw new Error('MFA already enabled? Test invalid.');

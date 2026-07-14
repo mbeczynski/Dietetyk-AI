@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const db = require('../db');
-const { buildHealthReportPdf, PDF_REPORT_MAX_DAYS, PDF_REPORT_DEFAULT_DAYS } = require('./pdfReport');
+const { PDF_REPORT_MAX_DAYS, PDF_REPORT_DEFAULT_DAYS } = require('./pdfReport');
 
 // Udostępnianie raportu PDF linkiem (read-only, bez konta) - rozszerzenie eksportu PDF
 // dla lekarza/dietetyka (services/pdfReport.js) o wariant "wyślij link" zamiast

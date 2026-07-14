@@ -220,7 +220,7 @@ Struktura JSON:
     let analysis;
     try {
       analysis = JSON.parse(responseText);
-    } catch (parseErr) {
+    } catch (err) {
       console.error('[API ERROR] Błąd parsowania odpowiedzi AI:', responseText);
       throw new Error('AI nie zwróciło poprawnego formatu JSON.');
     }

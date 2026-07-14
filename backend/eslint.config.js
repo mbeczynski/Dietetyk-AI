@@ -22,7 +22,10 @@ module.exports = [
         setTimeout: 'readonly',
         setInterval: 'readonly',
         clearTimeout: 'readonly',
-        clearInterval: 'readonly'
+        clearInterval: 'readonly',
+        URLSearchParams: 'readonly',
+        fetch: 'readonly',
+        AbortController: 'readonly'
       }
     },
     rules: {
@@ -34,6 +37,6 @@ module.exports = [
     }
   },
   {
-    ignores: ['node_modules/**', 'backups/**', '*.db']
+    ignores: ['node_modules/**', 'backups/**', '*.db', 'public/**']
   }
 ];

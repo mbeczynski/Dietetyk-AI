@@ -172,7 +172,7 @@ process.on('uncaughtException', (err) => {
   setTimeout(() => process.exit(1), 1000);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
   logger.error(
     `Unhandled Rejection (nieobsłużona obietnica): ${reason}`,
     'SYSTEM',

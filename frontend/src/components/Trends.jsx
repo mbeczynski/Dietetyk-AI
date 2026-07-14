@@ -572,6 +572,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
   // wspólnej osi mmHg, na bazie renderLineChart, ale bez pojedynczego "key" bo
   // potrzebujemy dwóch serii naraz.
   const renderBloodPressureChart = () => {
+    const chartKey = 'blood_pressure';
     const sysVals = getMetricData(currentWeekDays, 'blood_pressure_systolic');
     const diaVals = getMetricData(currentWeekDays, 'blood_pressure_diastolic');
     const validSys = sysVals.filter(v => v !== null && v !== undefined);
@@ -606,8 +607,6 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
     const diaPoints = buildPoints(diaVals);
     const sysPath = buildPath(sysPoints);
     const diaPath = buildPath(diaPoints);
-    const lastSys = sysPoints[sysPoints.length - 1];
-    const lastDia = diaPoints[diaPoints.length - 1];
 
     const todayRow = historyData.find(r => r.date === selectedDate);
     const currentSys = (todayRow && todayRow.blood_pressure_systolic !== null && todayRow.blood_pressure_systolic !== undefined)

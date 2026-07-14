@@ -2347,7 +2347,7 @@ router.get('/api/dashboard/hr-zones-insight', async (req, res) => {
     const totalMinutes = Object.values(zoneMinutes).reduce((s, v) => s + v, 0);
     let dominantZone = null;
     let dominantMax = -1;
-    Object.entries(zoneMinutes).forEach(([zone, mins], idx) => {
+    Object.entries(zoneMinutes).forEach(([, mins], idx) => {
       if (mins > dominantMax) { dominantMax = mins; dominantZone = idx + 1; }
     });
 
@@ -2979,7 +2979,6 @@ router.get('/api/dashboard/pace-trend-insight', async (req, res) => {
       .sort((a, b) => a.date.localeCompare(b.date));
 
     const recentStart = shiftDate(today, -(PACE_RECENT_WINDOW_DAYS - 1));
-    const baselineEnd = shiftDate(recentStart, -1);
     const recent = paceRows.filter(r => r.date >= recentStart && r.date <= today).map(r => r.paceMinPerKm);
     const baseline = paceRows.filter(r => r.date < recentStart && r.date >= shiftDate(today, -PACE_BASELINE_WINDOW_DAYS)).map(r => r.paceMinPerKm);
 

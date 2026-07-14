@@ -3048,6 +3048,10 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           </div>
         )}
 
+        {/* SUPLEMENTY + NAWODNIENIE — 2 kolumny obok siebie (auto-fit: jedna kolumna
+            jeśli tylko jeden insight ma dane, dwie jeśli oba są dostępne) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
+
         {/* SUPLEMENTY VS SEN/REGENERACJA */}
         {supplementsSleepInsight && supplementsSleepInsight.hasEnoughData && (
           <div className="premium-card">
@@ -3139,6 +3143,8 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </p>
           </div>
         )}
+
+        </div>{/* koniec gridu Suplementy+Nawodnienie */}
 
         {/* INSIGHT: REALNE STREFY KARDIO Z TRENINGÓW (zmierzone tętnem, nie wzór) */}
         {hrZonesInsight && hrZonesInsight.hasEnoughData && (

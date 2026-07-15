@@ -285,6 +285,58 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     }
   };
 
+  // Stany dla trackera samopoczucia (energia i nastrój, skala 1–5)
+  const [energyLevel, setEnergyLevel] = useState(null);
+  const [moodLevel, setMoodLevel] = useState(null);
+  const [isSavingFeeling, setIsSavingFeeling] = useState(false);
+  const [feelingMessage, setFeelingMessage] = useState({ type: '', text: '' });
+
+  // Inicjalizacja z danych z backendu przy zmianie dnia
+  useEffect(() => {
+    if (summary) {
+      setEnergyLevel(summary.energy_level ?? null);
+      setMoodLevel(summary.mood ?? null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary?.energy_level, summary?.mood, summary?.date]);
+
+  const handleSaveFeeling = async () => {
+    if (!sessionToken) return;
+    if (energyLevel === null && moodLevel === null) {
+      setFeelingMessage({ type: 'error', text: 'Kliknij co najmniej jedną ocenę przed zapisaniem.' });
+      return;
+    }
+    setIsSavingFeeling(true);
+    setFeelingMessage({ type: '', text: '' });
+    try {
+      const res = await fetch('/api/feeling', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`
+        },
+        body: JSON.stringify({
+          date: selectedDate,
+          energy_level: energyLevel,
+          mood: moodLevel
+        })
+      });
+      if (res.ok) {
+        setFeelingMessage({ type: 'success', text: 'Zapisano!' });
+        if (onRefresh) onRefresh();
+        setTimeout(() => setFeelingMessage({ type: '', text: '' }), 4000);
+      } else {
+        if (res.status === 401) { onLogout(); return; }
+        setFeelingMessage({ type: 'error', text: 'Błąd zapisu.' });
+      }
+    } catch (err) {
+      console.error(err);
+      setFeelingMessage({ type: 'error', text: 'Błąd połączenia z serwerem.' });
+    } finally {
+      setIsSavingFeeling(false);
+    }
+  };
+
   // Porównanie odżywiania tydzień/miesiąc i bilans kaloryczny narastająco
   const [nutritionComparison, setNutritionComparison] = useState(null);
   const [calorieBalance, setCalorieBalance] = useState(null);
@@ -1281,6 +1333,98 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
     return () => { cancelled = true; };
   }, [sessionToken, selectedDate]);
 
+  // === INSIGHTY TRENINGOWE (Runda 25): Oura + Apple Watch cross-device ===
+
+  // Sen Oura → wydajność treningu Apple Watch (dzień następny)
+  const [sleepWorkoutPerfInsight, setSleepWorkoutPerfInsight] = useState(null);
+  const [isLoadingSleepWorkoutPerf, setIsLoadingSleepWorkoutPerf] = useState(false);
+  useEffect(() => {
+    if (!sessionToken) return;
+    let cancelled = false;
+    const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+    setIsLoadingSleepWorkoutPerf(true);
+    fetch(`/api/dashboard/sleep-workout-performance-insight${dateParam}`, {
+      headers: { 'Authorization': `Bearer ${sessionToken}` }
+    }).then(r => {
+      if (!cancelled && r.status === 401) { setSessionExpired(true); return; }
+      if (r.ok && !cancelled) return r.json().then(setSleepWorkoutPerfInsight);
+    }).catch(err => console.error('Błąd insightu sen-trening:', err))
+      .finally(() => { if (!cancelled) setIsLoadingSleepWorkoutPerf(false); });
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Gotowość Oura → wydajność Apple Watch (ten sam dzień)
+  const [readinessWorkoutInsight, setReadinessWorkoutInsight] = useState(null);
+  const [isLoadingReadinessWorkout, setIsLoadingReadinessWorkout] = useState(false);
+  useEffect(() => {
+    if (!sessionToken) return;
+    let cancelled = false;
+    const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+    setIsLoadingReadinessWorkout(true);
+    fetch(`/api/dashboard/readiness-workout-insight${dateParam}`, {
+      headers: { 'Authorization': `Bearer ${sessionToken}` }
+    }).then(r => {
+      if (!cancelled && r.status === 401) { setSessionExpired(true); return; }
+      if (r.ok && !cancelled) return r.json().then(setReadinessWorkoutInsight);
+    }).catch(err => console.error('Błąd insightu gotowość-trening:', err))
+      .finally(() => { if (!cancelled) setIsLoadingReadinessWorkout(false); });
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Polaryzacja stref tętna 80/20 (Apple Watch only)
+  const [hrPolarizationInsight, setHrPolarizationInsight] = useState(null);
+  const [isLoadingHrPolarization, setIsLoadingHrPolarization] = useState(false);
+  useEffect(() => {
+    if (!sessionToken) return;
+    let cancelled = false;
+    const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+    setIsLoadingHrPolarization(true);
+    fetch(`/api/dashboard/hr-polarization-insight${dateParam}`, {
+      headers: { 'Authorization': `Bearer ${sessionToken}` }
+    }).then(r => {
+      if (!cancelled && r.status === 401) { setSessionExpired(true); return; }
+      if (r.ok && !cancelled) return r.json().then(setHrPolarizationInsight);
+    }).catch(err => console.error('Błąd insightu polaryzacja stref:', err))
+      .finally(() => { if (!cancelled) setIsLoadingHrPolarization(false); });
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Ciężki trening Apple Watch → HRV/RHR Oura dzień +1/+2
+  const [workoutRecoveryHrvInsight, setWorkoutRecoveryHrvInsight] = useState(null);
+  const [isLoadingWorkoutRecoveryHrv, setIsLoadingWorkoutRecoveryHrv] = useState(false);
+  useEffect(() => {
+    if (!sessionToken) return;
+    let cancelled = false;
+    const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+    setIsLoadingWorkoutRecoveryHrv(true);
+    fetch(`/api/dashboard/workout-recovery-hrv-insight${dateParam}`, {
+      headers: { 'Authorization': `Bearer ${sessionToken}` }
+    }).then(r => {
+      if (!cancelled && r.status === 401) { setSessionExpired(true); return; }
+      if (r.ok && !cancelled) return r.json().then(setWorkoutRecoveryHrvInsight);
+    }).catch(err => console.error('Błąd insightu regeneracja HRV:', err))
+      .finally(() => { if (!cancelled) setIsLoadingWorkoutRecoveryHrv(false); });
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
+  // Przerwa między treningami → wydajność (Apple Watch only)
+  const [workoutRestPerfInsight, setWorkoutRestPerfInsight] = useState(null);
+  const [isLoadingWorkoutRestPerf, setIsLoadingWorkoutRestPerf] = useState(false);
+  useEffect(() => {
+    if (!sessionToken) return;
+    let cancelled = false;
+    const dateParam = selectedDate ? `?date=${selectedDate}` : '';
+    setIsLoadingWorkoutRestPerf(true);
+    fetch(`/api/dashboard/workout-rest-performance-insight${dateParam}`, {
+      headers: { 'Authorization': `Bearer ${sessionToken}` }
+    }).then(r => {
+      if (!cancelled && r.status === 401) { setSessionExpired(true); return; }
+      if (r.ok && !cancelled) return r.json().then(setWorkoutRestPerfInsight);
+    }).catch(err => console.error('Błąd insightu przerwa-wydajność:', err))
+      .finally(() => { if (!cancelled) setIsLoadingWorkoutRestPerf(false); });
+    return () => { cancelled = true; };
+  }, [sessionToken, selectedDate]);
+
   // "Tag dnia" - zakresy dat oznaczone kontekstem (choroba/wakacje/późne zaśnięcie),
   // które wybrane insighty powyżej wykluczają z liczenia własnej normy/baseline
   // (patrz backend: routes/dayEvents.js + getExcludedDates w routes/dashboard.js).
@@ -2181,7 +2325,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
 
         {/* GOTOWOŚĆ DO TRENINGU DZIŚ — pod celami dziennymi, jako bezpośrednia
             odpowiedź na pytanie "co robić dziś z aktywnością?". */}
-        {trainingReadiness && trainingReadiness.hasEnoughData && (
+        {summary?.has_oura && trainingReadiness && trainingReadiness.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🏋️ Gotowość do treningu</span>
@@ -2215,7 +2359,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </p>
           </div>
         )}
-        {trainingReadiness && !trainingReadiness.hasEnoughData && (
+        {summary?.has_oura && trainingReadiness && !trainingReadiness.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🏋️ Gotowość do treningu</span>
@@ -2529,7 +2673,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         {isAnalizyOpen && (
           <>
         {/* INSIGHT: SEN -> ODŻYWIANIE NASTĘPNEGO DNIA */}
-        {!isLoadingSleepInsight && sleepInsight && sleepInsight.hasEnoughData && (
+        {summary?.has_oura && !isLoadingSleepInsight && sleepInsight && sleepInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">😴 Sen → następny dzień</span>
@@ -2566,7 +2710,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </p>
           </div>
         )}
-        {!isLoadingSleepInsight && sleepInsight && !sleepInsight.hasEnoughData && sleepInsight.reason === 'not_enough_nights' && (
+        {summary?.has_oura && !isLoadingSleepInsight && sleepInsight && !sleepInsight.hasEnoughData && sleepInsight.reason === 'not_enough_nights' && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">😴 Sen → następny dzień</span>
@@ -2625,7 +2769,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         )}
 
         {/* WSKAŹNIK REGENERACJI: HRV/RHR PO TRENINGU */}
-        {recoveryInsight && recoveryInsight.hasEnoughData && (
+        {summary?.has_oura && recoveryInsight && recoveryInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🔄 Regeneracja po treningu</span>
@@ -2698,7 +2842,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         )}
 
         {/* INSIGHT: SIEDZENIE -> SEN TEJ SAMEJ NOCY */}
-        {sedentaryInsight && sedentaryInsight.hasEnoughData && (
+        {summary?.has_oura && sedentaryInsight && sedentaryInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🪑 Siedzenie → sen</span>
@@ -2746,7 +2890,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         )}
 
         {/* INSIGHT: BŁONNIK -> SEN GŁĘBOKI/REM TEJ SAMEJ NOCY */}
-        {fiberSleepInsight && fiberSleepInsight.hasEnoughData && (
+        {summary?.has_oura && fiberSleepInsight && fiberSleepInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🌾 Błonnik → sen</span>
@@ -2842,7 +2986,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         )}
 
         {/* INSIGHT: STRES -> SÓD/CUKIER TEGO SAMEGO DNIA */}
-        {stressNutritionInsight && stressNutritionInsight.hasEnoughData && (
+        {summary?.has_oura && stressNutritionInsight && stressNutritionInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">😰 Stres → odżywianie</span>
@@ -2904,7 +3048,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         )}
 
         {/* INSIGHT: PASA TRZYMANIA CELU -> REGENERACJA PO PRZERWANIU */}
-        {streakDriftInsight && streakDriftInsight.hasEnoughData && (
+        {summary?.has_oura && streakDriftInsight && streakDriftInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🔥 Passa celu → regeneracja</span>
@@ -2942,7 +3086,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         )}
 
         {/* INSIGHT (Runda 8): TREND SPOCZYNKOWEGO TĘTNA */}
-        {rhrDriftInsight && rhrDriftInsight.hasEnoughData && (
+        {summary?.has_oura && rhrDriftInsight && rhrDriftInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">❤️ Trend tętna spoczynkowego</span>
@@ -2977,7 +3121,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         )}
 
         {/* INSIGHT (Runda 8): GODZINA OSTATNIEGO POSIŁKU -> SEN */}
-        {mealTimingSleepInsight && mealTimingSleepInsight.hasEnoughData && (
+        {summary?.has_oura && mealTimingSleepInsight && mealTimingSleepInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🍽️ Godzina posiłku → sen</span>
@@ -3056,7 +3200,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
 
         {/* SUPLEMENTY VS SEN/REGENERACJA */}
-        {supplementsSleepInsight && supplementsSleepInsight.hasEnoughData && (
+        {summary?.has_oura && supplementsSleepInsight && supplementsSleepInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">💊 Suplementy vs sen i regeneracja</span>
@@ -3100,7 +3244,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         )}
 
         {/* INSIGHT: NAWODNIENIE -> GOTOWOŚĆ/HRV/RHR */}
-        {hydrationInsight && hydrationInsight.hasEnoughData && (
+        {summary?.has_oura && hydrationInsight && hydrationInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">💧 Nawodnienie → regeneracja</span>
@@ -3148,6 +3292,67 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         )}
 
         </div>{/* koniec gridu Suplementy+Nawodnienie */}
+
+        {/* KARTA: SAMOPOCZUCIE DNIA (energia + nastrój, skala 1–5).
+            Przyciski są renderowane inline (bez lokalnego komponentu wewnątrz IIFE),
+            żeby React nie tworzył nowej referencji funkcji przy każdym renderze
+            i nie wykonywał zbędnego unmount/remount przycisków. */}
+        <div className="premium-card">
+          <div className="premium-title-row">
+            <span className="premium-title">⚡ Samopoczucie dnia</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '4px' }}>
+            {/* Wiersz: Energia */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Energia</span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {[['😴','Bardzo niska'],['😕','Niska'],['😐','Średnia'],['😊','Wysoka'],['⚡','Bardzo wysoka']].map(([emoji, label], i) => {
+                  const val = i + 1;
+                  const isActive = energyLevel === val;
+                  return (
+                    <button key={val} onClick={() => setEnergyLevel(isActive ? null : val)} title={label}
+                      aria-label={`Energia: ${label}`} aria-pressed={isActive}
+                      style={{ flex: 1, padding: '8px 4px', borderRadius: '8px', cursor: 'pointer', fontSize: '1.3rem', transition: 'all 0.15s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+                        border: isActive ? '1.5px solid var(--color-secondary)' : '1.5px solid rgba(255,255,255,0.08)',
+                        background: isActive ? 'rgba(108,200,120,0.15)' : 'rgba(255,255,255,0.04)' }}>
+                      {emoji}
+                      <span style={{ fontSize: '0.6rem', color: isActive ? 'var(--color-secondary)' : 'rgba(255,255,255,0.35)' }}>{val}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {/* Wiersz: Nastrój */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Nastrój</span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {[['😞','Bardzo zły'],['😔','Zły'],['😐','Neutralny'],['🙂','Dobry'],['😄','Świetny']].map(([emoji, label], i) => {
+                  const val = i + 1;
+                  const isActive = moodLevel === val;
+                  return (
+                    <button key={val} onClick={() => setMoodLevel(isActive ? null : val)} title={label}
+                      aria-label={`Nastrój: ${label}`} aria-pressed={isActive}
+                      style={{ flex: 1, padding: '8px 4px', borderRadius: '8px', cursor: 'pointer', fontSize: '1.3rem', transition: 'all 0.15s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+                        border: isActive ? '1.5px solid var(--color-secondary)' : '1.5px solid rgba(255,255,255,0.08)',
+                        background: isActive ? 'rgba(108,200,120,0.15)' : 'rgba(255,255,255,0.04)' }}>
+                      {emoji}
+                      <span style={{ fontSize: '0.6rem', color: isActive ? 'var(--color-secondary)' : 'rgba(255,255,255,0.35)' }}>{val}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2px' }}>
+              <span style={{ fontSize: '0.75rem', color: feelingMessage.type === 'success' ? 'var(--color-secondary)' : feelingMessage.type === 'error' ? 'var(--danger)' : 'rgba(255,255,255,0.3)' }}>
+                {feelingMessage.text || 'Dane pomogą AI w analizie Twojego samopoczucia'}
+              </span>
+              <button className="btn-primary" disabled={isSavingFeeling} onClick={handleSaveFeeling}
+                style={{ padding: '6px 18px', fontSize: '0.8rem' }}>
+                {isSavingFeeling ? 'Zapisywanie...' : 'Zapisz'}
+              </button>
+            </div>
+          </div>
+        </div>
 
         {/* INSIGHT: REALNE STREFY KARDIO Z TRENINGÓW (zmierzone tętnem, nie wzór) */}
         {hrZonesInsight && hrZonesInsight.hasEnoughData && (
@@ -3325,7 +3530,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         {/* INSIGHT (Runda 11): AI TŁUMACZĄCE PRZYCZYNY (styl Oura Advisor/Whoop Coach) */}
         {/* Runda 12 (audyt): jawny stan ładowania - zamiast karty, która po prostu nie
             istniała do czasu odpowiedzi API (wyglądało to jak brak insightu, nie ładowanie). */}
-        {isLoadingAiExplanation && !aiExplanationInsight && (
+        {summary?.has_oura && isLoadingAiExplanation && !aiExplanationInsight && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🔎 Dlaczego dzisiaj tak jest?</span>
@@ -3336,7 +3541,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
           </div>
         )}
-        {aiExplanationInsight && aiExplanationInsight.hasEnoughData && aiExplanationInsight.hasFinding && (
+        {summary?.has_oura && aiExplanationInsight && aiExplanationInsight.hasEnoughData && aiExplanationInsight.hasFinding && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🔎 Dlaczego dzisiaj tak jest?</span>
@@ -3366,7 +3571,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         {/* Pusty stan: dane są wystarczające, ale AI nie znalazło dziś żadnego znaczącego
             odchylenia (z-score poniżej progu) - bez tego karta po prostu nie pojawiała się,
             co użytkownik mógł odczytać jako błąd/brak danych, a nie "wszystko w normie". */}
-        {!isLoadingAiExplanation && aiExplanationInsight && aiExplanationInsight.hasEnoughData && !aiExplanationInsight.hasFinding && (
+        {summary?.has_oura && !isLoadingAiExplanation && aiExplanationInsight && aiExplanationInsight.hasEnoughData && !aiExplanationInsight.hasFinding && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🔎 Dlaczego dzisiaj tak jest?</span>
@@ -3389,7 +3594,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
           </div>
         )}
-        {selfBenchmarkInsight && selfBenchmarkInsight.hasEnoughData && (
+        {summary?.has_oura && selfBenchmarkInsight && selfBenchmarkInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">📊 Ty dziś vs Ty w przeszłości</span>
@@ -3451,7 +3656,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         )}
 
         {/* INSIGHT (Runda 10): TREND SpO2 */}
-        {spo2TrendInsight && spo2TrendInsight.hasEnoughData && (
+        {summary?.has_oura && spo2TrendInsight && spo2TrendInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🫁 Trend SpO2</span>
@@ -3598,7 +3803,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
           </div>
         )}
-        {workoutTypeSleepInsight && workoutTypeSleepInsight.hasEnoughData && (
+        {summary?.has_oura && workoutTypeSleepInsight && workoutTypeSleepInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🏋️😴 Typ treningu vs sen tej nocy</span>
@@ -3708,7 +3913,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
           </div>
         )}
-        {temperatureDivergenceInsight && temperatureDivergenceInsight.hasEnoughData && (
+        {summary?.has_oura && temperatureDivergenceInsight && temperatureDivergenceInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">🌡️ Rozjazd temperatury Oura/Apple Watch</span>
@@ -3986,7 +4191,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
         )}
 
         {/* INSIGHT: HYDRATACJA A JAKOŚĆ SNU */}
-        {isLoadingWaterSleep && !waterSleepInsight && (
+        {summary?.has_oura && isLoadingWaterSleep && !waterSleepInsight && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">💧😴 Woda a jakość snu</span>
@@ -3997,7 +4202,7 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             </div>
           </div>
         )}
-        {waterSleepInsight && waterSleepInsight.hasEnoughData && (
+        {summary?.has_oura && waterSleepInsight && waterSleepInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">💧😴 Woda a jakość snu</span>
@@ -4037,13 +4242,237 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
             )}
           </div>
         )}
-        {!isLoadingWaterSleep && waterSleepInsight && !waterSleepInsight.hasEnoughData && (
+        {summary?.has_oura && !isLoadingWaterSleep && waterSleepInsight && !waterSleepInsight.hasEnoughData && (
           <div className="premium-card">
             <div className="premium-title-row">
               <span className="premium-title">💧😴 Woda a jakość snu</span>
             </div>
             <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
               Za mało dni z danymi o hydratacji i śnie (min. 14 dni).
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 25): SEN OURA → WYDAJNOŚĆ TRENINGU AW (dzień następny) */}
+        {summary?.has_oura && sleepWorkoutPerfInsight && sleepWorkoutPerfInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">😴🏃 Sen → wydajność treningu</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', marginBottom: '10px' }}>
+              Wydajność (kcal/min) po nocach z dobrym snem (score ≥{sleepWorkoutPerfInsight.goodSleepThreshold}) vs słabym (≤{sleepWorkoutPerfInsight.poorSleepThreshold}).
+              Ostatnie {sleepWorkoutPerfInsight.lookbackDays} dni ({sleepWorkoutPerfInsight.goodSleepDays} vs {sleepWorkoutPerfInsight.poorSleepDays} treningów).
+            </p>
+            <div className="premium-grid-2" style={{ gap: '8px' }}>
+              <div style={{ background: 'rgba(74,222,128,0.08)', borderRadius: '8px', padding: '8px 10px' }}>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Po dobrym śnie</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: '700', color: 'var(--success-light)' }}>{sleepWorkoutPerfInsight.avgKcalPerMinAfterGoodSleep}</div>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>kcal/min</div>
+              </div>
+              <div style={{ background: 'rgba(248,113,113,0.08)', borderRadius: '8px', padding: '8px 10px' }}>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Po słabym śnie</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: '700', color: 'var(--danger-light)' }}>{sleepWorkoutPerfInsight.avgKcalPerMinAfterPoorSleep}</div>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>kcal/min</div>
+              </div>
+            </div>
+            {sleepWorkoutPerfInsight.diff != null && (
+              <div style={{ marginTop: '8px', fontSize: '0.82rem' }}>
+                Różnica: <span style={{ fontWeight: '700', color: sleepWorkoutPerfInsight.diff > 0 ? 'var(--success-light)' : sleepWorkoutPerfInsight.diff < 0 ? 'var(--danger-light)' : '#fff' }}>
+                  {sleepWorkoutPerfInsight.diff > 0 ? '+' : ''}{sleepWorkoutPerfInsight.diff} kcal/min
+                </span>
+                {Math.abs(sleepWorkoutPerfInsight.diff) >= 1
+                  ? (sleepWorkoutPerfInsight.diff > 0
+                      ? ' — po lepszym śnie ćwiczysz wydajniej.'
+                      : ' — jakość snu nie widoczna na wydajności w Twoich danych.')
+                  : ' — brak wyraźnej różnicy w Twoich danych.'}
+              </div>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
+              Oura (sen) + Apple Watch (trening). Porównanie dwóch średnich, nie dowód naukowy.
+            </p>
+          </div>
+        )}
+        {summary?.has_oura && sleepWorkoutPerfInsight && !sleepWorkoutPerfInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">😴🏃 Sen → wydajność treningu</span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '8px 0', marginBottom: 0 }}>
+              Za mało danych (potrzeba min. {sleepWorkoutPerfInsight.minRequired ?? 5} treningów po dobrym i złym śnie). Masz: {sleepWorkoutPerfInsight.goodSleepDays ?? 0} vs {sleepWorkoutPerfInsight.poorSleepDays ?? 0}.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 25): GOTOWOŚĆ OURA → WYDAJNOŚĆ APPLE WATCH */}
+        {summary?.has_oura && readinessWorkoutInsight && readinessWorkoutInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🎯 Gotowość → wydajność treningu</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', marginBottom: '10px' }}>
+              Wydajność (kcal/min) przy wysokiej gotowości Oura (≥{readinessWorkoutInsight.highReadinessThreshold} pkt) vs niskiej (≤{readinessWorkoutInsight.lowReadinessThreshold} pkt).
+              Ostatnie {readinessWorkoutInsight.lookbackDays} dni ({readinessWorkoutInsight.highReadinessDays} vs {readinessWorkoutInsight.lowReadinessDays} treningów).
+            </p>
+            <div className="premium-grid-2" style={{ gap: '8px' }}>
+              <div style={{ background: 'rgba(74,222,128,0.08)', borderRadius: '8px', padding: '8px 10px' }}>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Wysoka gotowość</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: '700', color: 'var(--success-light)' }}>{readinessWorkoutInsight.avgKcalPerMinHighReadiness}</div>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>kcal/min</div>
+              </div>
+              <div style={{ background: 'rgba(248,113,113,0.08)', borderRadius: '8px', padding: '8px 10px' }}>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Niska gotowość</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: '700', color: 'var(--danger-light)' }}>{readinessWorkoutInsight.avgKcalPerMinLowReadiness}</div>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>kcal/min</div>
+              </div>
+            </div>
+            {readinessWorkoutInsight.diff != null && (
+              <div style={{ marginTop: '8px', fontSize: '0.82rem' }}>
+                Różnica: <span style={{ fontWeight: '700', color: readinessWorkoutInsight.diff > 0 ? 'var(--success-light)' : readinessWorkoutInsight.diff < 0 ? 'var(--danger-light)' : '#fff' }}>
+                  {readinessWorkoutInsight.diff > 0 ? '+' : ''}{readinessWorkoutInsight.diff} kcal/min
+                </span>
+                {Math.abs(readinessWorkoutInsight.diff) >= 1
+                  ? (readinessWorkoutInsight.diff > 0
+                      ? ' — wyższy readiness przekłada się na lepszy trening.'
+                      : ' — score gotowości nie widoczny na wydajności w Twoich danych.')
+                  : ' — brak wyraźnej korelacji.'}
+              </div>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
+              Oura readiness + Apple Watch. Porównanie dwóch średnich, nie dowód naukowy.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 25): POLARYZACJA STREF TĘTNA 80/20 (Apple Watch only) */}
+        {hrPolarizationInsight && hrPolarizationInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">📊 Polaryzacja stref tętna</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', marginBottom: '10px' }}>
+              Rozkład wysiłku w strefach z ostatnich {hrPolarizationInsight.lookbackDays} dni ({hrPolarizationInsight.workoutsAnalyzed} treningów, {hrPolarizationInsight.totalZoneMinutes} min ze strefami).
+              Teoria 80/20: ≥80% łatwy (Z1-2), ≤15% środkowy (Z3), ≥15% intensywny (Z4-5).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {[
+                { label: 'Z1 Regeneracja', pct: hrPolarizationInsight.zone1Pct, color: '#38bdf8' },
+                { label: 'Z2 Aerobowa', pct: hrPolarizationInsight.zone2Pct, color: '#4ade80' },
+                { label: 'Z3 Tempo / "szara strefa"', pct: hrPolarizationInsight.zone3Pct, color: '#fbbf24' },
+                { label: 'Z4 Próg anaerobowy', pct: hrPolarizationInsight.zone4Pct, color: '#fb923c' },
+                { label: 'Z5 Maks. wysiłek', pct: hrPolarizationInsight.zone5Pct, color: '#f87171' },
+              ].map(({ label, pct, color }) => (
+                <div key={label}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '3px' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>{label}</span>
+                    <span style={{ fontWeight: '700', color }}>{pct}%</span>
+                  </div>
+                  <div style={{ height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: '3px', transition: 'width 0.4s' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: '10px', fontSize: '0.82rem' }}>
+              <span style={{ fontWeight: '700', color: hrPolarizationInsight.isWellPolarized ? 'var(--success-light)' : hrPolarizationInsight.tooMuchGrayZone ? 'var(--danger-light)' : '#fbbf24' }}>
+                {hrPolarizationInsight.isWellPolarized
+                  ? '✅ Dobra polaryzacja'
+                  : hrPolarizationInsight.tooMuchGrayZone
+                    ? '⚠️ Za dużo "szarej strefy" (Z3)'
+                    : '⚠️ Nieoptymalna polaryzacja'}
+              </span>
+              {hrPolarizationInsight.tooMuchGrayZone && (
+                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem' }}> — spróbuj więcej wolnego cardio lub krótkich interwałów Z4-5 zamiast ciągłego Z3.</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 25): CIĘŻKI TRENING AW → HRV/RHR OURA +1/+2 DNI */}
+        {summary?.has_oura && workoutRecoveryHrvInsight && workoutRecoveryHrvInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">💪📉 Trening → regeneracja HRV/RHR</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', marginBottom: '10px' }}>
+              HRV/RHR dzień po ciężkim treningu (≥{workoutRecoveryHrvInsight.heavyWorkoutMinMinutes} min) vs baseline z ostatnich {workoutRecoveryHrvInsight.lookbackDays} dni ({workoutRecoveryHrvInsight.heavyWorkoutDays} treningów).
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {workoutRecoveryHrvInsight.avgHrvDay1 != null && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>HRV dzień +1 vs baseline</span>
+                  <span style={{ fontWeight: '700', color: (workoutRecoveryHrvInsight.hrvDiff1 ?? 0) < -3 ? 'var(--danger-light)' : (workoutRecoveryHrvInsight.hrvDiff1 ?? 0) > 3 ? 'var(--success-light)' : '#fff' }}>
+                    {workoutRecoveryHrvInsight.avgHrvDay1} ms
+                    {workoutRecoveryHrvInsight.hrvDiff1 != null && (
+                      <span style={{ fontSize: '0.72rem', marginLeft: '4px' }}>({workoutRecoveryHrvInsight.hrvDiff1 > 0 ? '+' : ''}{workoutRecoveryHrvInsight.hrvDiff1} vs {workoutRecoveryHrvInsight.avgHrvBaseline})</span>
+                    )}
+                  </span>
+                </div>
+              )}
+              {workoutRecoveryHrvInsight.avgHrvDay2 != null && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>HRV dzień +2</span>
+                  <span style={{ fontWeight: '700', color: (workoutRecoveryHrvInsight.hrvDiff2 ?? 0) < -3 ? 'var(--danger-light)' : (workoutRecoveryHrvInsight.hrvDiff2 ?? 0) > 3 ? 'var(--success-light)' : '#fff' }}>
+                    {workoutRecoveryHrvInsight.avgHrvDay2} ms
+                    {workoutRecoveryHrvInsight.hrvDiff2 != null && (
+                      <span style={{ fontSize: '0.72rem', marginLeft: '4px' }}>({workoutRecoveryHrvInsight.hrvDiff2 > 0 ? '+' : ''}{workoutRecoveryHrvInsight.hrvDiff2})</span>
+                    )}
+                  </span>
+                </div>
+              )}
+              {workoutRecoveryHrvInsight.avgRhrDay1 != null && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>RHR dzień +1 vs baseline</span>
+                  <span style={{ fontWeight: '700', color: (workoutRecoveryHrvInsight.rhrDiff1 ?? 0) > 3 ? 'var(--danger-light)' : (workoutRecoveryHrvInsight.rhrDiff1 ?? 0) < -3 ? 'var(--success-light)' : '#fff' }}>
+                    {workoutRecoveryHrvInsight.avgRhrDay1} bpm
+                    {workoutRecoveryHrvInsight.rhrDiff1 != null && (
+                      <span style={{ fontSize: '0.72rem', marginLeft: '4px' }}>({workoutRecoveryHrvInsight.rhrDiff1 > 0 ? '+' : ''}{workoutRecoveryHrvInsight.rhrDiff1} vs {workoutRecoveryHrvInsight.avgRhrBaseline})</span>
+                    )}
+                  </span>
+                </div>
+              )}
+            </div>
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
+              Oura (HRV/RHR) + Apple Watch (treningi). Wzrost RHR lub spadek HRV = normalna odpowiedź regeneracyjna.
+            </p>
+          </div>
+        )}
+
+        {/* INSIGHT (Runda 25): PRZERWA MIĘDZY TRENINGAMI → WYDAJNOŚĆ (Apple Watch only) */}
+        {workoutRestPerfInsight && workoutRestPerfInsight.hasEnoughData && (
+          <div className="premium-card">
+            <div className="premium-title-row">
+              <span className="premium-title">🗓️ Przerwa → wydajność treningu</span>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', marginBottom: '10px' }}>
+              Wydajność (kcal/min) po 0–1 dniach przerwy vs po 2+ dniach odpoczynku.
+              Ostatnie {workoutRestPerfInsight.lookbackDays} dni ({workoutRestPerfInsight.fewRestDays} vs {workoutRestPerfInsight.moreRestDays} treningów).
+            </p>
+            <div className="premium-grid-2" style={{ gap: '8px' }}>
+              <div style={{ background: 'rgba(251,191,36,0.08)', borderRadius: '8px', padding: '8px 10px' }}>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Po 0–1 dniach przerwy</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: '700', color: '#fbbf24' }}>{workoutRestPerfInsight.avgKcalPerMinFewRest}</div>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>kcal/min</div>
+              </div>
+              <div style={{ background: 'rgba(74,222,128,0.08)', borderRadius: '8px', padding: '8px 10px' }}>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Po 2+ dniach przerwy</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: '700', color: 'var(--success-light)' }}>{workoutRestPerfInsight.avgKcalPerMinMoreRest}</div>
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>kcal/min</div>
+              </div>
+            </div>
+            {workoutRestPerfInsight.diff != null && (
+              <div style={{ marginTop: '8px', fontSize: '0.82rem' }}>
+                Różnica: <span style={{ fontWeight: '700', color: workoutRestPerfInsight.diff > 0 ? 'var(--success-light)' : workoutRestPerfInsight.diff < 0 ? 'var(--danger-light)' : '#fff' }}>
+                  {workoutRestPerfInsight.diff > 0 ? '+' : ''}{workoutRestPerfInsight.diff} kcal/min
+                </span>
+                {Math.abs(workoutRestPerfInsight.diff) >= 1
+                  ? (workoutRestPerfInsight.diff > 0
+                      ? ' — dłuższy odpoczynek wyraźnie poprawia wydajność.'
+                      : ' — krótsze przerwy dają lepszą wydajność w Twoich danych.')
+                  : ' — przerwa nie ma wyraźnego wpływu na wydajność.'}
+              </div>
+            )}
+            <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px', marginBottom: 0 }}>
+              Apple Watch. Porównanie dwóch średnich, nie dowód naukowy.
             </p>
           </div>
         )}

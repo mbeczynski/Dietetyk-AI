@@ -527,6 +527,18 @@ const initDb = async () => {
     await run("ALTER TABLE health_metrics ADD COLUMN ai_explanation_generated_at TEXT DEFAULT NULL");
   } catch (e) {}
 
+  // Migracja: codzienny tracker samopoczucia (poziom energii i nastrój, skala 1-5).
+  // Oba pola ręcznie wpisywane przez użytkownika przez formularz na Dashboardzie
+  // (POST /api/feeling w health.js). Dają korelacje z dostępnymi danymi: energia vs.
+  // sen/HRV/posiłki, nastrój vs. aktywność/stres — bez żadnych nowych integracji.
+  // NULL = brak wpisu na dany dzień (użytkownik nie ocenił).
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN energy_level INTEGER DEFAULT NULL");
+  } catch (e) {}
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN mood INTEGER DEFAULT NULL");
+  } catch (e) {}
+
   // Domyślny cel wody (ml) dla istniejącego konta admina/Marcina, jeśli jeszcze nie ustawiony
   await run(`INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (1, 'target_water_ml', '2500')`);
 

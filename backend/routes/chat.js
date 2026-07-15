@@ -324,6 +324,7 @@ Aktualne statystyki użytkownika na dzień ${queryDate}:
 - Wynik Gotowości (Readiness): ${health.readiness_score !== null ? health.readiness_score : 'brak danych'}
 - Tętno spoczynkowe: ${health.rhr || '-'} bpm, HRV: ${health.hrv || '-'} ms
 - Wypita woda: ${health.water_ml || 0}ml (cel: ${getTargetWaterMl(settings)}ml)
+- Samopoczucie (ręczna ocena użytkownika, skala 1-5): Energia: ${health.energy_level != null ? health.energy_level + '/5' : 'nie oceniono'}, Nastrój: ${health.mood != null ? health.mood + '/5' : 'nie oceniono'}
 ${weeklyTrendSummary}
 ${dayEventsContext}
 ${historyContext}

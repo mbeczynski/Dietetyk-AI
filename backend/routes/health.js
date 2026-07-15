@@ -211,4 +211,46 @@ router.post('/api/supplements', requireAuth, async (req, res) => {
   }
 });
 
+// Zapisz/aktualizuj poziom energii i nastrój dla danego dnia (skala 1-5).
+// Oba pola są opcjonalne — można wysłać tylko jedno z nich.
+const FEELING_MIN = 1;
+const FEELING_MAX = 5;
+
+router.post('/api/feeling', requireAuth, async (req, res) => {
+  const { date, energy_level, mood } = req.body;
+  if (!date) return res.status(400).json({ error: 'Data jest wymagana.' });
+
+  const energy = energy_level != null ? Number(energy_level) : null;
+  const moodVal = mood != null ? Number(mood) : null;
+
+  if (energy !== null && (!Number.isInteger(energy) || energy < FEELING_MIN || energy > FEELING_MAX)) {
+    return res.status(400).json({ error: `Poziom energii musi być liczbą całkowitą ${FEELING_MIN}–${FEELING_MAX}.` });
+  }
+  if (moodVal !== null && (!Number.isInteger(moodVal) || moodVal < FEELING_MIN || moodVal > FEELING_MAX)) {
+    return res.status(400).json({ error: `Nastrój musi być liczbą całkowitą ${FEELING_MIN}–${FEELING_MAX}.` });
+  }
+  if (energy === null && moodVal === null) {
+    return res.status(400).json({ error: 'Podaj co najmniej jedno pole: energy_level lub mood.' });
+  }
+
+  try {
+    // COALESCE(excluded.pole, pole) = zachowaj istniejącą wartość, jeśli nowa jest NULL.
+    // Dzięki temu można zaktualizować samo energy_level bez kasowania mood i odwrotnie.
+    await db.run(`
+      INSERT INTO health_metrics (user_id, date, energy_level, mood)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id, date) DO UPDATE SET
+        energy_level = COALESCE(excluded.energy_level, energy_level),
+        mood         = COALESCE(excluded.mood, mood)
+    `, [req.user.id, date, energy, moodVal]);
+
+    await invalidateAiExplanationCache(req.user.id, date);
+    const row = await db.get(`SELECT energy_level, mood FROM health_metrics WHERE user_id = ? AND date = ?`, [req.user.id, date]);
+    res.json({ success: true, energy_level: row?.energy_level ?? null, mood: row?.mood ?? null });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd zapisu samopoczucia.' });
+  }
+});
+
 module.exports = router;

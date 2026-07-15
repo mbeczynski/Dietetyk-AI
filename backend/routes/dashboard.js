@@ -505,6 +505,7 @@ Aktualny bilans dzisiejszy:
 - Aktywność dzisiaj: ${displayActiveMinutes || 0} min aktywności, Dystans: ${displayDistanceMeters ? (Math.round(displayDistanceMeters / 100) / 10) + ' km' : '0 km'}, Czas siedzący: ${displaySedentaryMinutes || 0} min, Niska intensywność: ${displayLowActivityMinutes || 0} min
 - Wypita woda dzisiaj: ${health.water_ml || 0}ml (cel: ${getTargetWaterMl(settings)}ml)
 - Przyjęte suplementy dzisiaj: ${health.supplements || 'brak (użytkownik nie zapisał dzisiaj żadnych suplementów)'}
+- Samopoczucie (ręczna ocena użytkownika, skala 1-5): Energia: ${health.energy_level != null ? health.energy_level + '/5' : 'nie oceniono'}, Nastrój: ${health.mood != null ? health.mood + '/5' : 'nie oceniono'}
 - Treningi zarejestrowane dzisiaj (Apple Health): ${workouts.length > 0 ? workouts.map(w => {
     const base = `${w.type} (${w.duration_mins} min, ${w.calories} kcal)`;
     // Realne strefy kardio (Karvonen) zmierzone tętnem w trakcie treningu, gdy Health Auto
@@ -673,6 +674,8 @@ Używaj **pogrubienia** dla kluczowych liczb i fraz w Analizie i Rekomendacjach.
         stress_summary: displayStressSummary,
         water_ml: health.water_ml || 0,
         supplements: health.supplements || null,
+        energy_level: health.energy_level ?? null,
+        mood: health.mood ?? null,
         has_oura: !!hasOuraRow,
         has_withings: !!hasWithingsRow,
         activity_source: health.activity_source || null,
@@ -4626,6 +4629,439 @@ Bądź konkretny i praktyczny. Maks. 3 sugestie. Odpowiadaj tylko po polsku.`;
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Błąd pobierania analizy planu treningowego.' });
+  }
+});
+
+// =============================================================================
+// INSIGHTY TRENINGOWE (Runda 25): Oura + Apple Watch cross-device analytics
+// =============================================================================
+
+// Próg "dobrego" snu - taki sam jak w sleep-insight, tu lokalnie.
+const SLEEP_SCORE_GOOD_THRESHOLD = 75;
+// Próg "słabego" snu (dla grupowania: słaby vs dobry)
+const SLEEP_SCORE_POOR_THRESHOLD = 65;
+// Minimalna liczba dni w każdej grupie
+const WORKOUT_INSIGHT_MIN_DAYS = 5;
+// Lookback dla insightów treningowych (dni)
+const WORKOUT_INSIGHT_LOOKBACK = 60;
+// Próg "ciężkiego" treningu w minutach
+const HEAVY_WORKOUT_MIN_MINUTES = 30;
+// Próg "wysokiej gotowości" Oura
+const HIGH_READINESS_THRESHOLD = 70;
+// Próg "niskiej gotowości" Oura
+const LOW_READINESS_THRESHOLD = 55;
+
+// Helper: kcal/min z rekordu treningu (zwraca null jeśli brak danych)
+function kcalPerMin(row) {
+  if (!row || !row.active_calories || !row.duration_minutes || row.duration_minutes < 5) return null;
+  return Math.round((row.active_calories / row.duration_minutes) * 10) / 10;
+}
+
+// Helper: średnia z tablicy liczb (pomija null/undefined)
+function avgNonNull(arr) {
+  const vals = arr.filter(v => v != null && Number.isFinite(v));
+  if (vals.length === 0) return null;
+  return Math.round(vals.reduce((s, v) => s + v, 0) / vals.length * 10) / 10;
+}
+
+// INSIGHT: SEN OURA → WYDAJNOŚĆ TRENINGU APPLE WATCH (dzień następny)
+// Pytanie: czy noc z dobrym score'em snu przekłada się na lepszy trening dnia kolejnego?
+router.get('/api/dashboard/sleep-workout-performance-insight', requireAuth, async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -WORKOUT_INSIGHT_LOOKBACK);
+
+    // Pobierz wszystkie dni z danymi snu
+    const sleepRows = await db.all(
+      `SELECT date, sleep_score FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ?
+         AND sleep_score IS NOT NULL AND sleep_score > 0
+       ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+
+    if (sleepRows.length < WORKOUT_INSIGHT_MIN_DAYS * 2) {
+      return res.json({ hasEnoughData: false, reason: 'not_enough_sleep_days', minRequired: WORKOUT_INSIGHT_MIN_DAYS * 2, available: sleepRows.length });
+    }
+
+    // Dla każdego dnia ze snem sprawdź trening dzień później
+    const goodSleepPerf = [];
+    const poorSleepPerf = [];
+
+    for (const sleepRow of sleepRows) {
+      const nextDay = shiftDate(sleepRow.date, 1);
+      if (nextDay > today) continue;
+
+      const workouts = await db.all(
+        `SELECT active_calories, duration_minutes FROM apple_health_workouts
+         WHERE user_id = ? AND date = ? AND duration_minutes >= 10 AND active_calories > 0`,
+        [req.user.id, nextDay]
+      );
+      if (workouts.length === 0) continue;
+
+      // Weź najdłuższy trening tego dnia
+      const best = workouts.sort((a, b) => b.duration_minutes - a.duration_minutes)[0];
+      const kpm = kcalPerMin(best);
+      if (kpm == null) continue;
+
+      if (sleepRow.sleep_score >= SLEEP_SCORE_GOOD_THRESHOLD) {
+        goodSleepPerf.push(kpm);
+      } else if (sleepRow.sleep_score <= SLEEP_SCORE_POOR_THRESHOLD) {
+        poorSleepPerf.push(kpm);
+      }
+    }
+
+    if (goodSleepPerf.length < WORKOUT_INSIGHT_MIN_DAYS || poorSleepPerf.length < WORKOUT_INSIGHT_MIN_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_groups',
+        goodSleepDays: goodSleepPerf.length,
+        poorSleepDays: poorSleepPerf.length,
+        minRequired: WORKOUT_INSIGHT_MIN_DAYS
+      });
+    }
+
+    const avgGood = avgNonNull(goodSleepPerf);
+    const avgPoor = avgNonNull(poorSleepPerf);
+    const diff = avgGood != null && avgPoor != null ? Math.round((avgGood - avgPoor) * 10) / 10 : null;
+
+    res.json({
+      hasEnoughData: true,
+      goodSleepThreshold: SLEEP_SCORE_GOOD_THRESHOLD,
+      poorSleepThreshold: SLEEP_SCORE_POOR_THRESHOLD,
+      avgKcalPerMinAfterGoodSleep: avgGood,
+      avgKcalPerMinAfterPoorSleep: avgPoor,
+      diff,
+      goodSleepDays: goodSleepPerf.length,
+      poorSleepDays: poorSleepPerf.length,
+      lookbackDays: WORKOUT_INSIGHT_LOOKBACK
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu sen-trening.' });
+  }
+});
+
+// INSIGHT: GOTOWOŚĆ OURA → WYDAJNOŚĆ TRENINGU APPLE WATCH (ten sam dzień)
+// Pytanie: czy score gotowości Oury przekłada się na realną wydajność treningu?
+router.get('/api/dashboard/readiness-workout-insight', requireAuth, async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -WORKOUT_INSIGHT_LOOKBACK);
+
+    // Dni z gotowością Oury
+    const readinessRows = await db.all(
+      `SELECT hm.date, hm.readiness_score
+       FROM health_metrics hm
+       WHERE hm.user_id = ? AND hm.date >= ? AND hm.date <= ?
+         AND hm.readiness_score IS NOT NULL AND hm.readiness_score > 0
+       ORDER BY hm.date ASC`,
+      [req.user.id, startDate, today]
+    );
+
+    if (readinessRows.length < WORKOUT_INSIGHT_MIN_DAYS * 2) {
+      return res.json({ hasEnoughData: false, reason: 'not_enough_readiness_days', available: readinessRows.length });
+    }
+
+    const highReadinessPerf = [];
+    const lowReadinessPerf = [];
+
+    for (const rRow of readinessRows) {
+      const workouts = await db.all(
+        `SELECT active_calories, duration_minutes FROM apple_health_workouts
+         WHERE user_id = ? AND date = ? AND duration_minutes >= 10 AND active_calories > 0`,
+        [req.user.id, rRow.date]
+      );
+      if (workouts.length === 0) continue;
+
+      const best = workouts.sort((a, b) => b.duration_minutes - a.duration_minutes)[0];
+      const kpm = kcalPerMin(best);
+      if (kpm == null) continue;
+
+      if (rRow.readiness_score >= HIGH_READINESS_THRESHOLD) {
+        highReadinessPerf.push(kpm);
+      } else if (rRow.readiness_score <= LOW_READINESS_THRESHOLD) {
+        lowReadinessPerf.push(kpm);
+      }
+    }
+
+    if (highReadinessPerf.length < WORKOUT_INSIGHT_MIN_DAYS || lowReadinessPerf.length < WORKOUT_INSIGHT_MIN_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_groups',
+        highReadinessDays: highReadinessPerf.length,
+        lowReadinessDays: lowReadinessPerf.length,
+        minRequired: WORKOUT_INSIGHT_MIN_DAYS
+      });
+    }
+
+    const avgHigh = avgNonNull(highReadinessPerf);
+    const avgLow = avgNonNull(lowReadinessPerf);
+    const diff = avgHigh != null && avgLow != null ? Math.round((avgHigh - avgLow) * 10) / 10 : null;
+
+    res.json({
+      hasEnoughData: true,
+      highReadinessThreshold: HIGH_READINESS_THRESHOLD,
+      lowReadinessThreshold: LOW_READINESS_THRESHOLD,
+      avgKcalPerMinHighReadiness: avgHigh,
+      avgKcalPerMinLowReadiness: avgLow,
+      diff,
+      highReadinessDays: highReadinessPerf.length,
+      lowReadinessDays: lowReadinessPerf.length,
+      lookbackDays: WORKOUT_INSIGHT_LOOKBACK
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu gotowość-trening.' });
+  }
+});
+
+// INSIGHT: POLARYZACJA STREF TĘTNA 80/20 (Apple Watch only)
+// Pytanie: czy treningi są odpowiednio spolaryzowane (80% aerobowe / 20% intensywne)?
+// Teoria 80/20: optymalny podział dla wytrzymałości i regeneracji.
+router.get('/api/dashboard/hr-polarization-insight', requireAuth, async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -WORKOUT_INSIGHT_LOOKBACK);
+
+    const workoutRows = await db.all(
+      `SELECT zone1_minutes, zone2_minutes, zone3_minutes, zone4_minutes, zone5_minutes,
+              duration_minutes
+       FROM apple_health_workouts
+       WHERE user_id = ? AND date >= ? AND date <= ?
+         AND duration_minutes >= 10
+         AND (zone1_minutes IS NOT NULL OR zone2_minutes IS NOT NULL
+              OR zone3_minutes IS NOT NULL OR zone4_minutes IS NOT NULL OR zone5_minutes IS NOT NULL)`,
+      [req.user.id, startDate, today]
+    );
+
+    if (workoutRows.length < WORKOUT_INSIGHT_MIN_DAYS) {
+      return res.json({ hasEnoughData: false, reason: 'not_enough_workouts', available: workoutRows.length, minRequired: WORKOUT_INSIGHT_MIN_DAYS });
+    }
+
+    let totalZ1 = 0, totalZ2 = 0, totalZ3 = 0, totalZ4 = 0, totalZ5 = 0;
+    for (const w of workoutRows) {
+      totalZ1 += w.zone1_minutes ?? 0;
+      totalZ2 += w.zone2_minutes ?? 0;
+      totalZ3 += w.zone3_minutes ?? 0;
+      totalZ4 += w.zone4_minutes ?? 0;
+      totalZ5 += w.zone5_minutes ?? 0;
+    }
+
+    const totalZone = totalZ1 + totalZ2 + totalZ3 + totalZ4 + totalZ5;
+    if (totalZone < 60) {
+      return res.json({ hasEnoughData: false, reason: 'not_enough_zone_data', totalMinutes: totalZone });
+    }
+
+    const pct = (v) => Math.round(v / totalZone * 100);
+    const easyPct = pct(totalZ1 + totalZ2);   // Strefy 1-2 = łatwy wysiłek aerobowy
+    const hardPct = pct(totalZ4 + totalZ5);   // Strefy 4-5 = intensywny/anaerobowy
+    const midPct  = pct(totalZ3);             // Strefa 3 = "szara strefa" (unika się w 80/20)
+
+    // Idealny podział: ≥80% łatwy, ≤10% środkowy, ≥15% intensywny
+    const isWellPolarized = easyPct >= 75 && hardPct >= 10 && midPct <= 15;
+    const tooMuchGrayZone = midPct > 25;
+
+    res.json({
+      hasEnoughData: true,
+      totalZoneMinutes: Math.round(totalZone),
+      workoutsAnalyzed: workoutRows.length,
+      zone1Pct: pct(totalZ1),
+      zone2Pct: pct(totalZ2),
+      zone3Pct: midPct,
+      zone4Pct: pct(totalZ4),
+      zone5Pct: pct(totalZ5),
+      easyPct,
+      hardPct,
+      midPct,
+      isWellPolarized,
+      tooMuchGrayZone,
+      lookbackDays: WORKOUT_INSIGHT_LOOKBACK
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu polaryzacji stref.' });
+  }
+});
+
+// INSIGHT: CIĘŻKI TRENING APPLE WATCH → HRV/RHR OURA DZIEń +1/+2
+// Pytanie: jak długo po intensywnym treningu HRV/RHR są zaburzone?
+router.get('/api/dashboard/workout-recovery-hrv-insight', requireAuth, async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -WORKOUT_INSIGHT_LOOKBACK);
+
+    // Znajdź ciężkie treningi (≥30 min)
+    const heavyWorkouts = await db.all(
+      `SELECT DISTINCT date FROM apple_health_workouts
+       WHERE user_id = ? AND date >= ? AND date <= ?
+         AND duration_minutes >= ? AND active_calories > 100`,
+      [req.user.id, startDate, shiftDate(today, -2), HEAVY_WORKOUT_MIN_MINUTES]
+    );
+
+    if (heavyWorkouts.length < WORKOUT_INSIGHT_MIN_DAYS) {
+      return res.json({ hasEnoughData: false, reason: 'not_enough_heavy_workouts', available: heavyWorkouts.length, minRequired: WORKOUT_INSIGHT_MIN_DAYS });
+    }
+
+    // Dni bazowe (bez treningu i nie następny/pojutrze po ciężkim treningu)
+    const heavyDates = new Set(heavyWorkouts.map(r => r.date));
+    const post1Hrv = [], post1Rhr = [];
+    const post2Hrv = [], post2Rhr = [];
+
+    for (const w of heavyWorkouts) {
+      const day1 = shiftDate(w.date, 1);
+      const day2 = shiftDate(w.date, 2);
+      if (day1 > today || day2 > today) continue;
+
+      const m1 = await db.get(
+        `SELECT hrv, rhr FROM health_metrics WHERE user_id = ? AND date = ? AND (hrv IS NOT NULL OR rhr IS NOT NULL)`,
+        [req.user.id, day1]
+      );
+      if (m1) {
+        if (m1.hrv > 0) post1Hrv.push(m1.hrv);
+        if (m1.rhr > 0) post1Rhr.push(m1.rhr);
+      }
+
+      const m2 = await db.get(
+        `SELECT hrv, rhr FROM health_metrics WHERE user_id = ? AND date = ? AND (hrv IS NOT NULL OR rhr IS NOT NULL)`,
+        [req.user.id, day2]
+      );
+      if (m2) {
+        if (m2.hrv > 0) post2Hrv.push(m2.hrv);
+        if (m2.rhr > 0) post2Rhr.push(m2.rhr);
+      }
+    }
+
+    // Baseline HRV/RHR (dni bez ciężkiego treningu i bez dnia po ciężkim treningu)
+    const baselineRows = await db.all(
+      `SELECT date, hrv, rhr FROM health_metrics
+       WHERE user_id = ? AND date >= ? AND date <= ?
+         AND (hrv > 0 OR rhr > 0)`,
+      [req.user.id, startDate, today]
+    );
+
+    const baselineHrv = [], baselineRhr = [];
+    for (const b of baselineRows) {
+      const isPostHeavy = heavyDates.has(shiftDate(b.date, -1)) || heavyDates.has(shiftDate(b.date, -2)) || heavyDates.has(b.date);
+      if (!isPostHeavy) {
+        if (b.hrv > 0) baselineHrv.push(b.hrv);
+        if (b.rhr > 0) baselineRhr.push(b.rhr);
+      }
+    }
+
+    if (post1Hrv.length < 3 && post1Rhr.length < 3) {
+      return res.json({ hasEnoughData: false, reason: 'not_enough_recovery_data' });
+    }
+
+    const avgPost1Hrv = avgNonNull(post1Hrv);
+    const avgPost2Hrv = avgNonNull(post2Hrv);
+    const avgBaseHrv  = avgNonNull(baselineHrv);
+    const avgPost1Rhr = avgNonNull(post1Rhr);
+    const avgPost2Rhr = avgNonNull(post2Rhr);
+    const avgBaseRhr  = avgNonNull(baselineRhr);
+
+    res.json({
+      hasEnoughData: true,
+      heavyWorkoutDays: heavyWorkouts.length,
+      heavyWorkoutMinMinutes: HEAVY_WORKOUT_MIN_MINUTES,
+      avgHrvDay1: avgPost1Hrv,
+      avgHrvDay2: avgPost2Hrv,
+      avgHrvBaseline: avgBaseHrv,
+      avgRhrDay1: avgPost1Rhr,
+      avgRhrDay2: avgPost2Rhr,
+      avgRhrBaseline: avgBaseRhr,
+      hrvDiff1: avgPost1Hrv != null && avgBaseHrv != null ? Math.round((avgPost1Hrv - avgBaseHrv) * 10) / 10 : null,
+      hrvDiff2: avgPost2Hrv != null && avgBaseHrv != null ? Math.round((avgPost2Hrv - avgBaseHrv) * 10) / 10 : null,
+      rhrDiff1: avgPost1Rhr != null && avgBaseRhr != null ? Math.round((avgPost1Rhr - avgBaseRhr) * 10) / 10 : null,
+      rhrDiff2: avgPost2Rhr != null && avgBaseRhr != null ? Math.round((avgPost2Rhr - avgBaseRhr) * 10) / 10 : null,
+      lookbackDays: WORKOUT_INSIGHT_LOOKBACK
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu regeneracja HRV po treningu.' });
+  }
+});
+
+// INSIGHT: PRZERWA MIĘDZY TRENINGAMI → WYDAJNOŚĆ (Apple Watch only)
+// Pytanie: czy więcej dni odpoczynku przekłada się na lepszą wydajność treningu?
+router.get('/api/dashboard/workout-rest-performance-insight', requireAuth, async (req, res) => {
+  try {
+    const today = resolveQueryDate(req);
+    const startDate = shiftDate(today, -WORKOUT_INSIGHT_LOOKBACK);
+
+    // Pobierz wszystkie dni treningowe posortowane
+    const workoutDays = await db.all(
+      `SELECT date, active_calories, duration_minutes FROM apple_health_workouts
+       WHERE user_id = ? AND date >= ? AND date <= ?
+         AND duration_minutes >= 10 AND active_calories > 0
+       ORDER BY date ASC`,
+      [req.user.id, startDate, today]
+    );
+
+    if (workoutDays.length < WORKOUT_INSIGHT_MIN_DAYS * 2) {
+      return res.json({ hasEnoughData: false, reason: 'not_enough_workouts', available: workoutDays.length, minRequired: WORKOUT_INSIGHT_MIN_DAYS * 2 });
+    }
+
+    // Dla każdego treningu (poza pierwszym) oblicz ile dni minęło od poprzedniego
+    const fewRestPerf = [];   // 0-1 dni przerwy
+    const moreRestPerf = [];  // 2+ dni przerwy
+
+    // Grupuj po datach (jeden wynik na dzień - najdłuższy trening)
+    const byDate = {};
+    for (const w of workoutDays) {
+      if (!byDate[w.date] || w.duration_minutes > byDate[w.date].duration_minutes) {
+        byDate[w.date] = w;
+      }
+    }
+    const sortedDates = Object.keys(byDate).sort();
+
+    for (let i = 1; i < sortedDates.length; i++) {
+      const curr = byDate[sortedDates[i]];
+      const prev = byDate[sortedDates[i - 1]];
+      const kpm = kcalPerMin(curr);
+      if (kpm == null) continue;
+
+      // Ile dni między poprzednim treningiem a tym
+      const [py, pm, pd] = prev.date.split('-').map(Number);
+      const [cy, cm, cd] = curr.date.split('-').map(Number);
+      const daysDiff = Math.round(
+        (Date.UTC(cy, cm - 1, cd) - Date.UTC(py, pm - 1, pd)) / 86400000
+      ) - 1; // -1 bo liczymy dni MIĘDZY, nie od dnia treningu
+
+      if (daysDiff <= 1) {
+        fewRestPerf.push(kpm);
+      } else {
+        moreRestPerf.push(kpm);
+      }
+    }
+
+    if (fewRestPerf.length < WORKOUT_INSIGHT_MIN_DAYS || moreRestPerf.length < WORKOUT_INSIGHT_MIN_DAYS) {
+      return res.json({
+        hasEnoughData: false,
+        reason: 'not_enough_groups',
+        fewRestDays: fewRestPerf.length,
+        moreRestDays: moreRestPerf.length,
+        minRequired: WORKOUT_INSIGHT_MIN_DAYS
+      });
+    }
+
+    const avgFew  = avgNonNull(fewRestPerf);
+    const avgMore = avgNonNull(moreRestPerf);
+    const diff = avgMore != null && avgFew != null ? Math.round((avgMore - avgFew) * 10) / 10 : null;
+
+    res.json({
+      hasEnoughData: true,
+      avgKcalPerMinFewRest: avgFew,
+      avgKcalPerMinMoreRest: avgMore,
+      diff,
+      fewRestDays: fewRestPerf.length,
+      moreRestDays: moreRestPerf.length,
+      restThreshold: 2,
+      lookbackDays: WORKOUT_INSIGHT_LOOKBACK
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Błąd pobierania insightu przerwa-wydajność.' });
   }
 });
 

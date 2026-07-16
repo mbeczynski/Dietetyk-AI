@@ -58,6 +58,19 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000); // co 5 minut
 
+const updateLastMealModifiedAt = async (userId, date) => {
+  const nowIso = new Date().toISOString();
+  try {
+    await db.run(`
+      INSERT INTO health_metrics (user_id, date, last_meal_modified_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id, date) DO UPDATE SET last_meal_modified_at = excluded.last_meal_modified_at
+    `, [userId, date, nowIso]);
+  } catch (err) {
+    console.error('[DB ERROR] Błąd aktualizacji last_meal_modified_at:', err);
+  }
+};
+
 router.post('/api/meals', async (req, res) => {
   const { rawText, date, image } = req.body;
   const targetDate = date || getLocalDateString();
@@ -336,6 +349,8 @@ Struktura JSON:
       response: cachedResponse
     });
 
+    await updateLastMealModifiedAt(req.user.id, targetDate);
+
     res.status(201).json(responsePayload);
 
   } catch (err) {
@@ -401,7 +416,10 @@ router.delete('/api/meals/:id', async (req, res) => {
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Nie znaleziono posiłku.' });
     }
-    if (meal) await invalidateAiExplanationCache(req.user.id, meal.date);
+    if (meal) {
+      await invalidateAiExplanationCache(req.user.id, meal.date);
+      await updateLastMealModifiedAt(req.user.id, meal.date);
+    }
     res.json({ success: true, message: 'Posiłek został usunięty.' });
   } catch (err) {
     console.error(err);
@@ -502,6 +520,7 @@ router.post('/api/meals/repeat', async (req, res) => {
     }
 
     await invalidateAiExplanationCache(req.user.id, targetDate);
+    await updateLastMealModifiedAt(req.user.id, targetDate);
 
     res.status(201).json({
       count: 1,

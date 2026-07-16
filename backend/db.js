@@ -404,6 +404,7 @@ const initDb = async () => {
       last_sync TEXT DEFAULT NULL,
       ai_advice TEXT DEFAULT NULL,
       ai_advice_generated_at TEXT DEFAULT NULL,
+      last_meal_modified_at TEXT DEFAULT NULL,
       supplements TEXT DEFAULT NULL,
       PRIMARY KEY(user_id, date),
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -420,6 +421,10 @@ const initDb = async () => {
 
   try {
     await run("ALTER TABLE health_metrics ADD COLUMN ai_advice_generated_at TEXT");
+  } catch (e) {}
+
+  try {
+    await run("ALTER TABLE health_metrics ADD COLUMN last_meal_modified_at TEXT DEFAULT NULL");
   } catch (e) {}
 
   // Migracja: licznik wypitej wody (dzienny licznik, podobnie jak steps - zeruje się każdego dnia)

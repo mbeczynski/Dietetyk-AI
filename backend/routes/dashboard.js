@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { requireAuth } = require('../middleware/auth');
 const { getLocalDateString } = require('../utils/dates');
 const { getDefaultHealthMetrics } = require('../utils/defaultHealthMetrics');
 const { getCalorieBaseline, detectMealAnomalies } = require('../utils/mealAnomaly');
@@ -373,7 +374,7 @@ router.get('/api/dashboard', async (req, res) => {
     const targetSleepForStreak = (settings.target_sleep_duration === undefined || isNaN(settings.target_sleep_duration)) ? 7.2 : settings.target_sleep_duration;
     const sleepStreakDays = computeStreak(sleepMap, date, (duration) => duration >= targetSleepForStreak);
 
-    // Generowanie porady od Dietetyka AI na bazie dzisiejszych danych (opcjonalne/throttled co 30 min)
+    // Generowanie porady od Dietetyka AI na bazie dzisiejszych danych (opcjonalne/throttled co 4h lub natychmiast po zmianie posiłku)
     let aiAdvice = "Zmień swoje integracje w profilu i dodaj dzisiejsze posiłki, aby otrzymać wskazówki od AI.";
     let hasValidCache = false;
 
@@ -381,7 +382,11 @@ router.get('/api/dashboard', async (req, res) => {
       aiAdvice = health.ai_advice;
       if (health.ai_advice_generated_at) {
         const lastGenerated = new Date(health.ai_advice_generated_at).getTime();
-        if (Date.now() - lastGenerated < 30 * 60 * 1000) {
+        const lastModified = health.last_meal_modified_at ? new Date(health.last_meal_modified_at).getTime() : 0;
+        
+        // Cache jest ważny, gdy porada została wygenerowana po ostatniej modyfikacji posiłku
+        // ORAZ od czasu generowania minęło mniej niż 4 godziny (4 * 60 * 60 * 1000)
+        if (lastGenerated > lastModified && (Date.now() - lastGenerated < 4 * 60 * 60 * 1000)) {
           hasValidCache = true;
         }
       }

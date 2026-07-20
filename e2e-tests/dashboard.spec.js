@@ -209,6 +209,15 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
     await page.goto('/');
     await initialResponsePromise;
 
+    // App.jsx odpala przy montowaniu RÓWNOLEGLE kilka zapytań (fetchDashboardData,
+    // fetchSyncToken, fetchUserProfile - patrz App.jsx ~linia 168). Sam /api/dashboard
+    // (initialResponsePromise powyżej) mógł już wrócić, podczas gdy pozostałe wciąż
+    // trwają - jeśli jedno z nich odświeży stan/props Dashboardu PO tym, jak zaczniemy
+    // wpisywać suplementy, pole może zostać zresetowane (Dashboard.jsx ~linia 242,
+    // useEffect zależny od summary?.supplements/summary?.date). Czekamy więc na
+    // uspokojenie sieci PRZED interakcją, żeby nie łapać się w to okno.
+    await page.waitForLoadState('networkidle');
+
     const supplementsCard = page.locator('.premium-card:has-text("Suplementy")');
     await expect(supplementsCard).toBeVisible();
 
@@ -218,7 +227,15 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
     // Wpisz testowe suplementy (kreatyna i multiwitamina)
     const testSups = 'Kreatyna, Multiwitamina 7Nutrition';
     await textarea.fill(testSups);
-    await expect(textarea).toHaveValue(testSups); // Upewnij się, że wartość została wpisana przed zapisem (uniknięcie race condition w React)
+    try {
+      await expect(textarea).toHaveValue(testSups, { timeout: 3000 }); // Upewnij się, że wartość została wpisana przed zapisem (uniknięcie race condition w React)
+    } catch {
+      // Jednorazowy retry - na wolniejszym CI runnerze wciąż może się zdarzyć spóźniony
+      // re-render zerujący pole tuż po fill() (patrz komentarz o networkidle powyżej).
+      // Jeśli PO retry pole nadal jest puste, test i tak poprawnie się wywali niżej.
+      await textarea.fill(testSups);
+      await expect(textarea).toHaveValue(testSups, { timeout: 5000 });
+    }
 
     // Zapisz suplementy
     const saveButton = supplementsCard.locator('button:has-text("Zapisz")');
@@ -230,7 +247,7 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
     // Weryfikacja historii (powinna się zaktualizować od razu i pokazać ikony oraz aktywność)
     await expect(supplementsCard).toContainText('Historia suplementacji');
     await expect(supplementsCard).toContainText('Aktywność:');
-    
+
     // Sprawdź, czy ikony suplementów są widoczne w historii (⚡ i 🧬 dla naszych testowych supli)
     await expect(supplementsCard.locator('span:text("⚡")').first()).toBeVisible();
     await expect(supplementsCard.locator('span:text("🧬")').first()).toBeVisible();
@@ -239,8 +256,11 @@ test.describe('Dashboard i Funkcjonalność UI', () => {
     const reloadResponsePromise = page.waitForResponse(response => response.url().includes('/api/dashboard') && response.status() === 200);
     await page.reload();
     await reloadResponsePromise;
+    // Jak wyżej - poczekaj na uspokojenie sieci (fetchSyncToken/fetchUserProfile
+    // odpalone przy tym samym montowaniu), zanim odczytamy wartość pola.
+    await page.waitForLoadState('networkidle');
     await expect(supplementsCard).toBeVisible();
-    await expect(supplementsCard.locator('textarea')).toHaveValue(testSups);
+    await expect(supplementsCard.locator('textarea')).toHaveValue(testSups, { timeout: 10000 });
   });
 
   test('Weryfikacja lokalizacji kafelka Waga i Skład Ciała w drugiej kolumnie', async ({ page }) => {

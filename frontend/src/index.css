@@ -80,6 +80,23 @@ body {
   padding-right: env(safe-area-inset-right);
 }
 
+/* Dedykowane, półprzezroczyste suwaki przewijania (Webkit scrollbar) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 58, 237, 0.5);
+}
+
 /* Dekoracyjne tła - świetliste kule */
 body::before, body::after {
   content: '';
@@ -402,7 +419,7 @@ header {
 }
 
 .btn-primary:active:not(:disabled) {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.98);
 }
 
 .btn-primary:disabled {
@@ -436,7 +453,7 @@ header {
 }
 
 .btn-secondary:active:not(:disabled) {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.98);
 }
 
 .btn-secondary:disabled {

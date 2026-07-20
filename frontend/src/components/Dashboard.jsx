@@ -1995,9 +1995,17 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (isChatOpen) {
+      document.body.style.overflow = 'hidden';
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+    } else {
+      document.body.style.overflow = '';
     }
+    return () => {
+      document.body.style.overflow = '';
+    };
   }, [chatMessages, isChatOpen]);
 
   // `overrideText` pozwala wysłać wiadomość bez przepisywania jej do pola input -
@@ -5535,19 +5543,28 @@ export default function Dashboard({ summary, aiAdvice, sessionToken, selectedDat
           bottom: 0,
           background: 'rgba(0,0,0,0.7)',
           backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
           display: 'flex',
           justifyContent: 'flex-end',
+          alignItems: 'center',
+          padding: '20px',
           zIndex: 9999,
           animation: 'fadeIn 0.2s ease-out'
         }} onClick={() => setIsChatOpen(false)}>
           <div style={{
             width: '100%',
-            maxWidth: '450px',
-            height: '100%',
-            background: '#0d0e0e',
-            borderLeft: '1px solid rgba(255,255,255,0.05)',
+            maxWidth: '460px',
+            maxHeight: 'calc(100vh - 40px)',
+            height: 'min(720px, calc(100vh - 40px))',
+            background: 'rgba(13, 14, 14, 0.96)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '24px',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.8), 0 0 30px rgba(124, 58, 237, 0.15)',
             display: 'flex',
             flexDirection: 'column',
+            overflow: 'hidden',
             animation: 'slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
           }} onClick={(e) => e.stopPropagation()}>
             

@@ -518,6 +518,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
                   onMouseEnter={() => setHoverInfo({ chartKey: key, idx })}
                   onMouseLeave={() => setHoverInfo(prev => (prev && prev.chartKey === key && prev.idx === idx) ? null : prev)}
                   onClick={toggleHover}
+                  onTouchStart={(e) => { e.stopPropagation(); toggleHover(); }}
                 >
                   {/* Niewidoczne, większe pole "trafienia" wokół punktu */}
                   <circle cx={p.x} cy={p.y} r="9" fill="transparent" />
@@ -672,6 +673,7 @@ export default function Trends({ selectedDate, sessionToken, onLogout }) {
                   onMouseEnter={() => setHoverInfo({ chartKey, idx })}
                   onMouseLeave={() => setHoverInfo(prev => (prev && prev.chartKey === chartKey && prev.idx === idx) ? null : prev)}
                   onClick={toggleHover}
+                  onTouchStart={(e) => { e.stopPropagation(); toggleHover(); }}
                 >
                   {/* Niewidoczne, szersze pole interakcji */}
                   <line x1={p.x} y1={topMargin} x2={p.x} y2={svgHeight - 15} stroke="transparent" strokeWidth="12" />

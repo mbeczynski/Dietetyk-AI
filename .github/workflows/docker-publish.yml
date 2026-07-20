@@ -355,24 +355,52 @@ jobs:
         id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
+      # Retry z fetch+reset przed każdą próbą (Runda 19 - naprawa po prawdziwej
+      # kolizji push'a): jeśli w międzyczasie main przesunęło się (inny bieg tego
+      # samego workflow, np. push i ręczny workflow_dispatch blisko siebie w
+      # czasie), zwykły `git push` dostaje "rejected (fetch first)" i cały krok
+      # pada, mimo że zmiana w values.yaml jest identyczna/nieszkodliwa. Zamiast
+      # tego resetujemy do najświeższego origin/main i powtarzamy idempotentne
+      # sed'y - jeśli inny bieg już wprowadził tę samą zmianę, `git diff --cached
+      # --quiet` wykryje brak realnej różnicy i pomijamy commit.
       - name: Update image tags in values.yaml
         run: |
-          UPDATED=false
-          if [ "${{ needs.build-backend.result }}" = "success" ]; then
-            sed -i '/backend:/,/tag:/ { s/tag: .*/tag: "sha-${{ steps.vars.outputs.sha_short }}"/ }' charts/dietetyk/values.yaml
-            UPDATED=true
-          fi
-          if [ "${{ needs.build-frontend.result }}" = "success" ]; then
-            sed -i '/frontend:/,/tag:/ { s/tag: .*/tag: "sha-${{ steps.vars.outputs.sha_short }}"/ }' charts/dietetyk/values.yaml
-            UPDATED=true
-          fi
-          
-          if [ "$UPDATED" = "true" ]; then
-            git config --global user.name "github-actions[bot]"
-            git config --global user.email "github-actions[bot]@users.noreply.github.com"
-            git add charts/dietetyk/values.yaml
-            git commit -m "chore: update image tags to sha-${{ steps.vars.outputs.sha_short }} [skip ci]" || exit 0
-            git push
-          else
+          if [ "${{ needs.build-backend.result }}" != "success" ] && [ "${{ needs.build-frontend.result }}" != "success" ]; then
             echo "No images were built, skipping Helm tag update."
+            exit 0
           fi
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+
+            if [ "${{ needs.build-backend.result }}" = "success" ]; then
+              sed -i '/backend:/,/tag:/ { s/tag: .*/tag: "sha-${{ steps.vars.outputs.sha_short }}"/ }' charts/dietetyk/values.yaml
+            fi
+            if [ "${{ needs.build-frontend.result }}" = "success" ]; then
+              sed -i '/frontend:/,/tag:/ { s/tag: .*/tag: "sha-${{ steps.vars.outputs.sha_short }}"/ }' charts/dietetyk/values.yaml
+            fi
+            git add charts/dietetyk/values.yaml
+
+            if git diff --cached --quiet; then
+              echo "Tagi już aktualne na origin/main (ustawione przez inny bieg) - pomijam commit."
+              break
+            fi
+
+            git commit -m "chore: update image tags to sha-${{ steps.vars.outputs.sha_short }} [skip ci]"
+
+            if git push; then
+              echo "Wypchnięto pomyślnie (próba $attempt/5)."
+              break
+            fi
+
+            if [ "$attempt" = "5" ]; then
+              echo "::error::Nie udało się wypchnąć zmiany do main po 5 próbach."
+              exit 1
+            fi
+            echo "Push odrzucony (próba $attempt/5) - main przesunęło się w międzyczasie, ponawiam..."
+            sleep $(( (RANDOM % 5) + 1 ))
+          done

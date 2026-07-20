@@ -19,6 +19,10 @@
 //   wskazywało na właściwy plik .db, np. `docker compose exec dietetyk-backend
 //   node scripts/encrypt-existing-secrets.js`)
 
+// Ładujemy .env jawnie (jak config.js) - ten skrypt uruchamiany jest samodzielnie
+// (node scripts/...), nie przez server.js, więc nic wcześniej nie załadowało dotenv.
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
 const db = require('../db');
 const { encrypt } = require('../utils/encryption');
 const { USER_SECRET_SETTING_KEYS, APP_SECRET_CONFIG_KEYS } = require('../utils/secretKeys');

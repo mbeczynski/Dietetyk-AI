@@ -50,7 +50,7 @@ function messageNeedsLongHistory(msg) {
 // Podsumowanie tygodniowe (okna 7-dniowe od najstarszej daty w zakresie) - używane
 // przy rozszerzonym oknie historii. Pomija okna bez żadnych danych (brak posiłków,
 // wagi, kroków i snu), żeby nie zaśmiecać promptu liniami "brak danych".
-function buildWeeklyTrendSummary(historyMetrics, historyMeals, startDateStr, endDateStr) {
+function buildWeeklyTrendSummary(historyMetrics, historyMeals, historyWorkouts, startDateStr, endDateStr) {
   const mealsByDate = {};
   historyMeals.forEach(m => {
     if (!mealsByDate[m.date]) mealsByDate[m.date] = [];
@@ -58,6 +58,11 @@ function buildWeeklyTrendSummary(historyMetrics, historyMeals, startDateStr, end
   });
   const metricsByDate = {};
   historyMetrics.forEach(hm => { metricsByDate[hm.date] = hm; });
+  const workoutsByDate = {};
+  historyWorkouts.forEach(w => {
+    if (!workoutsByDate[w.date]) workoutsByDate[w.date] = [];
+    workoutsByDate[w.date].push(w);
+  });
 
   const msPerDay = 24 * 60 * 60 * 1000;
   const startTime = new Date(startDateStr).getTime();
@@ -74,6 +79,8 @@ function buildWeeklyTrendSummary(historyMetrics, historyMeals, startDateStr, end
     const weightVals = [];
     const stepsVals = [];
     const sleepVals = [];
+    let workoutCount = 0, workoutMinutes = 0;
+    const workoutTypes = new Set();
 
     for (let d = bucketStart; d < bucketStart + bucketLen; d++) {
       const dateStr = new Date(startTime + d * msPerDay).toISOString().slice(0, 10);
@@ -91,9 +98,17 @@ function buildWeeklyTrendSummary(historyMetrics, historyMeals, startDateStr, end
         if (hm.steps) stepsVals.push(hm.steps);
         if (hm.sleep_score) sleepVals.push(hm.sleep_score);
       }
+      const dayWorkouts = workoutsByDate[dateStr];
+      if (dayWorkouts && dayWorkouts.length > 0) {
+        workoutCount += dayWorkouts.length;
+        dayWorkouts.forEach(w => {
+          workoutMinutes += w.duration_minutes || 0;
+          if (w.workout_type) workoutTypes.add(w.workout_type);
+        });
+      }
     }
 
-    if (daysWithMeals === 0 && weightVals.length === 0 && stepsVals.length === 0 && sleepVals.length === 0) {
+    if (daysWithMeals === 0 && weightVals.length === 0 && stepsVals.length === 0 && sleepVals.length === 0 && workoutCount === 0) {
       continue;
     }
 
@@ -105,6 +120,7 @@ function buildWeeklyTrendSummary(historyMetrics, historyMeals, startDateStr, end
     if (weightVals.length > 0) parts.push(`waga śr. ${Math.round(avg(weightVals) * 10) / 10} kg`);
     if (stepsVals.length > 0) parts.push(`kroki śr. ${Math.round(avg(stepsVals))}`);
     if (sleepVals.length > 0) parts.push(`sen śr. ${Math.round(avg(sleepVals))}/100`);
+    if (workoutCount > 0) parts.push(`treningi: ${workoutCount} (łącznie ${Math.round(workoutMinutes)} min, typy: ${Array.from(workoutTypes).join(', ') || 'nieznane'})`);
 
     summary += `- Okres ${bucketStartDate} – ${bucketEndDate}: ${parts.join(', ')}\n`;
   }
@@ -150,6 +166,26 @@ router.post('/api/chat', requireAuth, async (req, res) => {
     const totalBurned = health.total_calories_burned || (bmr + activeCalories);
     const netCalories = totalEaten.calories - totalBurned;
 
+    // Treningi z Apple Health (apple_health_workouts) dla wybranego dnia - wcześniej
+    // czat w ogóle nie widział tych danych, mimo że są zbierane i wykorzystywane na
+    // Dashboardzie (patrz routes/dashboard.js). Potrzebne, żeby AI mogło odpowiadać
+    // na pytania o trening/progres siłowy w oparciu o realną aktywność użytkownika,
+    // a nie zgadywać "w ciemno".
+    const todayWorkoutRows = await db.all(
+      `SELECT workout_type, duration_minutes, active_calories, avg_heart_rate, max_heart_rate
+       FROM apple_health_workouts WHERE user_id = ? AND date = ? ORDER BY updated_at DESC`,
+      [req.user.id, queryDate]
+    );
+    const todayWorkoutsText = todayWorkoutRows.length === 0
+      ? 'brak zarejestrowanych treningów'
+      : todayWorkoutRows.map(w => {
+          const parts = [`${w.workout_type || 'Trening'} (${Math.round(w.duration_minutes || 0)} min`];
+          if (w.active_calories) parts.push(`, ${Math.round(w.active_calories)} kcal`);
+          if (w.avg_heart_rate) parts.push(`, śr. tętno ${Math.round(w.avg_heart_rate)} bpm`);
+          if (w.max_heart_rate) parts.push(`, maks. tętno ${Math.round(w.max_heart_rate)} bpm`);
+          return parts.join('') + ')';
+        }).join('; ');
+
     // Pobierz najświeższe dane dla wagi, tłuszczu i mięśni (jeśli dzisiejsze są null)
     let displayWeight = health.weight;
     let displayFatRatio = health.fat_ratio;
@@ -194,14 +230,21 @@ router.post('/api/chat', requireAuth, async (req, res) => {
       ORDER BY date ASC
     `, [req.user.id, pastDateStr, queryDate]);
 
+    const historyWorkouts = await db.all(`
+      SELECT date, workout_type, duration_minutes, active_calories, avg_heart_rate, max_heart_rate
+      FROM apple_health_workouts
+      WHERE user_id = ? AND date >= ? AND date < ?
+      ORDER BY date ASC
+    `, [req.user.id, pastDateStr, queryDate]);
+
     let weeklyTrendSummary = '';
-    if (historyMetrics.length > 0 || historyMeals.length > 0) {
+    if (historyMetrics.length > 0 || historyMeals.length > 0 || historyWorkouts.length > 0) {
       if (useExtendedHistory) {
         // Pytanie wskazuje na dłuższy okres - zwarte podsumowanie tygodniowe
         // (patrz buildWeeklyTrendSummary) zamiast logu dzień po dniu, żeby nie
         // rozdąć prompta przy oknie do 90 dni.
         weeklyTrendSummary = `\nPodsumowanie tygodniowe użytkownika z ostatnich ${lookbackDays} dni (przed wybraną datą) - Twoje pytanie wskazuje na potrzebę szerszego kontekstu czasowego niż tylko ostatni tydzień:\n`
-          + buildWeeklyTrendSummary(historyMetrics, historyMeals, pastDateStr, queryDate);
+          + buildWeeklyTrendSummary(historyMetrics, historyMeals, historyWorkouts, pastDateStr, queryDate);
       } else {
         weeklyTrendSummary = `\nHistoria i trendy użytkownika z ostatnich ${lookbackDays} dni (przed wybraną datą):\n`;
 
@@ -210,13 +253,19 @@ router.post('/api/chat', requireAuth, async (req, res) => {
           if (!mealsByDate[m.date]) mealsByDate[m.date] = [];
           mealsByDate[m.date].push(m);
         });
+        const workoutsByDate = {};
+        historyWorkouts.forEach(w => {
+          if (!workoutsByDate[w.date]) workoutsByDate[w.date] = [];
+          workoutsByDate[w.date].push(w);
+        });
 
-        const allPastDates = new Set([...historyMetrics.map(hm => hm.date), ...Object.keys(mealsByDate)]);
+        const allPastDates = new Set([...historyMetrics.map(hm => hm.date), ...Object.keys(mealsByDate), ...Object.keys(workoutsByDate)]);
         const sortedPastDates = Array.from(allPastDates).sort();
 
         sortedPastDates.forEach(dStr => {
           const hm = historyMetrics.find(h => h.date === dStr);
           const dayMeals = mealsByDate[dStr] || [];
+          const dayWorkouts = workoutsByDate[dStr] || [];
 
           let dayLog = `- Data ${dStr}: `;
           if (hm) {
@@ -234,6 +283,10 @@ router.post('/api/chat', requireAuth, async (req, res) => {
             const totalC = dayMeals.reduce((sum, m) => sum + m.carbs, 0);
             const totalF = dayMeals.reduce((sum, m) => sum + m.fat, 0);
             dayLog += ` | Posiłki (${dayMeals.length}): łącznie zjedzone ${totalCal} kcal (B: ${totalP}g, W: ${totalC}g, T: ${totalF}g)`;
+          }
+          if (dayWorkouts.length > 0) {
+            const workoutsSummary = dayWorkouts.map(w => `${w.workout_type || 'Trening'} ${Math.round(w.duration_minutes || 0)}min${w.avg_heart_rate ? `, śr. tętno ${Math.round(w.avg_heart_rate)}bpm` : ''}`).join('; ');
+            dayLog += ` | Treningi: ${workoutsSummary}`;
           }
           weeklyTrendSummary += dayLog + '\n';
         });
@@ -292,8 +345,9 @@ router.post('/api/chat', requireAuth, async (req, res) => {
     // Imię (jeśli ustawione w Ustawieniach) ma priorytet nad loginem technicznym.
     const displayName = req.user.first_name || req.user.username;
     const chatPrompt = `
-Jesteś profesjonalnym, empatycznym i zorientowanym na cele dietetykiem sportowym AI pracującym w aplikacji "Dietetyk AI".
+Jesteś profesjonalnym, empatycznym i zorientowanym na cele dietetykiem i trenerem sportowym AI pracującym w aplikacji "Dietetyk AI".
 Pomagasz użytkownikowi ${displayName} w optymalizacji jego diety, regeneracji, snu i treningów.
+Możesz też odpowiadać na pytania o trening: co dodać treningowo, jakie ćwiczenia wykonywać i jak budować progres siłowy - opieraj takie porady na dostępnych danych (typy i częstotliwość treningów, ich długość i intensywność wg tętna, wskaźnik gotowości/regeneracji, sen, trend wagi i obwodów ciała) oraz na ogólnej wiedzy o treningu siłowym (progresja obciążeń, objętość, częstotliwość, technika, rola białka i regeneracji). Aplikacja NIE rejestruje szczegółowego dziennika serii/powtórzeń/ciężarów na konkretnych ćwiczeniach - jeśli użytkownik pyta o coś, co wymagałoby takich danych (np. "czy mój ciężar na wyciskaniu rośnie"), jasno zaznacz ten brak i zaproponuj, jak samodzielnie śledzić taki progres.
 
 Informacje o profilu i celach użytkownika:
 - Cel kaloryczny spożycia: ${getTargetCalories(settings)} kcal
@@ -307,6 +361,7 @@ Aktualne statystyki użytkownika na dzień ${queryDate}:
 - Sumaryczny wydatek energetyczny: ${totalBurned} kcal (BMR + Aktywne)
 - Bilans netto: ${netCalories} kcal
 - Kroki: ${health.steps || 0}
+- Treningi dzisiaj: ${todayWorkoutsText}
 - Waga: ${displayWeight || 'brak danych'} kg, % Tłuszczu: ${displayFatRatio || 'brak danych'}%, Masa mięśniowa: ${displayMuscleMass || 'brak danych'} kg
 - Obwody ciała (ostatni pomiar${latestBodyMeasurement ? ' z dnia ' + latestBodyMeasurement.date : ''}): ${latestBodyMeasurement ? [
     latestBodyMeasurement.waist != null && `Pas: ${latestBodyMeasurement.waist}cm`,

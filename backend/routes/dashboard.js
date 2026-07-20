@@ -9,6 +9,7 @@ const { DEFAULT_TARGET_WATER_ML, getTargetCalories, getBmr, getTargetWaterMl } =
 const { genAI, generateContentWithFallback } = require('../config');
 const { buildGoalPaceAnalysis } = require('../services/summaries');
 const { getDayEventsInRange, formatDayEventsForPrompt } = require('../utils/dayEvents');
+const { decrypt } = require('../utils/encryption');
 
 // Blokada równoległego generowania porady AI dla tej samej (user, data) - bez tego
 // kilka odświeżeń dashboardu w krótkim czasie (np. otwarcie kilku zakładek albo
@@ -405,7 +406,7 @@ router.get('/api/dashboard', async (req, res) => {
       // generujemy w tle (fire-and-forget) - trafi do bazy i pojawi się przy
       // kolejnym odświeżeniu/synchronizacji, bez blokowania tej odpowiedzi.
       const apiKeyRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'gemini_api_key'", [req.user.id]);
-      const userApiKey = apiKeyRow ? apiKeyRow.value : null;
+      const userApiKey = apiKeyRow ? decrypt(apiKeyRow.value) : null;
       const forceCustomKeyOnly = req.user.role !== 'admin';
       const canUseAI = userApiKey || (!forceCustomKeyOnly && (genAI || process.env.GEMINI_API_KEY));
 
@@ -3323,7 +3324,7 @@ router.get('/api/dashboard/ai-explanation-insight', async (req, res) => {
 
     if (!isFresh) {
       const apiKeyRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'gemini_api_key'", [req.user.id]);
-      const userApiKey = apiKeyRow ? apiKeyRow.value : null;
+      const userApiKey = apiKeyRow ? decrypt(apiKeyRow.value) : null;
       const forceCustomKeyOnly = req.user.role !== 'admin';
       const canUseAI = userApiKey || (!forceCustomKeyOnly && (genAI || process.env.GEMINI_API_KEY));
 
@@ -4532,7 +4533,7 @@ router.get('/api/dashboard/training-plan-insight', async (req, res) => {
 
     // Sprawdzamy dostęp do AI
     const apiKeyRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'gemini_api_key'", [req.user.id]);
-    const userApiKey = apiKeyRow ? apiKeyRow.value : null;
+    const userApiKey = apiKeyRow ? decrypt(apiKeyRow.value) : null;
     const forceCustomKeyOnly = req.user.role !== 'admin';
     const canUseAI = userApiKey || (!forceCustomKeyOnly && (genAI || process.env.GEMINI_API_KEY));
 

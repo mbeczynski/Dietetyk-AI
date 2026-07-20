@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const db = require('../db');
 const { fetchWithTimeout } = require('../utils/fetchWithTimeout');
+const { encrypt, decrypt } = require('../utils/encryption');
 
 // Sekret do podpisywania (HMAC) parametru `state` w przepływie OAuth.
 // Wcześniej w razie braku APP_PASSWORD w środowisku kod po cichu używał
@@ -18,19 +19,23 @@ if (!OAUTH_STATE_SECRET) {
   );
 }
 
-// Helper do pobierania konfiguracji z bazy app_config
+// Helper do pobierania konfiguracji z bazy app_config. decrypt() jest bezpieczne do
+// wywołania dla KAŻDEGO klucza (nie tylko sekretnych z APP_SECRET_CONFIG_KEYS) - dla
+// wartości nigdy nie zaszyfrowanych przez encrypt() (patrz utils/encryption.js) jest
+// no-opem, bo brakuje im rozpoznawalnego prefiksu.
 async function getAppConfig(key) {
   if (key === 'app_url' && process.env.APP_URL) {
     return process.env.APP_URL;
   }
   const row = await db.get(`SELECT value FROM app_config WHERE key = ?`, [key]);
-  return row ? row.value : null;
+  return row ? decrypt(row.value) : null;
 }
 
-// Helper do pobierania ustawień konkretnego użytkownika
+// Helper do pobierania ustawień konkretnego użytkownika - decrypt() jak wyżej,
+// bezpieczne dla wartości niesekretnych (no-op bez prefiksu enc:v1:).
 async function getUserSetting(userId, key) {
   const row = await db.get(`SELECT value FROM settings WHERE user_id = ? AND key = ?`, [userId, key]);
-  return row ? row.value : null;
+  return row ? decrypt(row.value) : null;
 }
 
 // Weryfikacja tokenu sesji dla tras OAuth INICJUJĄCYCH połączenie (Oura/Withings/
@@ -92,6 +97,10 @@ function verifyOAuthState(state) {
 async function getOrRefreshToken(userId, service) {
   const token = await db.get(`SELECT * FROM oauth_tokens WHERE user_id = ? AND service = ?`, [userId, service]);
   if (!token) return null;
+  // Odszyfrowanie od razu po odczycie - reszta funkcji (poniżej) operuje na
+  // token.access_token/refresh_token tak, jakby zawsze były plaintextem.
+  token.access_token = decrypt(token.access_token);
+  token.refresh_token = decrypt(token.refresh_token);
 
   const expiresAt = new Date(token.expires_at);
   const now = new Date();
@@ -138,7 +147,7 @@ async function getOrRefreshToken(userId, service) {
         UPDATE oauth_tokens
         SET access_token = ?, refresh_token = ?, expires_at = ?
         WHERE user_id = ? AND service = 'oura'
-      `, [data.access_token, data.refresh_token || token.refresh_token, newExpiresAt, userId]);
+      `, [encrypt(data.access_token), encrypt(data.refresh_token || token.refresh_token), newExpiresAt, userId]);
 
       return data.access_token;
     } else if (service === 'withings') {
@@ -185,7 +194,7 @@ async function getOrRefreshToken(userId, service) {
         UPDATE oauth_tokens
         SET access_token = ?, refresh_token = ?, expires_at = ?
         WHERE user_id = ? AND service = 'withings'
-      `, [data.access_token, data.refresh_token || token.refresh_token, newExpiresAt, userId]);
+      `, [encrypt(data.access_token), encrypt(data.refresh_token || token.refresh_token), newExpiresAt, userId]);
 
       return data.access_token;
     } else if (service === 'google_fit') {
@@ -221,7 +230,7 @@ async function getOrRefreshToken(userId, service) {
         UPDATE oauth_tokens
         SET access_token = ?, refresh_token = ?, expires_at = ?
         WHERE user_id = ? AND service = 'google_fit'
-      `, [data.access_token, data.refresh_token || token.refresh_token, newExpiresAt, userId]);
+      `, [encrypt(data.access_token), encrypt(data.refresh_token || token.refresh_token), newExpiresAt, userId]);
 
       return data.access_token;
     }

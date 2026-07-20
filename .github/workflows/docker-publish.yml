@@ -115,6 +115,22 @@ jobs:
           npm audit --omit=dev --json > /tmp/audit-backend.json || true
           node ../scripts/check-npm-audit.js /tmp/audit-backend.json "tar,@tootallnate/once,http-proxy-agent,make-fetch-happen,cacache,node-gyp,sqlite3"
 
+      # Testy jednostkowe backendu (tests/test-encryption.js, test-rate-limit.js,
+      # test-chat.js, test-meals.js - patrz package.json "test"). Wcześniej te pliki
+      # istniały w tests/, ale nic nigdy ich nie uruchamiało w CI (ani nie było skryptu
+      # npm "test") - błąd w logice czatu/analizy posiłków/szyfrowania/rate-limitera
+      # przechodziłby niezauważony aż do produkcji. Osobny `npm ci` (pełny install),
+      # bo krok audytu wyżej celowo instaluje tylko lockfile, bez node_modules.
+      - name: Instalacja zależności (pełny install do testów)
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Testy jednostkowe (backend)
+        working-directory: ./backend
+        env:
+          APP_PASSWORD: dietetyk-ci-test-password
+        run: npm test
+
       # Przekazujemy świeżo zregenerowany lockfile do joba build-backend
       # (osobny runner = osobny checkout, nie widzi plików z tego joba).
       # Dzięki temu `npm ci` w Dockerze zawsze dostaje lockfile zgodny

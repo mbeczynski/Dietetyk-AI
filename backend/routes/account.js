@@ -11,6 +11,7 @@ const { createShareLink, listSharesForUser, revokeShare, VALIDITY_OPTIONS_HOURS 
 const { getAppConfig } = require('../services/oauthHelpers');
 const { summaryEmailLimiter } = require('../middleware/rateLimit');
 const { USER_SECRET_SETTING_KEYS, maskSecretValue, isMaskedSecretWrite } = require('../utils/secretKeys');
+const { encrypt } = require('../utils/encryption');
 
 // Prosta walidacja formatu e-maila (nie pełny RFC 5322 - to wystarcza, żeby
 // odrzucić oczywiście niepoprawne wartości zapisywane bezpośrednio do bazy /
@@ -96,11 +97,15 @@ router.post('/api/settings', async (req, res) => {
       if (CREDENTIAL_KEYS.includes(key) && (val === '' || val === null || val === undefined || val === 0)) {
         continue; // Nie zapisuj puste/zerowej wartości poświadczeń - patrz komentarz wyżej
       }
+      // Sekrety (gemini_api_key, oura/withings_client_secret) trzymamy w bazie
+      // zaszyfrowane (patrz utils/encryption.js) - encrypt() jest no-opem dla
+      // pozostałych, niesekretnych kluczy ustawień.
+      const storedValue = USER_SECRET_SETTING_KEYS.includes(key) ? encrypt(String(val)) : String(val);
       await db.run(`
         INSERT INTO settings (user_id, key, value)
         VALUES (?, ?, ?)
         ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
-      `, [req.user.id, key, String(val)]);
+      `, [req.user.id, key, storedValue]);
     }
     res.json({ success: true, message: 'Ustawienia zostały zaktualizowane.' });
   } catch (err) {

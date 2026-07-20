@@ -5,6 +5,7 @@ const { requireAuth } = require('../middleware/auth');
 const { getAppConfig, getUserSetting, generateOAuthState, verifyOAuthState, getVerifiedSessionByToken } = require('../services/oauthHelpers');
 const { syncOura, syncWithings, syncGoogleFit } = require('../services/sync');
 const { fetchWithTimeout } = require('../utils/fetchWithTimeout');
+const { encrypt } = require('../utils/encryption');
 
 router.get('/api/auth/oura', async (req, res) => {
   const { token } = req.query;
@@ -93,7 +94,7 @@ router.get('/api/auth/oura/callback', async (req, res) => {
           access_token = excluded.access_token,
           refresh_token = excluded.refresh_token,
           expires_at = excluded.expires_at
-      `, [userId, data.access_token, data.refresh_token, expiresAt]);
+      `, [userId, encrypt(data.access_token), encrypt(data.refresh_token), expiresAt]);
 
       await syncWithings(userId);
       return res.redirect('/?tab=setup&success=withings');
@@ -142,7 +143,7 @@ router.get('/api/auth/oura/callback', async (req, res) => {
         access_token = excluded.access_token,
         refresh_token = excluded.refresh_token,
         expires_at = excluded.expires_at
-    `, [userId, data.access_token, data.refresh_token, expiresAt]);
+    `, [userId, encrypt(data.access_token), encrypt(data.refresh_token), expiresAt]);
 
     await syncOura(userId);
     res.redirect('/?tab=setup&success=oura');
@@ -250,7 +251,7 @@ router.get('/api/auth/withings/callback', async (req, res) => {
         access_token = excluded.access_token,
         refresh_token = excluded.refresh_token,
         expires_at = excluded.expires_at
-    `, [userId, data.access_token, data.refresh_token, expiresAt]);
+    `, [userId, encrypt(data.access_token), encrypt(data.refresh_token), expiresAt]);
 
     await syncWithings(userId);
     res.redirect('/?tab=setup&success=withings');
@@ -363,7 +364,7 @@ router.get('/api/auth/google-fit/callback', async (req, res) => {
         access_token = excluded.access_token,
         refresh_token = COALESCE(excluded.refresh_token, refresh_token),
         expires_at = excluded.expires_at
-    `, [userId, data.access_token, data.refresh_token || null, expiresAt]);
+    `, [userId, encrypt(data.access_token), encrypt(data.refresh_token) || null, expiresAt]);
 
     await syncGoogleFit(userId);
     res.redirect('/?tab=setup&success=google_fit');

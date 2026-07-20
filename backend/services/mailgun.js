@@ -1,5 +1,6 @@
 const db = require('../db');
 const { fetchWithTimeout } = require('../utils/fetchWithTimeout');
+const { decrypt } = require('../utils/encryption');
 
 async function sendMailgunEmail({ to, subject, html }) {
   // Pobieramy tylko kolumny faktycznie potrzebne w tym miejscu (Runda 17, naprawa
@@ -15,7 +16,7 @@ async function sendMailgunEmail({ to, subject, html }) {
     config[r.key] = r.value;
   });
 
-  const apiKey = config.mailgun_api_key;
+  const apiKey = decrypt(config.mailgun_api_key);
   const domain = config.mailgun_domain;
   const region = config.mailgun_region || 'us';
   const from = config.mailgun_from || `"Dietetyk AI" <noreply@${domain || 'dietetyk.ai'}>`;

@@ -5,40 +5,14 @@ const { getLocalDateString } = require('../utils/dates');
 const { generateContentWithFallback } = require('../config');
 const { getCalorieBaseline, detectMealAnomalies } = require('../utils/mealAnomaly');
 const { invalidateAiExplanationCache } = require('../utils/aiExplanationCache');
-
-// Model AI (Gemini) czasem zwraca nierealistyczne lub ujemne wartości kalorii/makro
-// (np. błąd parsowania wielkości porcji, halucynacja liczby) - bez tego zabezpieczenia
-// taka wartość trafiałaby bezpośrednio do bazy i psuła agregacje (sumy dzienne, bilans
-// kaloryczny, streaki) na dashboardzie/podsumowaniach. Odcinamy do sensownego zakresu,
-// a gdy wartości nie da się sparsować jako liczby, używamy fallbacku (domyślnie 0).
-function sanitizeNumber(val, min, max, fallback = 0) {
-  const num = Number(val);
-  if (!Number.isFinite(num)) return fallback;
-  return Math.min(Math.max(num, min), max);
-}
-
-// Limit rozmiaru pojedynczego zdjęcia posiłku zapisywanego w bazie SQLite jako base64.
-// Bez tego limitu jedyną granicą był globalny express.json({limit:'20mb'}) w server.js
-// (myślany pod webhooki, nie pod pojedyncze zdjęcia) - użytkownik mógłby dodawać zdjęcia
-// w oryginalnej rozdzielczości telefonu (10-20MB), co przy kilku posiłkach dziennie
-// szybko rozdęłoby plik bazy SQLite (jeden plik, brak osobnego storage na obrazy).
-// 7MB base64 odpowiada ok. 5.25MB danych binarnych po dekodowaniu - wystarczające dla
-// zdjęcia jedzenia w rozsądnej jakości, a wciąż chroni przed ekstremalnie dużymi plikami.
-const MAX_MEAL_IMAGE_BASE64_CHARS = 7 * 1024 * 1024;
-
-// Wariant dla pól, które mogą być prawdziwie nieznane (błonnik/cukry/sód - AI nie zawsze
-// jest w stanie je oszacować) - w przeciwieństwie do sanitizeNumber NIE fabrykujemy zera,
-// jeśli AI nie podało wartości, ale gdy wartość JEST podana, wciąż odcinamy ją do sensownego
-// zakresu. Bez tego ujemna/nierealistyczna/nie-numeryczna wartość z odpowiedzi Gemini
-// trafiałaby bezpośrednio do bazy (w przeciwieństwie do calories/protein/carbs/fat, które
-// już były sanityzowane) i psuła agregacje w summaries.js/dashboard.js (sumy/średnie błonnika,
-// cukrów, sodu używane teraz w pełnym podsumowaniu AI).
-function sanitizeNullableNumber(val, min, max) {
-  if (val === undefined || val === null || val === '') return null;
-  const num = Number(val);
-  if (!Number.isFinite(num)) return null;
-  return Math.min(Math.max(num, min), max);
-}
+const { decrypt } = require('../utils/encryption');
+const { aiRateLimiter } = require('../middleware/rateLimit');
+const {
+  sanitizeNumber,
+  sanitizeNullableNumber,
+  ALLOWED_MEAL_IMAGE_MIME_TYPES,
+  MAX_MEAL_IMAGE_BASE64_CHARS
+} = require('../utils/mealSanitize');
 
 // Detektor anomalii w posiłkach - logika (oba sygnały: niezgodność makro/kalorii
 // i statystyczny odstrój vs własna historia) wydzielona do utils/mealAnomaly.js,
@@ -71,7 +45,7 @@ const updateLastMealModifiedAt = async (userId, date) => {
   }
 };
 
-router.post('/api/meals', async (req, res) => {
+router.post('/api/meals', aiRateLimiter, async (req, res) => {
   const { rawText, date, image } = req.body;
   const targetDate = date || getLocalDateString();
   // B-W1: Sanitizacja wejścia użytkownika — trim + ograniczenie długości
@@ -124,8 +98,7 @@ router.post('/api/meals', async (req, res) => {
         const base64Data = match[2];
 
         // B-S5: Whitelist dozwolonych typów MIME
-        const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-        if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
+        if (!ALLOWED_MEAL_IMAGE_MIME_TYPES.includes(mimeType)) {
           return res.status(400).json({ error: 'Nieobsługiwany format obrazu. Dozwolone: JPG, PNG, WebP, GIF.' });
         }
 
@@ -227,7 +200,7 @@ Struktura JSON:
     }
 
     const apiKeyRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'gemini_api_key'", [req.user.id]);
-    const userApiKey = apiKeyRow ? apiKeyRow.value : null;
+    const userApiKey = apiKeyRow ? decrypt(apiKeyRow.value) : null;
     const forceCustomKeyOnly = req.user.role !== 'admin';
     const responseText = await generateContentWithFallback(prompt, true, imagePart, userApiKey, forceCustomKeyOnly);
     let analysis;

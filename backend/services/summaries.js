@@ -3,6 +3,7 @@ const { genAI, generateContentWithFallback } = require('../config');
 const { getLocalDateString } = require('../utils/dates');
 const { sendMailgunEmail } = require('./mailgun');
 const { getDefaultHealthMetrics } = require('../utils/defaultHealthMetrics');
+const { decrypt } = require('../utils/encryption');
 
 // ===== Wspólne funkcje pomocnicze (wydzielone z duplikacji w 3 funkcjach poniżej) =====
 
@@ -216,7 +217,7 @@ async function aggregateNutritionAndHealth(meals, healthMetrics, numDays, userId
 async function generateAiSummaryText({ userId, user, prompt, shouldGenerate, fallbackMessage, errorLogLabel, errorMessagePrefix }) {
   let result = fallbackMessage;
   const apiKeyRow = await db.get("SELECT value FROM settings WHERE user_id = ? AND key = 'gemini_api_key'", [userId]);
-  const userApiKey = apiKeyRow ? apiKeyRow.value : null;
+  const userApiKey = apiKeyRow ? decrypt(apiKeyRow.value) : null;
 
   if ((genAI || userApiKey || process.env.GEMINI_API_KEY) && shouldGenerate) {
     try {

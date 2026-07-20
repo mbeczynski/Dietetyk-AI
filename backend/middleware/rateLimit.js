@@ -112,4 +112,61 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
-module.exports = { apiRateLimiter, WINDOW_MS, MAX_REQUESTS, summaryEmailLimiter };
+// Dedykowany, ostrzejszy limiter per-użytkownik dla endpointów wywołujących Gemini
+// bezpośrednio na żądanie użytkownika (czat dietetyka - routes/chat.js, analiza
+// zdjęcia/opisu posiłku - routes/meals.js POST /api/meals). Audyt (Runda 18) wykazał,
+// że jedyną ochroną tych endpointów był globalny apiRateLimiter (120 req/min/IP na
+// całe /api) - w praktyce nie chronił realnie przed nadużyciem kosztu/limitów Gemini,
+// bo pojedynczy użytkownik mógłby zużyć niemal całą tę pulę wyłącznie zapytaniami AI.
+// Limit per-user (nie per-IP), bo to koszt/nadużycie konta danego użytkownika jest
+// tu ryzykiem, niezależnie od tego, z ilu różnych adresów IP korzysta.
+const AI_WINDOW_MS = 10 * 60 * 1000; // 10 minut
+const AI_MAX_REQUESTS = 30;          // maks. 30 wywołań AI / 10 min / użytkownik
+
+const aiHits = new Map(); // userId -> { count, windowStart }
+
+function aiRateLimiter(req, res, next) {
+  if (process.env.NODE_ENV === 'test' || process.env.CI === 'true') {
+    return next();
+  }
+  const userId = req.user && req.user.id;
+  if (!userId) return next(); // requireAuth powinien to wyłapać wcześniej; tu tylko defensywnie
+
+  const now = Date.now();
+  let rec = aiHits.get(userId);
+
+  if (!rec || (now - rec.windowStart) > AI_WINDOW_MS) {
+    rec = { count: 0, windowStart: now };
+  }
+
+  rec.count += 1;
+  aiHits.set(userId, rec);
+
+  if (rec.count > AI_MAX_REQUESTS) {
+    const retryAfterSec = Math.ceil((rec.windowStart + AI_WINDOW_MS - now) / 1000);
+    res.set('Retry-After', String(Math.max(retryAfterSec, 1)));
+
+    logger.security(
+      `Przekroczono limit żądań AI (${rec.count}/${AI_MAX_REQUESTS})`,
+      'RATE_LIMIT_AI',
+      { path: req.originalUrl, method: req.method },
+      req.ip || 'unknown',
+      userId
+    );
+
+    return res.status(429).json({ error: 'Zbyt wiele zapytań do AI w krótkim czasie. Spróbuj ponownie za kilka minut.' });
+  }
+
+  next();
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, rec] of aiHits.entries()) {
+    if ((now - rec.windowStart) > AI_WINDOW_MS) {
+      aiHits.delete(userId);
+    }
+  }
+}, 10 * 60 * 1000);
+
+module.exports = { apiRateLimiter, WINDOW_MS, MAX_REQUESTS, summaryEmailLimiter, aiRateLimiter };

@@ -7,6 +7,7 @@ const { requireAdmin } = require('../middleware/auth');
 const { sendMailgunEmail } = require('../services/mailgun');
 const { getAppConfig } = require('../services/oauthHelpers');
 const { APP_SECRET_CONFIG_KEYS, maskSecretValue, isMaskedSecretWrite } = require('../utils/secretKeys');
+const { encrypt } = require('../utils/encryption');
 
 // Klucze logowania Google - globalne dla całej aplikacji (w przeciwieństwie do Oura/Withings,
 // logowanie Google dotyczy uwierzytelnienia do samej aplikacji, więc konfiguruje je raz admin).
@@ -38,11 +39,14 @@ router.post('/api/admin/config', requireAdmin, async (req, res) => {
       if (!key.startsWith('mailgun_') && key !== 'app_url' && key !== 'force_2fa' && key !== 'allow_public_registration' && !GOOGLE_CONFIG_KEYS.includes(key)) {
         continue;
       }
+      // Sekrety (mailgun_api_key, google_client_secret) trzymamy w bazie zaszyfrowane
+      // (patrz utils/encryption.js) - encrypt() jest no-opem dla pozostałych kluczy.
+      const storedValue = APP_SECRET_CONFIG_KEYS.includes(key) ? encrypt(String(val)) : String(val);
       await db.run(`
         INSERT INTO app_config (key, value)
         VALUES (?, ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `, [key, String(val)]);
+      `, [key, storedValue]);
     }
     res.json({ success: true, message: 'Konfiguracja została zapisana pomyślnie!' });
   } catch (err) {

@@ -338,10 +338,18 @@ jobs:
       (needs.build-backend.result == 'success' || needs.build-frontend.result == 'success')
     runs-on: ubuntu-latest
     steps:
+      # Runda 19 (audyt): main jest teraz chronione regułą wymagającą PR (patrz
+      # ruleset repo "protect-main") - domyślny GITHUB_TOKEN push'uje jako
+      # github-actions[bot], który NIE jest na liście wyjątków (GitHub nie
+      # pozwala dodać generycznej integracji "GitHub Actions" jako bypass actor
+      # na repo osobistym, tylko na organizacyjnym). Używamy więc dedykowanego,
+      # precyzyjnie zakresowanego PAT (uprawnienia: tylko Contents: Read&Write na
+      # tym repo) należącego do właściciela repo - push z tym tokenem liczy się
+      # jako push admina, więc reguła go przepuszcza.
       - name: Checkout kodu
         uses: actions/checkout@v5
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.DEPLOY_PAT }}
 
       - name: Get short SHA
         id: vars
